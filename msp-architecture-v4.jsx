@@ -444,6 +444,7 @@ const AIAssistantView = () => {
     { id: "privacy", label: "Privacy & Isolation" },
     { id: "rulesets", label: "Agent Rulesets" },
     { id: "safeguards", label: "Data Safeguards" },
+    { id: "costmgmt", label: "Cost Management" },
     { id: "demos", label: "Live Demos" },
     { id: "functions", label: "Function Catalog" },
   ];
@@ -689,12 +690,12 @@ const AIAssistantView = () => {
                 title: "Rate Limiting & Budgets", icon: "⏱️", color: COLORS.cyan,
                 desc: "Prevent abuse and cost overruns",
                 items: [
-                  "Token budget per user per hour (prevents runaway queries)",
+                  "Per-user daily token budget (default: 100K tokens/day)",
+                  "Monthly team budget across all 20 technicians",
                   "Password retrievals: max 10 per user per hour",
                   "Ticket creation: max 50 per user per day",
-                  "Knowledge queries: max 200 per user per day",
-                  "Cost alerts at 80% and 100% of monthly AI budget",
-                  "Automatic throttling when limits approach",
+                  "Soft alerts at 80%, hard limit at 100% of budget",
+                  "Admin-configurable per user — see Cost Management tab",
                 ]
               },
             ].map((card, i) => (
@@ -771,6 +772,196 @@ const AIAssistantView = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── COST MANAGEMENT ── */}
+      {activeSection === "costmgmt" && (
+        <div>
+          {/* Cost overview banner */}
+          <div style={{ background: `${COLORS.green}10`, border: `2px solid ${COLORS.green}40`, borderRadius: 12, padding: 18, marginBottom: 16, textAlign: "center" }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: COLORS.green, marginBottom: 6 }}>AI Cost: ~$50–100/mo with Guardrails (vs. $240–450 without)</div>
+            <div style={{ fontSize: 12, color: COLORS.textSecondary, lineHeight: 1.6, maxWidth: 700, margin: "0 auto" }}>
+              Tiered model routing, prompt caching, and per-user budgets reduce AI costs by 70–80%.
+              Admin settings allow granular control over which model handles each function.
+            </div>
+          </div>
+
+          {/* Tiered Model Routing */}
+          <div style={{ background: COLORS.card, border: `1px solid ${COLORS.pink}30`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.pink, letterSpacing: "0.08em", marginBottom: 12 }}>TIERED MODEL ROUTING — SMART MODEL SELECTION PER FUNCTION</div>
+            <div style={{ fontSize: 10, color: COLORS.textSecondary, marginBottom: 14, lineHeight: 1.5 }}>
+              Not every AI task needs GPT-4o. Simple lookups use GPT-4o-mini (~20x cheaper), while complex reasoning tasks use GPT-4o.
+              Admins can override the default model for any function in Settings.
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", padding: "6px 8px", color: COLORS.textMuted, borderBottom: `1px solid ${COLORS.border}`, fontWeight: 600 }}>AI Function</th>
+                  <th style={{ textAlign: "center", padding: "6px 8px", color: COLORS.textMuted, borderBottom: `1px solid ${COLORS.border}`, fontWeight: 600 }}>Default Model</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px", color: COLORS.textMuted, borderBottom: `1px solid ${COLORS.border}`, fontWeight: 600 }}>Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["create_ticket", "GPT-4o", "Complex — extracts context, enriches from multiple tools, drafts detailed ticket"],
+                  ["search_tickets", "GPT-4o-mini", "Simple — translates natural language to filter params"],
+                  ["update_ticket", "GPT-4o-mini", "Simple — maps user intent to field updates"],
+                  ["search_alerts", "GPT-4o-mini", "Simple — filter translation, no complex reasoning"],
+                  ["run_troubleshoot", "GPT-4o", "Complex — analyzes multi-tool data, recommends actions"],
+                  ["lookup_device", "GPT-4o-mini", "Simple — direct lookup, minimal reasoning"],
+                  ["lookup_user", "GPT-4o-mini", "Simple — direct lookup, minimal reasoning"],
+                  ["search_knowledge", "GPT-4o", "Complex — RAG retrieval with source evaluation and synthesis"],
+                  ["get_password", "GPT-4o-mini", "Simple — credential lookup after MFA gate"],
+                  ["get_client_health", "GPT-4o-mini", "Simple — pre-calculated scores, just formatting"],
+                  ["query_audit_log", "GPT-4o-mini", "Simple — filter translation for audit queries"],
+                ].map((row, i) => (
+                  <tr key={i}>
+                    <td style={{ padding: "5px 8px", borderBottom: `1px solid ${COLORS.border}`, color: COLORS.textPrimary, fontFamily: "monospace", fontWeight: 600 }}>{row[0]}</td>
+                    <td style={{ padding: "5px 8px", borderBottom: `1px solid ${COLORS.border}`, textAlign: "center", fontWeight: 700, color: row[1] === "GPT-4o" ? COLORS.pink : COLORS.green }}>{row[1]}</td>
+                    <td style={{ padding: "5px 8px", borderBottom: `1px solid ${COLORS.border}`, color: COLORS.textMuted }}>{row[2]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop: 10, padding: "8px 12px", background: `${COLORS.orange}08`, border: `1px solid ${COLORS.orange}20`, borderRadius: 8 }}>
+              <div style={{ fontSize: 9.5, color: COLORS.orange, fontWeight: 700 }}>ADMIN OVERRIDE: Settings → AI Models — change the model for any function at any time based on quality vs. cost tradeoffs</div>
+            </div>
+          </div>
+
+          {/* Token Budgets + Rate Limits + Caching */}
+          <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr 1fr"), gap: 12, marginBottom: 12 }}>
+            {/* Token Budgets */}
+            <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cyan}25`, borderRadius: 12, padding: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <span style={{ fontSize: 16 }}>💰</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.cyan }}>Token Budgets</span>
+              </div>
+              <div style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 10 }}>Configurable spending limits — all optional</div>
+              {[
+                "Per-user daily token budget (default: 100K tokens/day)",
+                "Monthly team budget across all 20 technicians",
+                "Soft limit alert at 80% — user warned, not blocked",
+                "Hard limit at 100% — requests paused until reset",
+                "Admin can override limits per user (power users, etc.)",
+                "Budget resets daily at midnight (configurable)",
+                "Unused daily budget does NOT roll over",
+              ].map((item, i) => (
+                <div key={i} style={{ fontSize: 10, color: COLORS.textSecondary, padding: "2px 0", display: "flex", alignItems: "flex-start", gap: 5, lineHeight: 1.4 }}>
+                  <span style={{ width: 3, height: 3, borderRadius: "50%", background: COLORS.cyan, flexShrink: 0, marginTop: 5 }} />{item}
+                </div>
+              ))}
+            </div>
+
+            {/* Per-User Rate Limits */}
+            <div style={{ background: COLORS.card, border: `1px solid ${COLORS.orange}25`, borderRadius: 12, padding: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <span style={{ fontSize: 16 }}>⏱️</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.orange }}>Rate Limits</span>
+              </div>
+              <div style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 10 }}>Prevent abuse — all limits admin-configurable</div>
+              {[
+                "Max requests per hour per user (default: 60)",
+                "Max concurrent AI sessions per user (default: 3)",
+                "Password retrievals: max 10/user/hour (hard limit)",
+                "Ticket creation: max 50/user/day",
+                "Cooldown after hitting limit (default: 5 min)",
+                "Exponential backoff on repeated limit hits",
+                "All rate limit events logged to audit trail",
+              ].map((item, i) => (
+                <div key={i} style={{ fontSize: 10, color: COLORS.textSecondary, padding: "2px 0", display: "flex", alignItems: "flex-start", gap: 5, lineHeight: 1.4 }}>
+                  <span style={{ width: 3, height: 3, borderRadius: "50%", background: COLORS.orange, flexShrink: 0, marginTop: 5 }} />{item}
+                </div>
+              ))}
+            </div>
+
+            {/* Prompt Caching */}
+            <div style={{ background: COLORS.card, border: `1px solid ${COLORS.purple}25`, borderRadius: 12, padding: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <span style={{ fontSize: 16 }}>🗄️</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.purple }}>Prompt Caching</span>
+              </div>
+              <div style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 10 }}>Redis-based — estimated 20–30% cost savings</div>
+              {[
+                "Cache identical lookups (device, user, health score)",
+                "5-minute TTL for read-only queries",
+                "0 TTL for mutations (tickets, updates) — never cached",
+                "Cache key: function + params + user role hash",
+                "Redis-based for fast retrieval across sessions",
+                "Cache hit ratio tracked in usage dashboard",
+                "Estimated savings: 20–30% on total AI spend",
+              ].map((item, i) => (
+                <div key={i} style={{ fontSize: 10, color: COLORS.textSecondary, padding: "2px 0", display: "flex", alignItems: "flex-start", gap: 5, lineHeight: 1.4 }}>
+                  <span style={{ width: 3, height: 3, borderRadius: "50%", background: COLORS.purple, flexShrink: 0, marginTop: 5 }} />{item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Usage Reporting */}
+          <div style={{ background: COLORS.card, border: `1px solid ${COLORS.accent}30`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.accent, letterSpacing: "0.08em", marginBottom: 12 }}>USAGE REPORTING & MONITORING — ADMIN DASHBOARD</div>
+            <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr 1fr"), gap: 10 }}>
+              {[
+                { title: "Real-Time Dashboard", color: COLORS.accent, icon: "📊", items: [
+                  "Current token usage vs. budget (gauge chart)",
+                  "Per-user breakdown with daily/weekly/monthly views",
+                  "Model distribution: GPT-4o vs. GPT-4o-mini usage",
+                  "Cache hit ratio and savings estimate",
+                  "Most-used AI functions ranked by token consumption",
+                ]},
+                { title: "Threshold Alerts", color: COLORS.orange, icon: "🔔", items: [
+                  "Alert at 80% of monthly team budget",
+                  "Alert at 100% — requests paused, admin notified",
+                  "Per-user alerts when individual budget exceeded",
+                  "Unusual usage spike detection (2x normal)",
+                  "Alerts sent via Teams webhook + email",
+                ]},
+                { title: "Monthly Reports", color: COLORS.green, icon: "📋", items: [
+                  "Total tokens consumed by model type",
+                  "Cost breakdown: per user, per function, per model",
+                  "Trend comparison: month-over-month usage",
+                  "Top 5 heaviest users and their function mix",
+                  "Recommendations: functions to downgrade/upgrade model",
+                ]},
+              ].map((card, i) => (
+                <div key={i} style={{ background: `${card.color}08`, border: `1px solid ${card.color}20`, borderRadius: 8, padding: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 14 }}>{card.icon}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: card.color }}>{card.title}</span>
+                  </div>
+                  {card.items.map((item, j) => (
+                    <div key={j} style={{ fontSize: 9.5, color: COLORS.textSecondary, padding: "2px 0", display: "flex", alignItems: "flex-start", gap: 5, lineHeight: 1.4 }}>
+                      <span style={{ width: 3, height: 3, borderRadius: "50%", background: card.color, flexShrink: 0, marginTop: 5 }} />{item}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Cost Comparison */}
+          <div style={{ background: `${COLORS.purple}08`, border: `1px solid ${COLORS.purple}25`, borderRadius: 10, padding: 14, textAlign: "center" }}>
+            <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr 1fr 1fr"), gap: 10, marginBottom: 10 }}>
+              <div style={{ padding: 10 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.red }}>$240–450</div>
+                <div style={{ fontSize: 10, color: COLORS.textMuted }}>Without guardrails (all GPT-4o)</div>
+              </div>
+              <div style={{ padding: 10 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.orange }}>$120–200</div>
+                <div style={{ fontSize: 10, color: COLORS.textMuted }}>Tiered models only</div>
+              </div>
+              <div style={{ padding: 10 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.green }}>$50–100</div>
+                <div style={{ fontSize: 10, color: COLORS.textMuted }}>Tiered + caching + budgets</div>
+              </div>
+              <div style={{ padding: 10 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.accent }}>$0 net</div>
+                <div style={{ fontSize: 10, color: COLORS.textMuted }}>With $333/mo Azure credits</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: COLORS.textMuted }}>20 technicians | ~50 AI requests/tech/day avg | tiered routing + Redis caching + token budgets</div>
           </div>
         </div>
       )}
@@ -861,7 +1052,7 @@ const InfraView = () => {
     { component: "Azure Container Apps (4 containers)", spec: "Next.js + n8n + workers + Grafana", monthly: "$40–75", note: "Auto-scaling, managed networking" },
     { component: "Azure Database for PostgreSQL", spec: "Flexible Server, 2 vCores, 4GB + pgvector", monthly: "$50–80", note: "Managed backups, HA available" },
     { component: "Azure Cache for Redis", spec: "Basic C0 — event queue + sessions", monthly: "$15–25", note: "Managed, encrypted, persistent" },
-    { component: "Azure OpenAI (GPT-4o)", spec: "~500K tokens/day estimated", monthly: "$150–300", note: "Primary cost — AI chat + function calling" },
+    { component: "Azure OpenAI (Tiered)", spec: "GPT-4o (complex) + GPT-4o-mini (lookups)", monthly: "$50–100", note: "Tiered routing + caching + budgets — was $150–300 without guardrails" },
     { component: "Azure OpenAI (Embeddings)", spec: "text-embedding-3-small, re-index every 6h", monthly: "$10–20", note: "RAG pipeline for IT Glue + OneNote" },
     { component: "Azure Key Vault", spec: "All secrets, API keys, connection strings", monthly: "$1–5", note: "No secrets in code — ever" },
     { component: "Azure Container Registry", spec: "Basic tier — Docker image storage", monthly: "$5", note: "Private registry for CI/CD" },
@@ -876,7 +1067,7 @@ const InfraView = () => {
       {/* Azure Resources */}
       <div style={{ background: `${COLORS.accent}08`, border: `1px solid ${COLORS.accent}25`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: COLORS.accent, letterSpacing: "0.08em" }}>☁️ AZURE CLOUD (ALL SERVICES) — ~$275–510/mo ESTIMATED</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: COLORS.accent, letterSpacing: "0.08em" }}>☁️ AZURE CLOUD (ALL SERVICES) — ~$175–310/mo ESTIMATED</span>
         </div>
         {azureResources.map((item, i) => (
           <div key={i} style={{
@@ -940,10 +1131,10 @@ const InfraView = () => {
 
       {/* Total Cost */}
       <div style={{ background: `${COLORS.purple}08`, border: `1px solid ${COLORS.purple}25`, borderRadius: 10, padding: 14, textAlign: "center" }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.accent }}>~$275 – $510<span style={{ fontSize: 12, color: COLORS.textMuted }}>/month</span></div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.textPrimary, marginTop: 4 }}>Estimated Total Azure Cost (4 containers incl. Grafana)</div>
-        <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 2 }}>Primary cost is Azure OpenAI tokens — offset by $4,000/year (~$333/mo) Microsoft partner credits</div>
-        <div style={{ fontSize: 10, fontWeight: 600, color: COLORS.green, marginTop: 4 }}>Net cost with credits: potentially $0/month — worst case ~$175/month at peak usage</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.accent }}>~$175 – $310<span style={{ fontSize: 12, color: COLORS.textMuted }}>/month</span></div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.textPrimary, marginTop: 4 }}>Estimated Total Azure Cost (4 containers incl. Grafana + AI with guardrails)</div>
+        <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 2 }}>AI costs reduced 70–80% via tiered models + caching + budgets — offset by $4,000/year (~$333/mo) partner credits</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: COLORS.green, marginTop: 4 }}>Net cost with credits: $0/month — credits fully cover estimated usage</div>
       </div>
     </div>
   );
@@ -1032,6 +1223,21 @@ const DatabaseView = () => {
       columns: ["id (UUID, PK)", "vendor", "vendor_product_id", "normalized_name", "category", "unit_type", "unit_price", "billing_cycle"],
       desc: "Unified product catalog across vendors — normalized names for cross-vendor matching"
     },
+    {
+      name: "ai_usage_log", color: COLORS.pink, icon: "📈",
+      columns: ["id (BIGSERIAL, PK)", "user_id (FK)", "function_name", "model_used (gpt-4o/gpt-4o-mini)", "input_tokens", "output_tokens", "total_tokens", "estimated_cost", "cache_hit (BOOL)", "latency_ms", "created_at"],
+      desc: "Per-request AI usage tracking — feeds usage dashboard, budget enforcement, and monthly reports"
+    },
+    {
+      name: "ai_budget_config", color: COLORS.cyan, icon: "💰",
+      columns: ["id (UUID, PK)", "scope (global/user)", "user_id (FK, nullable)", "daily_token_limit", "monthly_token_limit", "requests_per_hour", "concurrent_sessions", "soft_limit_pct (default 80)", "enabled (BOOL)", "updated_by", "updated_at"],
+      desc: "Token budgets and rate limits — per-user overrides optional, admin-configurable"
+    },
+    {
+      name: "ai_model_config", color: COLORS.orange, icon: "🤖",
+      columns: ["id (UUID, PK)", "function_name (UNIQUE)", "default_model", "override_model (nullable)", "override_reason", "updated_by", "updated_at"],
+      desc: "Admin-configurable model routing — override which model handles each AI function"
+    },
   ];
 
   return (
@@ -1096,6 +1302,8 @@ const RepoView = () => {
         { path: "  notifications/", desc: "Notification rules, on-call rotations, escalation config", indent: 1 },
         { path: "  analytics/", desc: "Built-in dashboards (Tremor/Recharts) + Grafana embed", indent: 1 },
         { path: "  reconciliation/", desc: "Contract reconciliation — licensed vs. actual per client/vendor", indent: 1 },
+        { path: "  settings/ai-models/", desc: "Admin: configure model per AI function (GPT-4o vs mini)", indent: 1 },
+        { path: "  settings/ai-usage/", desc: "Admin: AI usage dashboard, budgets, rate limits, reports", indent: 1 },
         { path: "src/app/api/", desc: "API routes", indent: 0 },
         { path: "  webhooks/", desc: "ninja/, blackpoint/, threecx/ (incl. voicemail events)", indent: 1 },
         { path: "  ai/chat/", desc: "AI streaming endpoint", indent: 1 },
@@ -1138,6 +1346,12 @@ const RepoView = () => {
         { path: "  indexer.ts", desc: "IT Glue + OneNote + SharePoint → pgvector", indent: 1 },
         { path: "  retriever.ts", desc: "Semantic search + reranking", indent: 1 },
         { path: "src/server/ai/prompts/", desc: "System prompts with role context", indent: 0 },
+        { path: "src/server/ai/cost/", desc: "AI cost management", indent: 0 },
+        { path: "  budget-enforcer.ts", desc: "Token budget checks + rate limiting per user", indent: 1 },
+        { path: "  model-router.ts", desc: "Tiered model selection per function (admin-configurable)", indent: 1 },
+        { path: "  usage-tracker.ts", desc: "Log every AI request: tokens, model, cost, cache hit", indent: 1 },
+        { path: "  cache.ts", desc: "Redis prompt caching — 5min TTL for lookups", indent: 1 },
+        { path: "  reporting.ts", desc: "Usage aggregation for dashboards + monthly reports", indent: 1 },
       ]
     },
     {
@@ -1227,7 +1441,10 @@ const SecurityView = () => {
       "All AI function calls role-checked before execution",
       "Content filtering via Azure OpenAI built-in safety",
       "Source citations required for knowledge responses",
-      "Token budgets per user to prevent cost spikes",
+      "Tiered model routing — GPT-4o for complex, mini for simple",
+      "Per-user daily token budgets with soft/hard limits",
+      "Admin-configurable model assignments per function",
+      "Usage reporting with threshold alerts at 80% + 100%",
     ]},
   ];
 
@@ -1376,10 +1593,18 @@ const PhaseView = () => {
       "n8n container with polling workflows + Redis event queue",
       "Alert triage dashboard page (Layer 4)",
     ]},
-    { phase: "Phase 3", title: "AI Foundation", weeks: "Weeks 7–9", color: COLORS.pink, tasks: [
-      "Azure OpenAI provisioned (GPT-4o + text-embedding-3-small)",
+    { phase: "Phase 3", title: "AI Foundation + Cost Management", weeks: "Weeks 7–9", color: COLORS.pink, tasks: [
+      "Azure OpenAI provisioned (GPT-4o + GPT-4o-mini + text-embedding-3-small)",
       "AI agent orchestrator with function calling",
       "AI functions: create_ticket, search_tickets, search_alerts, lookup_device, lookup_user",
+      "Tiered model routing — GPT-4o for complex tasks, GPT-4o-mini for simple lookups",
+      "Admin model config UI — Settings → AI Models, override per function",
+      "Token budget enforcer — per-user daily + monthly team limits (Redis-tracked)",
+      "Per-user rate limiting — requests/hour, concurrent sessions, cooldown",
+      "Redis prompt caching — 5-min TTL for lookups, 0 for mutations",
+      "AI usage tracking — log every request: tokens, model, cost, cache hit",
+      "AI usage dashboard — real-time gauge, per-user breakdown, function stats",
+      "Threshold alerts at 80% and 100% of budget (Teams + email)",
       "RAG pipeline: IT Glue + OneNote + SharePoint → pgvector embeddings",
       "AI function: search_knowledge (semantic RAG search)",
       "6-hour re-indexing cron job for embeddings",
