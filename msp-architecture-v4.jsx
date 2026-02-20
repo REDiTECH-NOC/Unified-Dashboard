@@ -1,4 +1,29 @@
-const { useState } = React;
+const { useState, useEffect } = React;
+
+// ── RESPONSIVE HOOK ──
+const useWindowWidth = () => {
+  const [width, setWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const handleResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  return width;
+};
+
+// Breakpoints: mobile < 640, tablet 640-960, desktop > 960
+const useResponsive = () => {
+  const w = useWindowWidth();
+  return { isMobile: w < 640, isTablet: w >= 640 && w <= 960, isDesktop: w > 960, width: w };
+};
+
+// Responsive grid helper — returns column string based on screen size
+const rGrid = (mobile, tablet, desktop) => {
+  const w = window.innerWidth;
+  if (w < 640) return mobile;
+  if (w <= 960) return tablet;
+  return desktop;
+};
 
 // ── THEME ──
 const COLORS = {
@@ -165,7 +190,7 @@ const TierSection = ({ tier, isActive, onClick }) => (
     </div>
     <div style={{ fontSize: 11, color: COLORS.textSecondary, marginBottom: isActive ? 10 : 0, marginLeft: 16 }}>{tier.subtitle}</div>
     {isActive && (
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: window.innerWidth < 640 ? "1fr" : "1fr 1fr", gap: 8, marginTop: 8 }}>
         {tier.items.map((item, i) => (
           <div key={i} style={{ background: `${tier.color}08`, border: `1px solid ${tier.color}25`, borderRadius: 8, padding: "8px 10px" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.textPrimary, marginBottom: 2 }}>{item.title}</div>
@@ -201,7 +226,11 @@ const StatBox = ({ value, label, desc, color }) => (
 );
 
 // ── ARCHITECTURE TAB ──
-const ArchitectureView = ({ selectedTool, setSelectedTool, activeTier, setActiveTier }) => (
+const ArchitectureView = ({ selectedTool, setSelectedTool, activeTier, setActiveTier }) => {
+  const r = useResponsive();
+  const toolCols = r.isMobile ? 2 : r.isTablet ? 3 : 5;
+  const platCols = r.isMobile ? 1 : r.isTablet ? 2 : 3;
+  return (
   <div>
     <SectionHeader title="Tool Integrations (20)" subtitle="Click any tool to see API details and data points — grouped by function" />
 
@@ -212,7 +241,7 @@ const ArchitectureView = ({ selectedTool, setSelectedTool, activeTier, setActive
           <div style={{ fontSize: 9, fontWeight: 700, color: group.color, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6, paddingLeft: 2 }}>
             {group.label} ({groupTools.length})
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(groupTools.length, 5)}, 1fr)`, gap: 7 }}>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(groupTools.length, toolCols)}, 1fr)`, gap: 7 }}>
             {groupTools.map(tool => (
               <ToolCard key={tool.id} tool={tool} isSelected={selectedTool === tool.id} onClick={() => setSelectedTool(selectedTool === tool.id ? null : tool.id)} />
             ))}
@@ -225,7 +254,7 @@ const ArchitectureView = ({ selectedTool, setSelectedTool, activeTier, setActive
       <div style={{ fontSize: 9, fontWeight: 700, color: COLORS.pink, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6, paddingLeft: 2 }}>
         PLATFORM SERVICES
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 7, marginBottom: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${platCols}, 1fr)`, gap: 7, marginBottom: 4 }}>
         {platformServices.map(svc => (
           <div key={svc.id} style={{ background: COLORS.card, border: `1px solid ${svc.color}25`, borderRadius: 10, padding: "10px 12px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -247,7 +276,8 @@ const ArchitectureView = ({ selectedTool, setSelectedTool, activeTier, setActive
       ))}
     </div>
   </div>
-);
+  );
+};
 
 // ── COMPLIANCE AUDIT VIEW ──
 const ComplianceView = () => {
@@ -330,7 +360,7 @@ const ComplianceView = () => {
   return (
     <div>
       <SectionHeader title="Compliance Audit Log Framework" subtitle="Every action across the platform generates immutable, timestamped audit entries — append-only, tamper-evident" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 10, marginBottom: 16 }}>
         {auditCategories.map((cat, i) => (
           <div key={i} style={{ background: COLORS.card, border: `1px solid ${cat.color}25`, borderRadius: 10, padding: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
@@ -346,7 +376,7 @@ const ComplianceView = () => {
           </div>
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr 1fr", "1fr 1fr 1fr"), gap: 10 }}>
         <StatBox value="7 years" label="Retention" desc="Hot (PostgreSQL) + cold (compressed archive)" color={COLORS.accent} />
         <StatBox value="CSV / SIEM" label="Export" desc="On-demand export, Syslog forwarding, SIEM integration" color={COLORS.purple} />
         <StatBox value="SOC 2 / HIPAA" label="Compliance" desc="Framework-aligned logging for client audit requests" color={COLORS.green} />
@@ -448,7 +478,7 @@ const AIAssistantView = () => {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 12, marginBottom: 16 }}>
             {/* What it IS */}
             <div style={{ background: COLORS.card, border: `1px solid ${COLORS.green}30`, borderRadius: 12, padding: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.green, letterSpacing: "0.08em", marginBottom: 10 }}>WHAT OUR AI IS</div>
@@ -523,7 +553,7 @@ const AIAssistantView = () => {
           </div>
 
           {/* Agent ruleset cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 12 }}>
             {[
               {
                 name: "Alert Triage Agent", icon: "🚨", color: COLORS.red,
@@ -629,7 +659,7 @@ const AIAssistantView = () => {
       {/* ── DATA SAFEGUARDS ── */}
       {activeSection === "safeguards" && (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr 1fr"), gap: 12, marginBottom: 16 }}>
             {[
               {
                 title: "Input Sanitization", icon: "🧹", color: COLORS.orange,
@@ -795,7 +825,7 @@ const AIAssistantView = () => {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr 1fr"), gap: 8 }}>
             {[
               { fn: "create_ticket", desc: "Draft ticket → user reviews → user confirms → creates in ConnectWise. AI cannot create without confirmation.", role: "Tech+", agents: "Triage, Ticket", color: COLORS.accent },
               { fn: "search_tickets", desc: "\"Show me all Contoso tickets from last 7 days\" or \"all Avanan tickets this week\" — filter by client, date, subject, tool.", role: "Tech+", agents: "Ticket", color: COLORS.accent },
@@ -850,7 +880,7 @@ const InfraView = () => {
         </div>
         {azureResources.map((item, i) => (
           <div key={i} style={{
-            display: "grid", gridTemplateColumns: "240px 220px 80px 1fr", gap: 8, alignItems: "center",
+            display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "240px 220px 80px 1fr"), gap: 8, alignItems: "center",
             padding: "6px 0", borderBottom: i < azureResources.length - 1 ? `1px solid ${COLORS.border}` : "none",
           }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: COLORS.textPrimary }}>{item.component}</span>
@@ -864,7 +894,7 @@ const InfraView = () => {
       {/* Docker Portability */}
       <div style={{ background: `${COLORS.green}08`, border: `1px solid ${COLORS.green}25`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: COLORS.green, letterSpacing: "0.08em", marginBottom: 10 }}>🐳 DOCKER PORTABILITY — SAME CONTAINERS, ANY HOST</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 12 }}>
           <div style={{ background: `${COLORS.accent}10`, border: `1px solid ${COLORS.accent}20`, borderRadius: 8, padding: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.accent, marginBottom: 6 }}>Azure Path (Current)</div>
             <div style={{ fontSize: 10, color: COLORS.textSecondary, lineHeight: 1.6 }}>
@@ -900,7 +930,7 @@ const InfraView = () => {
             { step: "5. Health Check", desc: "Verify all containers healthy + DB migrations run" },
             { step: "6. Rollback if Needed", desc: "Auto-rollback to previous revision on failure" },
           ].map((s, i) => (
-            <div key={i} style={{ flex: "1 1 calc(33% - 8px)", minWidth: 200, background: `${COLORS.orange}08`, border: `1px solid ${COLORS.orange}20`, borderRadius: 8, padding: "8px 10px" }}>
+            <div key={i} style={{ flex: "1 1 calc(33% - 8px)", minWidth: window.innerWidth < 640 ? 140 : 200, background: `${COLORS.orange}08`, border: `1px solid ${COLORS.orange}20`, borderRadius: 8, padding: "8px 10px" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: COLORS.orange }}>{s.step}</div>
               <div style={{ fontSize: 10, color: COLORS.textSecondary }}>{s.desc}</div>
             </div>
@@ -912,7 +942,8 @@ const InfraView = () => {
       <div style={{ background: `${COLORS.purple}08`, border: `1px solid ${COLORS.purple}25`, borderRadius: 10, padding: 14, textAlign: "center" }}>
         <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.accent }}>~$275 – $510<span style={{ fontSize: 12, color: COLORS.textMuted }}>/month</span></div>
         <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.textPrimary, marginTop: 4 }}>Estimated Total Azure Cost (4 containers incl. Grafana)</div>
-        <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 2 }}>Primary cost is Azure OpenAI tokens — offset by Microsoft partner free credits ($150/mo)</div>
+        <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 2 }}>Primary cost is Azure OpenAI tokens — offset by $4,000/year (~$333/mo) Microsoft partner credits</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: COLORS.green, marginTop: 4 }}>Net cost with credits: potentially $0/month — worst case ~$175/month at peak usage</div>
       </div>
     </div>
   );
@@ -1006,7 +1037,7 @@ const DatabaseView = () => {
   return (
     <div>
       <SectionHeader title="Unified Database Schema" subtitle="PostgreSQL 16 + pgvector — Prisma ORM with type-safe queries — all tables multi-tenant via client_id" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 10 }}>
         {tables.map((table, i) => (
           <div key={i} style={{ background: COLORS.card, border: `1px solid ${table.color}25`, borderRadius: 10, padding: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -1130,7 +1161,7 @@ const RepoView = () => {
   return (
     <div>
       <SectionHeader title="GitHub Repository Structure" subtitle="reditech-command-center — monorepo with Next.js app, 20 connectors, n8n workflows, and Azure IaC" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr", "1fr 1fr"), gap: 10 }}>
         {sections.map((section, i) => (
           <div key={i} style={{ background: COLORS.card, border: `1px solid ${section.color}25`, borderRadius: 10, padding: 14, gridColumn: i === 1 ? "span 1" : undefined }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
@@ -1235,7 +1266,7 @@ const SecurityView = () => {
       </div>
 
       {/* Security Layers */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr 1fr"), gap: 10 }}>
         {securityLayers.map((layer, i) => (
           <div key={i} style={{ background: COLORS.card, border: `1px solid ${layer.color}25`, borderRadius: 10, padding: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
@@ -1302,7 +1333,7 @@ const TechStackView = () => {
   return (
     <div>
       <SectionHeader title="Technology Stack" subtitle="Modern, type-safe, containerized — every piece chosen for developer velocity + production reliability" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 10 }}>
         {stack.map((cat, i) => (
           <div key={i} style={{ background: COLORS.card, border: `1px solid ${cat.color}25`, borderRadius: 10, padding: 14 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: cat.color, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>{cat.category}</div>
@@ -1417,7 +1448,7 @@ const PhaseView = () => {
   return (
     <div>
       <SectionHeader title="Implementation Roadmap — 7 Phases, 23 Weeks" subtitle="Each phase is testable independently — build, deploy, verify before moving to next" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr", "1fr 1fr"), gap: 10 }}>
         {phases.map((p, i) => (
           <div key={i} style={{ background: COLORS.card, border: `1px solid ${p.color}30`, borderRadius: 12, padding: 14, borderTop: `3px solid ${p.color}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -1456,25 +1487,26 @@ function MSPArchitecture() {
   const [activeTab, setActiveTab] = useState("architecture");
   const [selectedTool, setSelectedTool] = useState(null);
   const [activeTier, setActiveTier] = useState("auth");
+  const r = useResponsive();
 
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif", color: COLORS.textPrimary }}>
       {/* Header */}
-      <div style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "18px 24px 0", background: `linear-gradient(180deg, ${COLORS.accent}08 0%, transparent 100%)` }}>
+      <div style={{ borderBottom: `1px solid ${COLORS.border}`, padding: r.isMobile ? "12px 12px 0" : "18px 24px 0", background: `linear-gradient(180deg, ${COLORS.accent}08 0%, transparent 100%)` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2 }}>
-          <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>⚡</div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em" }}>REDiTECH Unified Command Center</h1>
-            <p style={{ margin: 0, fontSize: 10, color: COLORS.textMuted }}>v4.0 — 20 Integrations | 4 AI Agents | Entra SSO | Azure PaaS | Docker Portable | Tremor + Grafana Dashboards | Contract Reconciliation | 7-Phase Roadmap</p>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>⚡</div>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ margin: 0, fontSize: r.isMobile ? 14 : 17, fontWeight: 800, letterSpacing: "-0.02em" }}>REDiTECH Unified Command Center</h1>
+            <p style={{ margin: 0, fontSize: r.isMobile ? 9 : 10, color: COLORS.textMuted, lineHeight: 1.4 }}>v4.0 — 20 Integrations | 4 AI Agents | Entra SSO | Azure PaaS | Docker Portable | 7-Phase Roadmap</p>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 0, marginTop: 10, overflowX: "auto" }}>
+        <div style={{ display: "flex", gap: 0, marginTop: 10, overflowX: "auto", WebkitOverflowScrolling: "touch", msOverflowStyle: "none", scrollbarWidth: "none" }}>
           {tabs.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               background: "none", border: "none",
               borderBottom: `2px solid ${activeTab === tab.id ? COLORS.accent : "transparent"}`,
               color: activeTab === tab.id ? COLORS.textPrimary : COLORS.textMuted,
-              fontSize: 11, fontWeight: 600, padding: "8px 14px", cursor: "pointer",
+              fontSize: r.isMobile ? 10 : 11, fontWeight: 600, padding: r.isMobile ? "8px 10px" : "8px 14px", cursor: "pointer",
               transition: "all 0.2s", whiteSpace: "nowrap",
             }}>{tab.label}</button>
           ))}
@@ -1482,7 +1514,7 @@ function MSPArchitecture() {
       </div>
 
       {/* Content */}
-      <div style={{ padding: "18px 24px", maxWidth: 960, margin: "0 auto" }}>
+      <div style={{ padding: r.isMobile ? "12px" : "18px 24px", maxWidth: 960, margin: "0 auto" }}>
         {activeTab === "architecture" && <ArchitectureView selectedTool={selectedTool} setSelectedTool={setSelectedTool} activeTier={activeTier} setActiveTier={setActiveTier} />}
         {activeTab === "techstack" && <TechStackView />}
         {activeTab === "database" && <DatabaseView />}
