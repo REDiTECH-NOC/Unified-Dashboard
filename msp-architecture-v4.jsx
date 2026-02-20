@@ -67,6 +67,7 @@ const platformServices = [
   { id: "keyvault", name: "Azure Key Vault", category: "Secrets", color: COLORS.orange, icon: "🗝️", desc: "All API keys, connection strings, credentials" },
   { id: "n8n", name: "n8n", category: "Orchestration", color: COLORS.accent, icon: "⚡", desc: "Workflow automation, API polling, webhook routing" },
   { id: "teams", name: "Microsoft Teams", category: "Notifications", color: COLORS.purple, icon: "💬", desc: "Outbound alert webhooks via Notification Engine — on-call, daily, escalation alerts" },
+  { id: "grafana", name: "Grafana", category: "Analytics", color: COLORS.orange, icon: "📊", desc: "4th Docker container — advanced dashboards, ad-hoc queries, iframe embedded for power users" },
 ];
 
 // ── 5-LAYER ARCHITECTURE ──
@@ -111,12 +112,15 @@ const tiers = [
     ]
   },
   {
-    id: "presentation", name: "LAYER 4 — DASHBOARD & REPORTING", subtitle: "Alert triage + AI chat + notification management + health scorecards + QBR reports", color: COLORS.green,
+    id: "presentation", name: "LAYER 4 — DASHBOARD & REPORTING", subtitle: "Alert triage + AI chat + built-in dashboards + Grafana analytics + health scorecards + QBR reports", color: COLORS.green,
     items: [
       { title: "Unified Alert Triage", desc: "Single alert queue with enriched context from all tools" },
       { title: "AI Chat Sidebar", desc: "Conversational assistant for ticket ops, lookups, knowledge queries" },
       { title: "Notification & On-Call Manager", desc: "Configure alert rules, on-call rotations, escalation paths, substitutions, daily/weekly schedules" },
+      { title: "Built-In Dashboards (Tremor + Recharts)", desc: "Real-time KPI charts, trend lines, bar/pie/area charts — embedded in every page. Replaces BrightGauge." },
+      { title: "Grafana Analytics (Embedded)", desc: "4th Docker container — advanced ad-hoc dashboards, iframe embedded. Same PostgreSQL data source." },
       { title: "Client Health Scorecards", desc: "6 weighted metrics: patch, backup, EDR, MFA, training, tickets" },
+      { title: "Contract Reconciliation (Future)", desc: "License counts vs. billing per client per vendor — device/user matching across tools. Replaces Gradient MSP." },
       { title: "QBR & Compliance Reports", desc: "Auto-generated PDFs with health trends, incidents, recommendations" },
     ]
   }
@@ -221,7 +225,7 @@ const ArchitectureView = ({ selectedTool, setSelectedTool, activeTier, setActive
       <div style={{ fontSize: 9, fontWeight: 700, color: COLORS.pink, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6, paddingLeft: 2 }}>
         PLATFORM SERVICES
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 7, marginBottom: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 7, marginBottom: 4 }}>
         {platformServices.map(svc => (
           <div key={svc.id} style={{ background: COLORS.card, border: `1px solid ${svc.color}25`, borderRadius: 10, padding: "10px 12px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -824,7 +828,7 @@ const AIAssistantView = () => {
 // ── INFRASTRUCTURE & COST VIEW (AZURE PAAS) ──
 const InfraView = () => {
   const azureResources = [
-    { component: "Azure Container Apps (3 containers)", spec: "Next.js app + n8n + background workers", monthly: "$30–60", note: "Auto-scaling, managed networking" },
+    { component: "Azure Container Apps (4 containers)", spec: "Next.js + n8n + workers + Grafana", monthly: "$40–75", note: "Auto-scaling, managed networking" },
     { component: "Azure Database for PostgreSQL", spec: "Flexible Server, 2 vCores, 4GB + pgvector", monthly: "$50–80", note: "Managed backups, HA available" },
     { component: "Azure Cache for Redis", spec: "Basic C0 — event queue + sessions", monthly: "$15–25", note: "Managed, encrypted, persistent" },
     { component: "Azure OpenAI (GPT-4o)", spec: "~500K tokens/day estimated", monthly: "$150–300", note: "Primary cost — AI chat + function calling" },
@@ -842,7 +846,7 @@ const InfraView = () => {
       {/* Azure Resources */}
       <div style={{ background: `${COLORS.accent}08`, border: `1px solid ${COLORS.accent}25`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: COLORS.accent, letterSpacing: "0.08em" }}>☁️ AZURE CLOUD (ALL SERVICES) — ~$260–495/mo ESTIMATED</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: COLORS.accent, letterSpacing: "0.08em" }}>☁️ AZURE CLOUD (ALL SERVICES) — ~$275–510/mo ESTIMATED</span>
         </div>
         {azureResources.map((item, i) => (
           <div key={i} style={{
@@ -865,8 +869,8 @@ const InfraView = () => {
             <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.accent, marginBottom: 6 }}>Azure Path (Current)</div>
             <div style={{ fontSize: 10, color: COLORS.textSecondary, lineHeight: 1.6 }}>
               Bicep templates → Azure Container Apps{"\n"}
-              Azure PostgreSQL Flexible Server{"\n"}
-              Azure Cache for Redis{"\n"}
+              4 containers: Next.js + n8n + workers + Grafana{"\n"}
+              Azure PostgreSQL + Redis + Key Vault{"\n"}
               Auto-scaling, managed backups, HA{"\n"}
               GitHub Actions → ACR → Container Apps
             </div>
@@ -875,8 +879,8 @@ const InfraView = () => {
             <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.green, marginBottom: 6 }}>Self-Hosted Path (Portable)</div>
             <div style={{ fontSize: 10, color: COLORS.textSecondary, lineHeight: 1.6 }}>
               docker-compose.yml → Any Linux server{"\n"}
-              PostgreSQL 16 container + pgvector{"\n"}
-              Redis 7 container{"\n"}
+              4 containers: Next.js + n8n + workers + Grafana{"\n"}
+              PostgreSQL 16 + pgvector + Redis 7{"\n"}
               Same Dockerfile, same images{"\n"}
               Only connection strings change
             </div>
@@ -906,8 +910,8 @@ const InfraView = () => {
 
       {/* Total Cost */}
       <div style={{ background: `${COLORS.purple}08`, border: `1px solid ${COLORS.purple}25`, borderRadius: 10, padding: 14, textAlign: "center" }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.accent }}>~$260 – $495<span style={{ fontSize: 12, color: COLORS.textMuted }}>/month</span></div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.textPrimary, marginTop: 4 }}>Estimated Total Azure Cost</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.accent }}>~$275 – $510<span style={{ fontSize: 12, color: COLORS.textMuted }}>/month</span></div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.textPrimary, marginTop: 4 }}>Estimated Total Azure Cost (4 containers incl. Grafana)</div>
         <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 2 }}>Primary cost is Azure OpenAI tokens — offset by Microsoft partner free credits ($150/mo)</div>
       </div>
     </div>
@@ -919,8 +923,8 @@ const DatabaseView = () => {
   const tables = [
     {
       name: "clients", color: COLORS.accent, icon: "🏢",
-      columns: ["id (UUID, PK)", "name", "connectwise_id", "ninja_org_id", "s1_site_id", "itglue_org_id", "cipp_tenant_id", "created_at"],
-      desc: "Central client registry — maps to all tool-specific tenant/org IDs"
+      columns: ["id (UUID, PK)", "name", "connectwise_id", "ninja_org_id", "s1_site_id", "itglue_org_id", "cipp_tenant_id", "pax8_customer_id", "duo_account_id", "created_at"],
+      desc: "Central client registry — maps to all tool-specific tenant/org IDs for cross-vendor reconciliation"
     },
     {
       name: "users", color: COLORS.yellow, icon: "👤",
@@ -987,6 +991,16 @@ const DatabaseView = () => {
       columns: ["id (UUID, PK)", "threecx_call_id", "caller_number", "caller_name", "matched_client_id (FK)", "matched_contact", "transcription (TEXT)", "cw_ticket_id", "notified_tech_id (FK)", "created_at"],
       desc: "Emergency voicemails — OpenAI transcription, caller identified via PSA lookup, auto-ticketed"
     },
+    {
+      name: "client_product_map", color: COLORS.yellow, icon: "🔗",
+      columns: ["id (UUID, PK)", "client_id (FK)", "vendor (PAX8/CW/Ninja/etc)", "vendor_product_id", "product_name", "licensed_qty", "actual_qty", "unit_type (device/user/mailbox)", "monthly_cost", "last_synced"],
+      desc: "Contract reconciliation — maps vendor products to clients with licensed vs. actual counts (future: replaces Gradient MSP)"
+    },
+    {
+      name: "product_catalog", color: COLORS.yellow, icon: "📦",
+      columns: ["id (UUID, PK)", "vendor", "vendor_product_id", "normalized_name", "category", "unit_type", "unit_price", "billing_cycle"],
+      desc: "Unified product catalog across vendors — normalized names for cross-vendor matching"
+    },
   ];
 
   return (
@@ -1029,8 +1043,9 @@ const RepoView = () => {
         { path: "  main.bicep", desc: "Top-level orchestrator", indent: 1 },
         { path: "  modules/", desc: "container-apps, postgresql, redis, keyvault, openai, acr, monitoring", indent: 1 },
         { path: "infra/docker/", desc: "Self-hosted deployment", indent: 0 },
-        { path: "  docker-compose.yml", desc: "Production self-hosted path", indent: 1 },
+        { path: "  docker-compose.yml", desc: "Production self-hosted (4 containers + Grafana)", indent: 1 },
         { path: "  docker-compose.dev.yml", desc: "Local development", indent: 1 },
+        { path: "  grafana/", desc: "Grafana provisioning: datasources, dashboards, config", indent: 1 },
         { path: "Dockerfile", desc: "Multi-stage Next.js build", indent: 0 },
       ]
     },
@@ -1048,6 +1063,8 @@ const RepoView = () => {
         { path: "  network/", desc: "Unifi + WatchGuard overview", indent: 1 },
         { path: "  compliance/", desc: "Audit logs + reports", indent: 1 },
         { path: "  notifications/", desc: "Notification rules, on-call rotations, escalation config", indent: 1 },
+        { path: "  analytics/", desc: "Built-in dashboards (Tremor/Recharts) + Grafana embed", indent: 1 },
+        { path: "  reconciliation/", desc: "Contract reconciliation — licensed vs. actual per client/vendor", indent: 1 },
         { path: "src/app/api/", desc: "API routes", indent: 0 },
         { path: "  webhooks/", desc: "ninja/, blackpoint/, threecx/ (incl. voicemail events)", indent: 1 },
         { path: "  ai/chat/", desc: "AI streaming endpoint", indent: 1 },
@@ -1073,6 +1090,8 @@ const RepoView = () => {
         { path: "  escalation-engine.ts", desc: "Timeout monitoring → auto-escalate if no acknowledgment", indent: 1 },
         { path: "  voicemail-pipeline.ts", desc: "3CX VM → OpenAI Whisper → PSA lookup → auto-ticket", indent: 1 },
         { path: "  on-call.ts", desc: "On-call schedule resolution, rotation, substitutions", indent: 1 },
+        { path: "  reconciliation.ts", desc: "Contract reconciliation: licensed vs. actual counts across vendors", indent: 1 },
+        { path: "  product-matcher.ts", desc: "Cross-vendor product name normalization and matching", indent: 1 },
       ]
     },
     {
@@ -1244,6 +1263,7 @@ const TechStackView = () => {
       { name: "TypeScript", desc: "End-to-end type safety across frontend + backend" },
       { name: "Tailwind CSS", desc: "Utility-first styling with dark theme" },
       { name: "shadcn/ui", desc: "High-quality UI components (Radix + Tailwind)" },
+      { name: "Tremor + Recharts", desc: "Built-in dashboards — KPI charts, trend lines, bar/area/pie charts (replaces BrightGauge)" },
     ]},
     { category: "Backend API", color: COLORS.purple, items: [
       { name: "tRPC v11", desc: "End-to-end type-safe API — no REST boilerplate" },
@@ -1271,6 +1291,11 @@ const TechStackView = () => {
       { name: "n8n", desc: "Visual workflow builder for API polling + webhook routing" },
       { name: "GitHub Actions", desc: "CI/CD: lint → test → build → push → deploy → health check" },
       { name: "Azure Container Registry", desc: "Private Docker image storage for deployments" },
+    ]},
+    { category: "Analytics & Reporting", color: COLORS.orange, items: [
+      { name: "Grafana (4th container)", desc: "Advanced analytics — iframe embedded, ad-hoc queries, custom dashboards for power users" },
+      { name: "Tremor", desc: "React dashboard components — bar, area, donut, KPI cards, spark charts" },
+      { name: "Recharts", desc: "Composable chart library — trend lines, time series, stacked bar charts" },
     ]},
   ];
 
@@ -1359,23 +1384,39 @@ const PhaseView = () => {
       "PAX8 connector — license counts, subscriptions, billing",
       "Backup + Network + Notification dashboard pages",
     ]},
-    { phase: "Phase 6", title: "Reporting, Compliance & Polish", weeks: "Weeks 16–19", color: COLORS.green, tasks: [
+    { phase: "Phase 6", title: "Dashboards, Reporting & Compliance", weeks: "Weeks 16–19", color: COLORS.green, tasks: [
+      "Built-in dashboards with Tremor + Recharts (replaces BrightGauge)",
+      "KPI widgets: ticket volume, response time, SLA %, backup success rate, alert trends",
+      "Per-client dashboard views with health trend charts",
+      "Grafana container — connected to PostgreSQL, pre-built dashboard templates",
+      "Grafana iframe embed for advanced ad-hoc analytics",
       "Client health score engine (6 weighted metrics: patch, backup, EDR, MFA, training, tickets)",
       "Client health scorecard components + per-client detail pages",
       "QBR report generator (automated PDF with trends + recommendations)",
       "Compliance audit report exporter (CSV/PDF, date range, filters)",
       "Alert triage AI agent: auto-merge duplicates, suggest correlations",
       "Hot/cold audit log tiering (PostgreSQL → compressed archive)",
-      "Dashboard home with executive summary widgets",
       "Client-facing read-only portal",
       "Full docker-compose.yml for self-hosted deployment path",
       "Responsive UI polish, keyboard shortcuts, notifications",
+    ]},
+    { phase: "Phase 7", title: "Contract Reconciliation (Gradient MSP Replacement)", weeks: "Weeks 20–23", color: COLORS.yellow, tasks: [
+      "Unified product catalog — normalize product names across PAX8, ConnectWise, NinjaRMM, etc.",
+      "Client-product mapping engine — licensed quantity vs. actual count per tool per client",
+      "Device count aggregation: NinjaRMM agents, SentinelOne agents, Cove endpoints per client",
+      "License count aggregation: PAX8 subscriptions, CIPP M365 licenses, Duo enrollments per client",
+      "Discrepancy detection — flag over-provisioned or under-licensed clients automatically",
+      "Contract reconciliation dashboard — side-by-side view of billed vs. actual per vendor/product",
+      "Profit margin calculation — vendor cost vs. client billing per product line",
+      "Bulk matching UI — map new products/clients across vendors when auto-match fails",
+      "Monthly reconciliation report (PDF/CSV export) per client or across portfolio",
+      "AI function: reconcile_client — natural language contract queries",
     ]},
   ];
 
   return (
     <div>
-      <SectionHeader title="Implementation Roadmap — 6 Phases, 19 Weeks" subtitle="Each phase is testable independently — build, deploy, verify before moving to next" />
+      <SectionHeader title="Implementation Roadmap — 7 Phases, 23 Weeks" subtitle="Each phase is testable independently — build, deploy, verify before moving to next" />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         {phases.map((p, i) => (
           <div key={i} style={{ background: COLORS.card, border: `1px solid ${p.color}30`, borderRadius: 12, padding: 14, borderTop: `3px solid ${p.color}` }}>
@@ -1424,7 +1465,7 @@ function MSPArchitecture() {
           <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>⚡</div>
           <div>
             <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em" }}>REDiTECH Unified Command Center</h1>
-            <p style={{ margin: 0, fontSize: 10, color: COLORS.textMuted }}>v4.0 — 20 Integrations | 4 AI Agents | Entra SSO | Azure PaaS | Docker Portable | Teams + SMS Alerts | On-Call Schedule | Voicemail-to-Ticket | 6-Phase Roadmap</p>
+            <p style={{ margin: 0, fontSize: 10, color: COLORS.textMuted }}>v4.0 — 20 Integrations | 4 AI Agents | Entra SSO | Azure PaaS | Docker Portable | Tremor + Grafana Dashboards | Contract Reconciliation | 7-Phase Roadmap</p>
           </div>
         </div>
         <div style={{ display: "flex", gap: 0, marginTop: 10, overflowX: "auto" }}>
