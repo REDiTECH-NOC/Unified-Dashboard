@@ -111,8 +111,8 @@ const tiers = [
     items: [
       { title: "Alert Triage Agent", desc: "Merges related alerts and tickets, auto-troubleshoots via n8n (ping, WAN checks, subnet scans)" },
       { title: "Ticket Agent", desc: "Create, search, filter, assign, and update ConnectWise tickets using natural language" },
-      { title: "Knowledge Base Agent (RAG)", desc: "Search IT Glue docs + OneNote/SharePoint runbooks using plain English questions" },
-      { title: "Password Agent (MFA-Gated)", desc: "Retrieve IT Glue credentials — Entra MFA required, valid for 2 hours per session" },
+      { title: "Knowledge Base Agent (RAG)", desc: "Search + create/update IT Glue docs, OneNote, SharePoint — write capability per-user gated" },
+      { title: "Password & TOTP Agent (MFA-Gated)", desc: "Retrieve IT Glue credentials + TOTP/MFA codes — Entra MFA, 2hr session, adjustable rate limit" },
     ]
   },
   {
@@ -407,12 +407,12 @@ const AIAssistantView = () => {
       ]
     },
     {
-      title: "Password (MFA-Gated)", color: COLORS.red,
+      title: "Password + TOTP (MFA-Gated)", color: COLORS.red,
       messages: [
-        { role: "tech", text: "I need the admin password for Contoso's WatchGuard firewall" },
-        { role: "ai", text: "Found in IT Glue: Contoso Ltd → WatchGuard M370 — Admin\n\n⚠️ Privileged credential — MFA verification required.\n🔐 Sending push to your Microsoft Authenticator now..." },
-        { role: "system", text: "🔔 ENTRA MFA PUSH SENT → Approve with number matching\n\n📝 Compliance audit trail:\n• Tech: you@reditech.com\n• Credential: Contoso — WatchGuard M370 Admin\n• Event: credential.revealed\n• Rate limit: 7/10 remaining this hour\n• Retention: 7 years" },
-        { role: "ai", text: "✅ MFA verified.\n\n🔑 WatchGuard M370 — Admin\nUsername: admin | Password: ••••••••••\n[Copy] [Open IT Glue]\n\n⏱️ Auto-clears in 60 seconds\n📝 Logged: credential.revealed → audit trail" },
+        { role: "tech", text: "I need the admin password for Contoso's 365 global admin" },
+        { role: "ai", text: "Found in IT Glue: Contoso Ltd → Microsoft 365 Global Admin\n\n⚠️ Privileged credential — MFA verification required.\n🔐 Sending push to your Microsoft Authenticator now..." },
+        { role: "system", text: "🔔 ENTRA MFA PUSH SENT → Approve with number matching\n\n📝 Compliance audit trail:\n• Tech: you@reditech.com\n• Credential: Contoso — 365 Global Admin\n• Events: credential.revealed + credential.totp.generated\n• Rate limit: 7 of 10 remaining (adjustable by Admin)\n• Retention: 7 years" },
+        { role: "ai", text: "✅ MFA verified.\n\n🔑 365 Global Admin — Contoso\nUsername: admin@contoso.com\nPassword: ••••••••••  [Copy Password]\nTOTP Code: 847 293  ⏱️ 18s remaining  [Copy TOTP]\n\n⏱️ Auto-clears in 60 seconds\n📝 Logged: credential.revealed + credential.totp.generated → audit trail" },
       ]
     },
     {
@@ -578,22 +578,23 @@ const AIAssistantView = () => {
               },
               {
                 name: "Knowledge Base Agent", icon: "📚", color: COLORS.green,
-                purpose: "Search IT Glue docs, OneNote runbooks, and SharePoint SOPs using plain English",
+                purpose: "Search AND create/update docs — write capability is per-user (Admin enables 'KB Write' flag)",
                 canRead: ["IT Glue documents and configs (NOT passwords)", "OneNote pages via Graph API", "SharePoint documents via Graph API", "Pre-indexed RAG embeddings (pgvector)"],
-                canWrite: ["Nothing — read-only agent"],
+                canWrite: ["Create new IT Glue docs/articles (KB Write perm)", "Update existing IT Glue docs (KB Write perm)", "Draft OneNote/SharePoint pages (KB Write perm)", "All writes require user confirmation before saving"],
                 cannotAccess: ["Passwords — excluded from RAG index entirely", "Internet or external services", "Device/endpoint data", "Security alert data", "Ticket modification"],
                 internet: false,
                 mfa: false,
+                specialRules: ["Write is per-user, NOT per-role — Admin enables 'KB Write' flag per user", "Users without KB Write can only search/read — write functions hidden", "All writes require explicit user confirmation before saving", "Every doc create/update audit-logged: kb.document.created, kb.document.updated"],
               },
               {
-                name: "Password Agent", icon: "🔐", color: COLORS.yellow,
-                purpose: "Retrieve IT Glue credentials with Entra MFA — 2-hour session, fully audited",
-                canRead: ["IT Glue password entries (after MFA verification)"],
+                name: "Password & TOTP Agent", icon: "🔐", color: COLORS.yellow,
+                purpose: "Retrieve IT Glue credentials + TOTP/MFA codes — 2-hour session, fully audited",
+                canRead: ["IT Glue password entries (after MFA verification)", "IT Glue TOTP/MFA seeds — generates current 6-digit code"],
                 canWrite: ["Audit log entry (automatic)", "Nothing else"],
                 cannotAccess: ["Internet or external services", "Any tool data beyond credential lookup", "Bulk export of credentials", "Other users' credential access history", "Keeper vaults (not connected to this agent)"],
                 internet: false,
                 mfa: true,
-                specialRules: ["Entra MFA push via Microsoft Authenticator on first password request", "MFA session valid for 2 hours — no re-prompt within that window", "After 2 hours, new MFA push required to continue accessing passwords", "Password displayed for 60 seconds then auto-cleared from screen", "Rate limited: max 10 retrievals per user per hour", "Every retrieval logged with 7-year retention", "Passwords NEVER stored in AI conversation history", "Passwords NEVER included in RAG/embedding index"],
+                specialRules: ["Entra MFA push via Microsoft Authenticator on first request", "MFA session valid for 2 hours — no re-prompt within that window", "Retrieves passwords AND TOTP codes from IT Glue (e.g., 365 admin MFA)", "TOTP auto-generates current 6-digit code from stored seed with countdown", "Password + TOTP displayed for 60 seconds then auto-cleared", "Rate limit adjustable per user by Admin (default: 10/hr)", "Every retrieval logged with 7-year retention", "Passwords/TOTP NEVER stored in AI conversation history", "Passwords NEVER included in RAG/embedding index"],
               },
             ].map((agent, i) => (
               <div key={i} style={{ background: COLORS.card, border: `1px solid ${agent.color}30`, borderRadius: 12, padding: 16 }}>
@@ -716,18 +717,18 @@ const AIAssistantView = () => {
 
           {/* Password flow detail */}
           <div style={{ background: COLORS.card, border: `2px solid ${COLORS.red}30`, borderRadius: 12, padding: 18, marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.red, letterSpacing: "0.04em", marginBottom: 12 }}>CREDENTIAL RETRIEVAL — FULL SECURITY CHAIN</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.red, letterSpacing: "0.04em", marginBottom: 12 }}>CREDENTIAL + TOTP RETRIEVAL — FULL SECURITY CHAIN</div>
             <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 14, lineHeight: 1.5 }}>
-              This is the most sensitive operation in the platform. Every step has a security gate. No shortcuts, no exceptions.
+              This is the most sensitive operation in the platform. Retrieves passwords AND TOTP/MFA codes from IT Glue. Every step has a security gate.
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {[
                 { step: "1", title: "Request", desc: "Tech asks for a credential. System verifies identity via Entra SSO session + role (Tech+).", color: COLORS.accent },
-                { step: "2", title: "Rate Check", desc: "System checks: has this user exceeded 10 retrievals this hour? If yes → denied.", color: COLORS.orange },
+                { step: "2", title: "Rate Check", desc: "System checks per-user rate limit (adjustable by Admin, default: 10/hr). If exceeded → denied.", color: COLORS.orange },
                 { step: "3", title: "MFA Check", desc: "Has user completed MFA in last 2 hours? If yes → skip to step 5. If no → MFA push sent.", color: COLORS.yellow },
                 { step: "4", title: "MFA Verify", desc: "User approves Microsoft Authenticator push (number matching). Session valid for 2 hours.", color: COLORS.purple },
-                { step: "5", title: "Retrieve", desc: "Password fetched from IT Glue API. Displayed in UI with copy button. 60-second timer starts.", color: COLORS.green },
-                { step: "6", title: "Auto-Clear", desc: "After 60 seconds, password removed from screen. New request within 2hrs skips MFA.", color: COLORS.red },
+                { step: "5", title: "Retrieve", desc: "Password + TOTP code (if stored) fetched from IT Glue. TOTP auto-generates current 6-digit code.", color: COLORS.green },
+                { step: "6", title: "Auto-Clear", desc: "After 60 seconds, credential + TOTP removed from screen. New request within 2hrs skips MFA.", color: COLORS.red },
               ].map((s, i) => (
                 <div key={i} style={{ flex: 1, background: `${s.color}08`, border: `1px solid ${s.color}20`, borderRadius: 8, padding: "8px 6px", textAlign: "center" }}>
                   <div style={{ width: 20, height: 20, borderRadius: "50%", background: `${s.color}25`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 4px", fontSize: 10, fontWeight: 800, color: s.color }}>{s.step}</div>
@@ -738,7 +739,7 @@ const AIAssistantView = () => {
             </div>
             <div style={{ marginTop: 12, padding: "8px 12px", background: `${COLORS.yellow}08`, border: `1px solid ${COLORS.yellow}20`, borderRadius: 8 }}>
               <div style={{ fontSize: 10, color: COLORS.yellow, fontWeight: 700 }}>EVERY STEP GENERATES AN AUDIT LOG ENTRY</div>
-              <div style={{ fontSize: 9.5, color: COLORS.textMuted }}>credential.requested → credential.mfa.sent → credential.mfa.result → credential.revealed → credential.expired — all with user identity, timestamp, IP address, and 7-year retention</div>
+              <div style={{ fontSize: 9.5, color: COLORS.textMuted }}>credential.requested → credential.mfa.sent → credential.mfa.result → credential.revealed → credential.totp.generated → credential.expired — all with user identity, timestamp, IP address, and 7-year retention</div>
             </div>
           </div>
 
@@ -813,7 +814,9 @@ const AIAssistantView = () => {
                   ["lookup_device", "GPT-4o-mini", "Simple — direct lookup, minimal reasoning"],
                   ["lookup_user", "GPT-4o-mini", "Simple — direct lookup, minimal reasoning"],
                   ["search_knowledge", "GPT-4o", "Complex — RAG retrieval with source evaluation and synthesis"],
-                  ["get_password", "GPT-4o-mini", "Simple — credential lookup after MFA gate"],
+                  ["create_document", "GPT-4o", "Complex — drafting quality documentation from natural language"],
+                  ["update_document", "GPT-4o", "Complex — editing existing docs accurately, preserving context"],
+                  ["get_password", "GPT-4o-mini", "Simple — credential + TOTP lookup after MFA gate"],
                   ["get_client_health", "GPT-4o-mini", "Simple — pre-calculated scores, just formatting"],
                   ["query_audit_log", "GPT-4o-mini", "Simple — filter translation for audit queries"],
                 ].map((row, i) => (
@@ -1026,7 +1029,9 @@ const AIAssistantView = () => {
               { fn: "lookup_device", desc: "Cross-tool device lookup (NinjaRMM + SentinelOne). Returns status, no remote actions.", role: "Tech+", agents: "Triage, Ticket", color: COLORS.green },
               { fn: "lookup_user", desc: "User/contact lookup across ConnectWise, Entra ID. Returns info, cannot modify accounts.", role: "Tech+", agents: "Ticket", color: COLORS.green },
               { fn: "search_knowledge", desc: "Semantic search across IT Glue docs + OneNote + SharePoint. Passwords excluded from index.", role: "Tech+", agents: "Knowledge", color: COLORS.purple },
-              { fn: "get_password", desc: "IT Glue credential retrieval. Entra MFA required (2-hour session). 60s auto-clear. Rate limited.", role: "Tech+ (MFA)", agents: "Password only", color: COLORS.red },
+              { fn: "create_document", desc: "Create new IT Glue doc, OneNote page, or SharePoint article via AI. Requires per-user 'KB Write' flag + confirmation.", role: "Tech+ (KB Write)", agents: "Knowledge", color: COLORS.purple },
+              { fn: "update_document", desc: "Update existing doc — append notes, revise sections. Requires per-user 'KB Write' flag + confirmation.", role: "Tech+ (KB Write)", agents: "Knowledge", color: COLORS.purple },
+              { fn: "get_password", desc: "IT Glue credential + TOTP/MFA code retrieval. Entra MFA required (2hr session). 60s auto-clear. Rate limit adjustable per user.", role: "Tech+ (MFA)", agents: "Password only", color: COLORS.red },
               { fn: "get_client_health", desc: "Composite health score with 6 metrics. Read-only aggregate data, no sensitive details.", role: "Tech+", agents: "Triage, Ticket", color: COLORS.cyan },
               { fn: "query_audit_log", desc: "Search compliance audit events. Admin-only — techs and managers cannot access.", role: "Admin only", agents: "None (admin tool)", color: COLORS.yellow },
             ].map((f, i) => (
@@ -1238,6 +1243,16 @@ const DatabaseView = () => {
       columns: ["id (UUID, PK)", "function_name (UNIQUE)", "default_model", "override_model (nullable)", "override_reason", "updated_by", "updated_at"],
       desc: "Admin-configurable model routing — override which model handles each AI function"
     },
+    {
+      name: "user_preferences", color: COLORS.accent, icon: "🎨",
+      columns: ["id (UUID, PK)", "user_id (FK, UNIQUE per key)", "key (VARCHAR)", "value (JSONB)", "updated_at"],
+      desc: "Per-user UI customization — widget layout, pinned clients, default page, table density, sidebar state"
+    },
+    {
+      name: "user_feature_flags", color: COLORS.yellow, icon: "🏷️",
+      columns: ["id (UUID, PK)", "user_id (FK)", "flag_name (kb_write/rate_override/etc)", "value (JSONB)", "enabled (BOOL)", "updated_by", "updated_at"],
+      desc: "Per-user permission overrides — KB Write access, custom rate limits, feature toggles"
+    },
   ];
 
   return (
@@ -1304,6 +1319,7 @@ const RepoView = () => {
         { path: "  reconciliation/", desc: "Contract reconciliation — licensed vs. actual per client/vendor", indent: 1 },
         { path: "  settings/ai-models/", desc: "Admin: configure model per AI function (GPT-4o vs mini)", indent: 1 },
         { path: "  settings/ai-usage/", desc: "Admin: AI usage dashboard, budgets, rate limits, reports", indent: 1 },
+        { path: "  settings/users/[id]/", desc: "Admin: per-user feature flags, KB Write, rate overrides", indent: 1 },
         { path: "src/app/api/", desc: "API routes", indent: 0 },
         { path: "  webhooks/", desc: "ninja/, blackpoint/, threecx/ (incl. voicemail events)", indent: 1 },
         { path: "  ai/chat/", desc: "AI streaming endpoint", indent: 1 },
@@ -1337,10 +1353,12 @@ const RepoView = () => {
       title: "AI & RAG Pipeline", color: COLORS.pink, icon: "🤖",
       tree: [
         { path: "src/server/ai/agent.ts", desc: "AI orchestrator + function calling", indent: 0 },
-        { path: "src/server/ai/functions/", desc: "9 AI function definitions", indent: 0 },
+        { path: "src/server/ai/functions/", desc: "13 AI function definitions", indent: 0 },
         { path: "  create-ticket.ts", desc: "Draft + confirm → ConnectWise", indent: 1 },
         { path: "  search-knowledge.ts", desc: "RAG semantic search", indent: 1 },
-        { path: "  get-password.ts", desc: "MFA-gated credential retrieval", indent: 1 },
+        { path: "  get-password.ts", desc: "MFA-gated credential + TOTP retrieval", indent: 1 },
+        { path: "  create-document.ts", desc: "KB Write: create IT Glue/OneNote/SP docs", indent: 1 },
+        { path: "  update-document.ts", desc: "KB Write: update existing docs", indent: 1 },
         { path: "  ... (6 more functions)", desc: "alerts, devices, users, health, audit", indent: 1 },
         { path: "src/server/ai/rag/", desc: "RAG pipeline", indent: 0 },
         { path: "  indexer.ts", desc: "IT Glue + OneNote + SharePoint → pgvector", indent: 1 },
@@ -1398,12 +1416,12 @@ const RepoView = () => {
 // ── RBAC & SECURITY VIEW ──
 const SecurityView = () => {
   const roles = [
-    { role: "Tech", color: COLORS.accent, desc: "Frontline technicians — view, triage, create tickets", perms: { dashboard: "View", alerts: "View/Ack", tickets: "View/Create", ai: "Full", passwords: "MFA-gated", audit: "Own actions", settings: "—", clients: "All" } },
-    { role: "Manager", color: COLORS.purple, desc: "Team leads — full operations + team audit visibility", perms: { dashboard: "Full", alerts: "Full", tickets: "Full", ai: "Full", passwords: "MFA-gated", audit: "Team view", settings: "—", clients: "All" } },
-    { role: "Admin", color: COLORS.red, desc: "Platform administrators — full access including settings", perms: { dashboard: "Full", alerts: "Full", tickets: "Full", ai: "Full", passwords: "MFA-gated", audit: "Full", settings: "Full", clients: "All" } },
-    { role: "Client", color: COLORS.green, desc: "Client portal users — read-only access to own data", perms: { dashboard: "Own data", alerts: "Own", tickets: "Own", ai: "Limited", passwords: "—", audit: "—", settings: "—", clients: "Own only" } },
+    { role: "Tech", color: COLORS.accent, desc: "Frontline technicians — view, triage, create tickets", perms: { dashboard: "View", alerts: "View/Ack", tickets: "View/Create", ai: "Full", kbWrite: "Per-user", passwords: "MFA-gated", audit: "Own actions", settings: "Own prefs", clients: "All" } },
+    { role: "Manager", color: COLORS.purple, desc: "Team leads — full operations + team audit visibility", perms: { dashboard: "Full", alerts: "Full", tickets: "Full", ai: "Full", kbWrite: "Per-user", passwords: "MFA-gated", audit: "Team view", settings: "Own prefs", clients: "All" } },
+    { role: "Admin", color: COLORS.red, desc: "Platform admins — full access + granular settings control", perms: { dashboard: "Full", alerts: "Full", tickets: "Full", ai: "Full", kbWrite: "Yes", passwords: "MFA-gated", audit: "Full", settings: "Full", clients: "All" } },
+    { role: "Client", color: COLORS.green, desc: "Client portal users — read-only access to own data", perms: { dashboard: "Own data", alerts: "Own", tickets: "Own", ai: "Limited", kbWrite: "—", passwords: "—", audit: "—", settings: "—", clients: "Own only" } },
   ];
-  const permKeys = ["dashboard", "alerts", "tickets", "ai", "passwords", "audit", "settings", "clients"];
+  const permKeys = ["dashboard", "alerts", "tickets", "ai", "kbWrite", "passwords", "audit", "settings", "clients"];
 
   const securityLayers = [
     { title: "Authentication", color: COLORS.yellow, icon: "🔐", items: [
@@ -1427,24 +1445,30 @@ const SecurityView = () => {
     { title: "Data Protection", color: COLORS.green, icon: "🔒", items: [
       "TLS 1.3 for all connections (Azure-managed certs)",
       "PostgreSQL encryption at rest (Azure-managed)",
-      "Passwords excluded from RAG vector index",
-      "Retrieved passwords auto-clear after 60 seconds",
-      "Rate limit: max 10 password retrievals/user/hour",
+      "Passwords + TOTP seeds excluded from RAG vector index",
+      "Retrieved passwords/TOTP auto-clear after 60 seconds",
+      "Password rate limit: adjustable per user by Admin",
     ]},
     { title: "Audit & Compliance", color: COLORS.accent, icon: "📝", items: [
       "Immutable append-only audit log (no UPDATE/DELETE)",
-      "Every action logged: auth, AI, tickets, data access",
+      "Every action logged: auth, AI, tickets, data access, KB writes",
       "7-year retention: hot (PostgreSQL) + cold (archive)",
       "SOC 2 / HIPAA framework alignment",
     ]},
     { title: "AI Guardrails", color: COLORS.pink, icon: "🤖", items: [
       "All AI function calls role-checked before execution",
-      "Content filtering via Azure OpenAI built-in safety",
-      "Source citations required for knowledge responses",
+      "KB Write gated per-user (not per-role) — Admin flag",
       "Tiered model routing — GPT-4o for complex, mini for simple",
       "Per-user daily token budgets with soft/hard limits",
       "Admin-configurable model assignments per function",
       "Usage reporting with threshold alerts at 80% + 100%",
+    ]},
+    { title: "Granular Admin Controls", color: COLORS.yellow, icon: "⚙️", items: [
+      "Per-user feature flags (KB Write, rate limits, budgets)",
+      "Adjustable rate limits per user per feature",
+      "AI model config per function (Settings → AI Models)",
+      "End-user dashboard customization within admin bounds",
+      "Dark mode only — modern, consistent UI across platform",
     ]},
   ];
 
@@ -1575,7 +1599,7 @@ const PhaseView = () => {
       "Bicep templates for all Azure resources (Container Apps, PostgreSQL, Redis, Key Vault, ACR)",
       "Dockerfile + docker-compose.dev.yml for local development",
       "GitHub Actions CI/CD pipeline → Azure Container Apps auto-deploy",
-      "Next.js app with App Router, Tailwind, shadcn/ui, dark theme",
+      "Next.js app with App Router, Tailwind, shadcn/ui — dark mode only (no light theme)",
       "Auth.js + Entra ID OIDC + PKCE with 4 RBAC groups",
       "Prisma schema: users, clients, audit_events tables",
       "Immutable audit logging service (Layer 0 — from day 1)",
@@ -1597,8 +1621,10 @@ const PhaseView = () => {
       "Azure OpenAI provisioned (GPT-4o + GPT-4o-mini + text-embedding-3-small)",
       "AI agent orchestrator with function calling",
       "AI functions: create_ticket, search_tickets, search_alerts, lookup_device, lookup_user",
+      "AI functions: create_document, update_document (KB Write — per-user gated)",
       "Tiered model routing — GPT-4o for complex tasks, GPT-4o-mini for simple lookups",
       "Admin model config UI — Settings → AI Models, override per function",
+      "Per-user feature flags system (KB Write, rate limit overrides, feature toggles)",
       "Token budget enforcer — per-user daily + monthly team limits (Redis-tracked)",
       "Per-user rate limiting — requests/hour, concurrent sessions, cooldown",
       "Redis prompt caching — 5-min TTL for lookups, 0 for mutations",
@@ -1613,8 +1639,8 @@ const PhaseView = () => {
       "All AI actions audit-logged with role context",
     ]},
     { phase: "Phase 4", title: "Security & Identity", weeks: "Weeks 10–12", color: COLORS.purple, tasks: [
-      "MFA step-up gate for password retrieval (MS Authenticator push)",
-      "AI function: get_password (60s auto-clear, rate limited)",
+      "MFA step-up gate for password + TOTP retrieval (MS Authenticator push)",
+      "AI function: get_password — credentials + TOTP codes from IT Glue (60s auto-clear, adjustable rate limit per user)",
       "Duo connector — auth logs, enrollment, bypass events",
       "AutoElevate connector — elevation requests, approvals",
       "Quickpass connector — verification events, password resets",
@@ -1654,6 +1680,8 @@ const PhaseView = () => {
       "Hot/cold audit log tiering (PostgreSQL → compressed archive)",
       "Client-facing read-only portal",
       "Full docker-compose.yml for self-hosted deployment path",
+      "End-user dashboard customization — drag/drop widgets, pin clients, personal filters",
+      "User preferences system (user_preferences table + localStorage sync)",
       "Responsive UI polish, keyboard shortcuts, notifications",
     ]},
     { phase: "Phase 7", title: "Contract Reconciliation (Gradient MSP Replacement)", weeks: "Weeks 20–23", color: COLORS.yellow, tasks: [
@@ -1722,7 +1750,7 @@ function MSPArchitecture() {
           <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>⚡</div>
           <div style={{ minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: r.isMobile ? 14 : 17, fontWeight: 800, letterSpacing: "-0.02em" }}>REDiTECH Unified Command Center</h1>
-            <p style={{ margin: 0, fontSize: r.isMobile ? 9 : 10, color: COLORS.textMuted, lineHeight: 1.4 }}>v4.0 — 20 Integrations | 4 AI Agents | Entra SSO | Azure PaaS | Docker Portable | 7-Phase Roadmap</p>
+            <p style={{ margin: 0, fontSize: r.isMobile ? 9 : 10, color: COLORS.textMuted, lineHeight: 1.4 }}>v4.0 — 20 Integrations | 4 AI Agents (13 Functions) | Entra SSO | Azure PaaS | Docker Portable | Dark Mode</p>
           </div>
         </div>
         <div style={{ display: "flex", gap: 0, marginTop: 10, overflowX: "auto", WebkitOverflowScrolling: "touch", msOverflowStyle: "none", scrollbarWidth: "none" }}>
