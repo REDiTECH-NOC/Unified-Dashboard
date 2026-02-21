@@ -1,0 +1,49 @@
+{
+  "name": "reditech-command-center",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0 --port 4000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "next": "14.2.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@prisma/client": "^5.20.0",
+    "@auth/prisma-adapter": "^2.7.0",
+    "next-auth": "5.0.0-beta.25",
+    "@trpc/server": "^11.0.0-rc.608",
+    "@trpc/client": "^11.0.0-rc.608",
+    "@trpc/react-query": "^11.0.0-rc.608",
+    "@tanstack/react-query": "^5.59.0",
+    "ioredis": "^5.4.1",
+    "zod": "^3.23.8",
+    "lucide-react": "^0.451.0",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.3",
+    "class-variance-authority": "^0.7.0",
+    "superjson": "^2.2.1",
+    "bcryptjs": "^2.4.3",
+    "otplib": "^12.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@types/node": "^22.7.5",
+    "@types/bcryptjs": "^2.4.6",
+    "prisma": "^5.20.0",
+    "tailwindcss": "^3.4.13",
+    "postcss": "^8.4.47",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.15"
+  }
+}

@@ -1,0 +1,117 @@
+version: "3.8"
+
+services:
+  # ── Next.js Application ──────────────────────────────────────────
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: rcc-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-rcc}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-rcc}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - rcc-network
+
+  # ── PostgreSQL Database ──────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: rcc-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rcc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-rcc}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rcc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rcc-network
+
+  # ── Redis Cache ──────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: rcc-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rcc-network
+
+  # ── n8n Workflow Automation ──────────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: rcc-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=db
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-rcc}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-rcc}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - DB_POSTGRESDB_SCHEMA=n8n
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-changeme}
+      - N8N_HOST=0.0.0.0
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678}
+    volumes:
+      - n8ndata:/home/node/.n8n
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - rcc-network
+
+  # ── Grafana Analytics ────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: rcc-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-changeme}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel
+    volumes:
+      - grafanadata:/var/lib/grafana
+    networks:
+      - rcc-network
+
+volumes:
+  pgdata:
+  redisdata:
+  n8ndata:
+  grafanadata:
+
+networks:
+  rcc-network:
+    driver: bridge

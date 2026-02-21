@@ -1,0 +1,180 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  USER
+  CLIENT
+}
+
+enum AuthMethod {
+  ENTRA
+  LOCAL
+}
+
+enum AuditCategory {
+  AUTH
+  USER
+  SECURITY
+  INTEGRATION
+  NOTIFICATION
+  SYSTEM
+  API
+  DATA
+}
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  name          String?
+  avatar        String?
+  entraId       String?    @unique
+  role          Role       @default(USER)
+  authMethod    AuthMethod @default(ENTRA)
+
+  // Local auth fields (glass-break admin, future local users/clients)
+  passwordHash  String?
+  totpSecret    String?
+  totpEnabled   Boolean    @default(false)
+  mustSetupTotp Boolean    @default(false)
+
+  // Future: invite flow for local users / clients
+  inviteToken   String?    @unique
+  inviteExpiry  DateTime?
+
+  lastLoginAt   DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  auditEvents      AuditEvent[]
+  preferences      UserPreference[]
+  featureFlags     UserFeatureFlag[]
+  permissions      UserPermission[]
+  permissionRoles  UserPermissionRole[]
+
+  @@index([role])
+  @@index([authMethod])
+}
+
+model AuditEvent {
+  id        String        @id @default(cuid())
+  action    String
+  category  AuditCategory @default(SYSTEM)
+  actorId   String?
+  actor     User?         @relation(fields: [actorId], references: [id])
+  resource  String?
+  detail    Json?
+  ip        String?
+  userAgent String?
+  outcome   String        @default("success")
+  createdAt DateTime      @default(now())
+
+  @@index([action])
+  @@index([category])
+  @@index([actorId])
+  @@index([createdAt])
+  @@index([resource])
+}
+
+model UserPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+}
+
+model UserFeatureFlag {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  flag      String
+  enabled   Boolean  @default(false)
+  value     Json?
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, flag])
+}
+
+model UserPermission {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission String   // e.g. "audit.view", "users.manage", "kb.write"
+  granted    Boolean  @default(true) // true = explicitly granted, false = explicitly revoked
+  grantedBy  String?  // userId of admin who set this
+  grantedAt  DateTime @default(now())
+
+  @@unique([userId, permission])
+  @@index([userId])
+}
+
+// Named permission groups that admins create and assign to users
+// e.g. "Senior Tech" grants ai.kb.write + audit.view + reports.view
+// Users can have multiple roles — most permissive wins
+model PermissionRole {
+  id          String   @id @default(cuid())
+  name        String   @unique  // e.g. "Senior Tech", "Help Desk", "Security Analyst"
+  description String?
+  permissions String[] // array of permission keys: ["ai.kb.write", "audit.view"]
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users UserPermissionRole[]
+}
+
+// Join table: which users have which permission roles
+model UserPermissionRole {
+  id               String         @id @default(cuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionRoleId String
+  permissionRole   PermissionRole @relation(fields: [permissionRoleId], references: [id], onDelete: Cascade)
+  assignedBy       String?
+  assignedAt       DateTime       @default(now())
+
+  @@unique([userId, permissionRoleId])
+  @@index([userId])
+}
+
+model IntegrationConfig {
+  id              String    @id @default(cuid())
+  toolId          String    @unique
+  displayName     String
+  category        String
+  credentialRef   String?
+  status          String    @default("unconfigured")
+  lastHealthCheck DateTime?
+  lastSync        DateTime?
+  config          Json?
+  updatedBy       String?
+  updatedAt       DateTime  @updatedAt
+}
+
+model NotificationConfig {
+  id              String   @id @default(cuid())
+  type            String   @unique  // e.g. "alert_critical", "report_daily"
+  displayName     String
+  description     String?
+  emailEnabled    Boolean  @default(false)
+  emailSender     String?  // e.g. "alerts@cloudjohnson.com"
+  emailRecipients String[] // array of email addresses
+  teamsEnabled    Boolean  @default(false)
+  teamsWebhookUrl String?
+  smsEnabled      Boolean  @default(false)
+  smsRecipients   String[] // array of phone numbers
+  updatedBy       String?
+  updatedAt       DateTime @updatedAt
+}

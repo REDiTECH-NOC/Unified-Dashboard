@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: reditech
+      POSTGRES_USER: reditech
+      POSTGRES_PASSWORD: reditech_dev_2026
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reditech"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  app:
+    image: node:20
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - nextcache:/app/.next
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://reditech:reditech_dev_2026@db:5432/reditech
+      - REDIS_URL=redis://redis:6379
+      - NEXTAUTH_URL=https://dashboardv1.cloudjohnson.com
+      - NEXTAUTH_SECRET=dev-secret-change-in-production-reditech-2026
+      - AUTH_TRUST_HOST=true
+      - AZURE_AD_CLIENT_ID=${AZURE_AD_CLIENT_ID}
+      - AZURE_AD_CLIENT_SECRET=${AZURE_AD_CLIENT_SECRET}
+      - AZURE_AD_TENANT_ID=${AZURE_AD_TENANT_ID}
+      - ENTRA_GROUP_ADMINS=${ENTRA_GROUP_ADMINS}
+      - ENTRA_GROUP_USERS=${ENTRA_GROUP_USERS}
+      - GLASSBREAK_ADMIN_EMAIL=${GLASSBREAK_ADMIN_EMAIL:-admin@reditech.local}
+      - GLASSBREAK_ADMIN_PASSWORD=${GLASSBREAK_ADMIN_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: sh -c "npm install && npx prisma generate && npx prisma db push --accept-data-loss && npm run dev"
+
+volumes:
+  pgdata:
+  redisdata:
+  node_modules:
+  nextcache:
