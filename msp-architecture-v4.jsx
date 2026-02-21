@@ -229,6 +229,460 @@ const StatBox = ({ value, label, desc, color }) => (
   </div>
 );
 
+// ── SHARED MOCKUP HELPERS ──
+const SeverityBadge = ({ level }) => {
+  const map = { Critical: COLORS.red, High: COLORS.orange, Medium: COLORS.yellow, Low: COLORS.green, Info: COLORS.cyan };
+  const c = map[level] || COLORS.textMuted;
+  return <span style={{ fontSize: 9, fontWeight: 700, color: c, background: `${c}18`, padding: "2px 8px", borderRadius: 10, whiteSpace: "nowrap" }}>{level}</span>;
+};
+const StatusDot = ({ status }) => {
+  const c = status === "online" ? COLORS.green : status === "offline" ? COLORS.red : COLORS.orange;
+  return <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: c, boxShadow: `0 0 6px ${c}60`, marginRight: 6 }} />;
+};
+const ProgressBar = ({ pct, color, height = 6 }) => (
+  <div style={{ background: `${COLORS.border}`, borderRadius: height / 2, height, width: "100%", overflow: "hidden" }}>
+    <div style={{ height: "100%", width: `${Math.min(pct, 100)}%`, background: color, borderRadius: height / 2, transition: "width 0.3s" }} />
+  </div>
+);
+const ActionBtn = ({ label, color }) => (
+  <button style={{ fontSize: 9, fontWeight: 600, color, background: `${color}15`, border: `1px solid ${color}30`, borderRadius: 6, padding: "3px 10px", cursor: "pointer" }}>{label}</button>
+);
+
+// ── DUMMY DATA FOR MOCKUP TABS ──
+const dummyAlerts = [
+  { id: 1, severity: "Critical", tool: "🛡️ SentinelOne", client: "Contoso Ltd", message: "Lateral movement detected on CONTOSO-DC01", time: "2 min ago", device: "CONTOSO-DC01" },
+  { id: 2, severity: "Critical", tool: "🔒 Blackpoint", client: "Contoso Ltd", message: "MDR: Suspicious RDP brute-force from external IP", time: "5 min ago", device: "CONTOSO-RDS01" },
+  { id: 3, severity: "Critical", tool: "🛡️ SentinelOne", client: "Acme Corp", message: "Ransomware behavior blocked — file encryption attempt", time: "12 min ago", device: "ACME-WS-047" },
+  { id: 4, severity: "High", tool: "🖥️ NinjaRMM", client: "Contoso Ltd", message: "Disk space critical (3% free) on domain controller", time: "18 min ago", device: "CONTOSO-DC01" },
+  { id: 5, severity: "High", tool: "📧 Avanan", client: "Northwind Inc", message: "CEO phishing email quarantined — credential harvesting link", time: "34 min ago", device: "—" },
+  { id: 6, severity: "Medium", tool: "🖥️ NinjaRMM", client: "Fabrikam", message: "Windows Update failed — KB5034441 (3 retries)", time: "1 hr ago", device: "FAB-WS-012" },
+  { id: 7, severity: "Medium", tool: "🔑 Duo", client: "Acme Corp", message: "MFA bypass event detected for service account", time: "2 hrs ago", device: "—" },
+  { id: 8, severity: "Low", tool: "💾 Cove", client: "Woodgrove", message: "Backup completed with warnings — 2 files skipped", time: "3 hrs ago", device: "WG-SRV-01" },
+];
+
+const dummyTickets = [
+  { id: "48291", client: "Contoso Ltd", summary: "Outlook credential prompt loop — CEO laptop", priority: "High", status: "In Progress", age: "2h", assignee: "Jake M." },
+  { id: "48287", client: "Acme Corp", summary: "New employee onboarding — 5 user accounts", priority: "Medium", status: "Scheduled", age: "1d", assignee: "Sarah C." },
+  { id: "48284", client: "Northwind Inc", summary: "VPN connection drops intermittently from home office", priority: "High", status: "Waiting", age: "2d", assignee: "You" },
+  { id: "48279", client: "Fabrikam", summary: "Shared mailbox permissions — add 3 new users", priority: "Low", status: "Open", age: "3d", assignee: "You" },
+  { id: "48275", client: "Adventure Works", summary: "Printer offline on 2nd floor — HP LaserJet", priority: "Medium", status: "In Progress", age: "4d", assignee: "You" },
+  { id: "48270", client: "Contoso Ltd", summary: "MFA enrollment for 12 remaining users", priority: "Low", status: "Scheduled", age: "5d", assignee: "Jake M." },
+];
+
+const dummyActivity = [
+  { icon: "🔴", text: "Critical alert: SentinelOne lateral movement — Contoso DC01", time: "2 min ago", color: COLORS.red },
+  { icon: "🎫", text: "Ticket #48291 updated — added remote session notes", time: "15 min ago", color: COLORS.accent },
+  { icon: "✅", text: "Alert acknowledged: NinjaRMM disk space — Contoso DC01", time: "20 min ago", color: COLORS.green },
+  { icon: "🔐", text: "Password retrieved: Contoso 365 Global Admin (MFA verified)", time: "45 min ago", color: COLORS.yellow },
+  { icon: "📞", text: "Incoming call: Sarah Johnson (Contoso) — screen pop delivered", time: "1 hr ago", color: COLORS.pink },
+  { icon: "🎫", text: "Ticket #48275 created — Printer offline, Adventure Works", time: "2 hrs ago", color: COLORS.accent },
+  { icon: "📋", text: "KB article updated: Contoso VPN Setup Procedure", time: "3 hrs ago", color: COLORS.cyan },
+  { icon: "💾", text: "Backup alert resolved: Woodgrove server backup succeeded on retry", time: "4 hrs ago", color: COLORS.green },
+];
+
+const dummyPBX = [
+  { name: "Contoso Ltd", url: "contoso-pbx.reditech.com", status: "online", trunks: "2/2", calls: 3, extensions: "24/25", queued: 1 },
+  { name: "Acme Corp", url: "acme-pbx.reditech.com", status: "online", trunks: "2/2", calls: 2, extensions: "18/18", queued: 0 },
+  { name: "Northwind Inc", url: "northwind-pbx.reditech.com", status: "online", trunks: "1/1", calls: 1, extensions: "12/12", queued: 1 },
+  { name: "Fabrikam", url: "fabrikam-pbx.reditech.com", status: "degraded", trunks: "1/2", calls: 0, extensions: "8/10", queued: 0 },
+  { name: "Adventure Works", url: "aw-pbx.reditech.com", status: "online", trunks: "2/2", calls: 2, extensions: "30/30", queued: 1 },
+  { name: "Woodgrove Bank", url: "woodgrove-pbx.reditech.com", status: "offline", trunks: "0/2", calls: 0, extensions: "0/15", queued: 0 },
+];
+
+const dummyCallLog = [
+  { time: "10:42 AM", dir: "in", caller: "(555) 867-5309", client: "Contoso Ltd", contact: "Sarah Johnson", duration: "4:32", tech: "Jake M." },
+  { time: "10:38 AM", dir: "out", caller: "(555) 234-5678", client: "Acme Corp", contact: "Mike Torres", duration: "2:15", tech: "Sarah C." },
+  { time: "10:25 AM", dir: "in", caller: "(555) 111-2222", client: "Northwind Inc", contact: "Lisa Park", duration: "8:47", tech: "You" },
+  { time: "10:12 AM", dir: "in", caller: "(555) 333-4444", client: "— Unknown —", contact: "—", duration: "1:03", tech: "Missed" },
+  { time: "9:58 AM", dir: "out", caller: "(555) 555-0199", client: "Adventure Works", contact: "Tom Chen", duration: "12:30", tech: "Jake M." },
+  { time: "9:41 AM", dir: "in", caller: "(555) 867-5309", client: "Contoso Ltd", contact: "Sarah Johnson", duration: "3:18", tech: "You" },
+];
+
+const ticketChartData = [
+  { day: "Mon", total: 9, critical: 1, high: 3, med: 4, low: 1 },
+  { day: "Tue", total: 7, critical: 0, high: 2, med: 3, low: 2 },
+  { day: "Wed", total: 11, critical: 2, high: 4, med: 3, low: 2 },
+  { day: "Thu", total: 6, critical: 1, high: 1, med: 3, low: 1 },
+  { day: "Fri", total: 8, critical: 0, high: 3, med: 4, low: 1 },
+  { day: "Sat", total: 3, critical: 1, high: 1, med: 1, low: 0 },
+  { day: "Sun", total: 3, critical: 0, high: 1, med: 1, low: 1 },
+];
+
+const alertSourceData = [
+  { tool: "SentinelOne", count: 24, color: COLORS.red },
+  { tool: "Blackpoint", count: 18, color: COLORS.red },
+  { tool: "NinjaRMM", count: 31, color: COLORS.green },
+  { tool: "Avanan", count: 12, color: COLORS.orange },
+  { tool: "Cove Backup", count: 8, color: COLORS.cyan },
+  { tool: "Duo MFA", count: 5, color: COLORS.purple },
+  { tool: "WatchGuard", count: 7, color: COLORS.red },
+  { tool: "3CX", count: 4, color: COLORS.pink },
+];
+
+const clientHealthData = [
+  { name: "Contoso Ltd", score: 92, patch: 98, backup: 100, edr: 100, mfa: 85, training: 72 },
+  { name: "Acme Corp", score: 87, patch: 95, backup: 100, edr: 95, mfa: 78, training: 65 },
+  { name: "Northwind Inc", score: 79, patch: 88, backup: 95, edr: 100, mfa: 60, training: 52 },
+  { name: "Fabrikam", score: 71, patch: 80, backup: 85, edr: 90, mfa: 55, training: 45 },
+  { name: "Adventure Works", score: 94, patch: 100, backup: 100, edr: 100, mfa: 90, training: 80 },
+  { name: "Woodgrove Bank", score: 83, patch: 92, backup: 90, edr: 100, mfa: 70, training: 62 },
+];
+
+// ── TECH DASHBOARD MOCKUP ──
+const TechDashboardView = () => {
+  const r = useResponsive();
+  const sevColor = { Critical: COLORS.red, High: COLORS.orange, Medium: COLORS.yellow, Low: COLORS.green };
+  const priColor = { High: COLORS.orange, Medium: COLORS.yellow, Low: COLORS.green };
+
+  return (
+    <div>
+      <SectionHeader title="Tech Dashboard" subtitle="Your daily operations view — alerts, tickets, and activity at a glance (mockup with dummy data)" />
+
+      {/* Stats Row */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr 1fr", "1fr 1fr 1fr 1fr", "1fr 1fr 1fr 1fr"), gap: 10, marginBottom: 14 }}>
+        <StatBox value="12" label="Open Tickets" desc="3 high priority" color={COLORS.accent} />
+        <StatBox value="3" label="Critical Alerts" desc="Requires immediate action" color={COLORS.red} />
+        <StatBox value="2" label="Devices Offline" desc="Across all clients" color={COLORS.orange} />
+        <StatBox value="97.3%" label="SLA Compliance" desc="This month" color={COLORS.green} />
+      </div>
+
+      {/* Alerts + Tickets */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr", "3fr 2fr"), gap: 12, marginBottom: 14 }}>
+        {/* Active Alerts */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.red}25`, borderRadius: 10, padding: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary }}>🔔 Active Alerts</span>
+            <span style={{ fontSize: 9, color: COLORS.textMuted }}>{dummyAlerts.length} unresolved</span>
+          </div>
+          {dummyAlerts.map(a => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${COLORS.border}40` }}>
+              <SeverityBadge level={a.severity} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: COLORS.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.tool} — {a.message}</div>
+                <div style={{ fontSize: 9, color: COLORS.textMuted }}>{a.client} {a.device !== "—" ? `· ${a.device}` : ""}</div>
+              </div>
+              <span style={{ fontSize: 9, color: COLORS.textMuted, whiteSpace: "nowrap" }}>{a.time}</span>
+              <ActionBtn label="Ack" color={sevColor[a.severity]} />
+            </div>
+          ))}
+        </div>
+
+        {/* My Open Tickets */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.accent}25`, borderRadius: 10, padding: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary }}>🎫 My Open Tickets</span>
+            <ActionBtn label="+ New Ticket" color={COLORS.accent} />
+          </div>
+          {dummyTickets.map(t => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${COLORS.border}40` }}>
+              <span style={{ fontSize: 9, color: COLORS.textMuted, fontFamily: "monospace" }}>#{t.id}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: COLORS.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div>
+                <div style={{ fontSize: 9, color: COLORS.textMuted }}>{t.client} · {t.assignee} · {t.age}</div>
+              </div>
+              <SeverityBadge level={t.priority} />
+              <span style={{ fontSize: 9, color: t.status === "In Progress" ? COLORS.accent : t.status === "Waiting" ? COLORS.orange : COLORS.textMuted }}>{t.status}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 14 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 10 }}>📋 Recent Activity</span>
+        <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 0 }}>
+          {dummyActivity.map((a, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderBottom: `1px solid ${COLORS.border}30` }}>
+              <span style={{ fontSize: 14 }}>{a.icon}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 10, color: COLORS.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.text}</div>
+              </div>
+              <span style={{ fontSize: 9, color: COLORS.textMuted, whiteSpace: "nowrap" }}>{a.time}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── ANALYTICS MOCKUP ──
+const AnalyticsView = () => {
+  const r = useResponsive();
+  const maxTickets = Math.max(...ticketChartData.map(d => d.total));
+  const maxAlertSource = Math.max(...alertSourceData.map(d => d.count));
+
+  return (
+    <div>
+      <SectionHeader title="Analytics & Reports" subtitle="Ticket volume, alert trends, SLA metrics, and client health scores (mockup with dummy data)" />
+
+      {/* Stats Row */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr 1fr", "1fr 1fr 1fr 1fr", "1fr 1fr 1fr 1fr"), gap: 10, marginBottom: 14 }}>
+        <StatBox value="47" label="Tickets This Week" desc="↓ 12% from last week" color={COLORS.accent} />
+        <StatBox value="14 min" label="Avg Response Time" desc="SLA target: 30 min" color={COLORS.green} />
+        <StatBox value="89" label="Alerts Resolved" desc="This week" color={COLORS.purple} />
+        <StatBox value="87%" label="Client Health Avg" desc="Across 6 clients" color={COLORS.cyan} />
+      </div>
+
+      {/* Charts Row */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 12, marginBottom: 14 }}>
+        {/* Ticket Volume Bar Chart */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.accent}25`, borderRadius: 10, padding: 14 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 12 }}>📊 Ticket Volume (Last 7 Days)</span>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 120, paddingBottom: 20, position: "relative" }}>
+            {ticketChartData.map((d, i) => {
+              const h = (d.total / maxTickets) * 100;
+              const critH = (d.critical / d.total) * h;
+              const highH = (d.high / d.total) * h;
+              const medH = (d.med / d.total) * h;
+              const lowH = (d.low / d.total) * h;
+              return (
+                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: COLORS.textPrimary, marginBottom: 3 }}>{d.total}</span>
+                  <div style={{ width: "100%", maxWidth: 32, display: "flex", flexDirection: "column", borderRadius: 4, overflow: "hidden" }}>
+                    {d.critical > 0 && <div style={{ height: critH * 1.0, background: COLORS.red }} />}
+                    {d.high > 0 && <div style={{ height: highH * 1.0, background: COLORS.orange }} />}
+                    {d.med > 0 && <div style={{ height: medH * 1.0, background: COLORS.yellow }} />}
+                    {d.low > 0 && <div style={{ height: lowH * 1.0, background: COLORS.green }} />}
+                  </div>
+                  <span style={{ fontSize: 9, color: COLORS.textMuted, marginTop: 4 }}>{d.day}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 6 }}>
+            {[["Critical", COLORS.red], ["High", COLORS.orange], ["Medium", COLORS.yellow], ["Low", COLORS.green]].map(([l, c]) => (
+              <div key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
+                <span style={{ fontSize: 9, color: COLORS.textMuted }}>{l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Alerts by Source */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.purple}25`, borderRadius: 10, padding: 14 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 12 }}>🔔 Alerts by Source (This Week)</span>
+          {alertSourceData.map((d, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 10, color: COLORS.textSecondary, width: 80, textAlign: "right", whiteSpace: "nowrap" }}>{d.tool}</span>
+              <div style={{ flex: 1, height: 14, background: `${COLORS.border}`, borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${(d.count / maxAlertSource) * 100}%`, background: `${d.color}cc`, borderRadius: 4, transition: "width 0.3s" }} />
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 700, color: d.color, width: 24, textAlign: "right" }}>{d.count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* SLA + Response Time */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 12, marginBottom: 14 }}>
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.green}25`, borderRadius: 10, padding: 14, textAlign: "center" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 8 }}>✅ SLA Compliance</span>
+          <div style={{ position: "relative", width: 100, height: 100, margin: "0 auto 8px" }}>
+            <svg viewBox="0 0 100 100" style={{ transform: "rotate(-90deg)" }}>
+              <circle cx="50" cy="50" r="40" fill="none" stroke={COLORS.border} strokeWidth="8" />
+              <circle cx="50" cy="50" r="40" fill="none" stroke={COLORS.green} strokeWidth="8" strokeDasharray={`${97.3 * 2.51} ${251}`} strokeLinecap="round" />
+            </svg>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
+              <span style={{ fontSize: 18, fontWeight: 800, color: COLORS.green }}>97.3%</span>
+            </div>
+          </div>
+          <div style={{ fontSize: 10, color: COLORS.textMuted }}>Target: 95% | Last month: 96.1%</div>
+        </div>
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cyan}25`, borderRadius: 10, padding: 14 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 10 }}>⏱️ Response Time Trend (7 days)</span>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 60 }}>
+            {[22, 18, 14, 16, 12, 10, 14].map((v, i) => (
+              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <span style={{ fontSize: 8, color: COLORS.textMuted, marginBottom: 2 }}>{v}m</span>
+                <div style={{ width: "100%", maxWidth: 20, height: (v / 25) * 50, background: v > 20 ? COLORS.orange : v > 15 ? COLORS.yellow : COLORS.cyan, borderRadius: 3 }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+            <span style={{ fontSize: 9, color: COLORS.textMuted }}>Mon</span>
+            <span style={{ fontSize: 9, color: COLORS.textMuted }}>Sun</span>
+          </div>
+          <div style={{ marginTop: 8, padding: "6px 8px", background: `${COLORS.cyan}10`, borderRadius: 6 }}>
+            <span style={{ fontSize: 10, color: COLORS.cyan }}>Avg: 14 min</span>
+            <span style={{ fontSize: 10, color: COLORS.textMuted }}> · SLA target: 30 min · </span>
+            <span style={{ fontSize: 10, color: COLORS.green }}>Well within target</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Client Health Table */}
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cyan}25`, borderRadius: 10, padding: 14 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 10 }}>🏥 Client Health Scores</span>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                {["Client", "Health", "", "Patch", "Backup", "EDR", "MFA", "Training"].map(h => (
+                  <th key={h} style={{ padding: "6px 8px", textAlign: "left", fontSize: 9, fontWeight: 700, color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {clientHealthData.map((c, i) => {
+                const scoreColor = c.score >= 90 ? COLORS.green : c.score >= 75 ? COLORS.yellow : COLORS.orange;
+                return (
+                  <tr key={i} style={{ borderBottom: `1px solid ${COLORS.border}30` }}>
+                    <td style={{ padding: "8px", color: COLORS.textPrimary, fontWeight: 600 }}>{c.name}</td>
+                    <td style={{ padding: "8px", color: scoreColor, fontWeight: 800, fontSize: 13 }}>{c.score}</td>
+                    <td style={{ padding: "8px", width: 80 }}><ProgressBar pct={c.score} color={scoreColor} /></td>
+                    {[c.patch, c.backup, c.edr, c.mfa, c.training].map((v, j) => (
+                      <td key={j} style={{ padding: "8px" }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: v >= 90 ? COLORS.green : v >= 70 ? COLORS.yellow : COLORS.orange }}>{v}%</span>
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── 3CX PBX DASHBOARD MOCKUP ──
+const ThreeCXView = () => {
+  const r = useResponsive();
+
+  return (
+    <div>
+      <SectionHeader title="3CX PBX Dashboard" subtitle="Multi-instance PBX monitoring, call queues, caller intelligence, and admin quick access (mockup with dummy data)" />
+
+      {/* Stats Row */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr 1fr", "1fr 1fr 1fr 1fr", "1fr 1fr 1fr 1fr"), gap: 10, marginBottom: 14 }}>
+        <StatBox value="6" label="PBX Instances" desc="5 online · 1 offline" color={COLORS.pink} />
+        <StatBox value="8" label="Active Calls" desc="Across all PBXs" color={COLORS.green} />
+        <StatBox value="3" label="Queued Calls" desc="Longest wait: 2:34" color={COLORS.orange} />
+        <StatBox value="11/12" label="Trunks Healthy" desc="1 trunk down (Fabrikam)" color={COLORS.cyan} />
+      </div>
+
+      {/* PBX Status Grid */}
+      <div style={{ marginBottom: 14 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 8 }}>📡 PBX Instances</span>
+        <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr 1fr"), gap: 10 }}>
+          {dummyPBX.map((pbx, i) => {
+            const statusColor = pbx.status === "online" ? COLORS.green : pbx.status === "offline" ? COLORS.red : COLORS.orange;
+            return (
+              <div key={i} style={{ background: COLORS.card, border: `1px solid ${statusColor}30`, borderRadius: 10, padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <StatusDot status={pbx.status} />
+                    <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary }}>{pbx.name}</span>
+                  </div>
+                  <span style={{ fontSize: 9, fontWeight: 600, color: statusColor, background: `${statusColor}18`, padding: "2px 8px", borderRadius: 10, textTransform: "uppercase" }}>{pbx.status}</span>
+                </div>
+                <div style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 4 }}>{pbx.url}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+                  <div style={{ background: `${COLORS.bg}`, borderRadius: 6, padding: "6px 8px", textAlign: "center" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: pbx.trunks.startsWith(pbx.trunks.split("/")[1]) ? COLORS.green : COLORS.orange }}>{pbx.trunks}</div>
+                    <div style={{ fontSize: 8, color: COLORS.textMuted, textTransform: "uppercase" }}>Trunks</div>
+                  </div>
+                  <div style={{ background: `${COLORS.bg}`, borderRadius: 6, padding: "6px 8px", textAlign: "center" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: pbx.calls > 0 ? COLORS.green : COLORS.textMuted }}>{pbx.calls}</div>
+                    <div style={{ fontSize: 8, color: COLORS.textMuted, textTransform: "uppercase" }}>Active Calls</div>
+                  </div>
+                  <div style={{ background: `${COLORS.bg}`, borderRadius: 6, padding: "6px 8px", textAlign: "center" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: COLORS.textPrimary }}>{pbx.extensions}</div>
+                    <div style={{ fontSize: 8, color: COLORS.textMuted, textTransform: "uppercase" }}>Extensions</div>
+                  </div>
+                  <div style={{ background: `${COLORS.bg}`, borderRadius: 6, padding: "6px 8px", textAlign: "center" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: pbx.queued > 0 ? COLORS.orange : COLORS.green }}>{pbx.queued}</div>
+                    <div style={{ fontSize: 8, color: COLORS.textMuted, textTransform: "uppercase" }}>Queued</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <ActionBtn label="Open Admin" color={COLORS.accent} />
+                  <ActionBtn label="View Credentials" color={COLORS.yellow} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Call Log + Caller Intelligence */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr", "3fr 2fr"), gap: 12, marginBottom: 14 }}>
+        {/* Recent Call Log */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.pink}25`, borderRadius: 10, padding: 14 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 10 }}>📞 Recent Call Log</span>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                  {["Time", "", "Caller", "Client", "Duration", "Tech"].map(h => (
+                    <th key={h} style={{ padding: "5px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: COLORS.textMuted, textTransform: "uppercase" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {dummyCallLog.map((c, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${COLORS.border}30` }}>
+                    <td style={{ padding: "6px", color: COLORS.textSecondary, fontFamily: "monospace", fontSize: 10 }}>{c.time}</td>
+                    <td style={{ padding: "6px", fontSize: 14 }}>{c.dir === "in" ? "📥" : "📤"}</td>
+                    <td style={{ padding: "6px", color: COLORS.textPrimary }}>{c.caller}<br /><span style={{ fontSize: 9, color: COLORS.textMuted }}>{c.contact}</span></td>
+                    <td style={{ padding: "6px", color: c.client === "— Unknown —" ? COLORS.textMuted : COLORS.textPrimary, fontWeight: c.client === "— Unknown —" ? 400 : 600 }}>{c.client}</td>
+                    <td style={{ padding: "6px", color: COLORS.textSecondary, fontFamily: "monospace" }}>{c.duration}</td>
+                    <td style={{ padding: "6px", color: c.tech === "Missed" ? COLORS.red : c.tech === "You" ? COLORS.accent : COLORS.textSecondary, fontWeight: c.tech === "Missed" ? 700 : 400 }}>{c.tech}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Caller Intelligence Screen Pop Preview */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cyan}25`, borderRadius: 10, padding: 14 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 10 }}>📱 Caller Intelligence — Screen Pop</span>
+          <div style={{ background: `${COLORS.cyan}08`, border: `1px solid ${COLORS.cyan}30`, borderRadius: 10, padding: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 9, color: COLORS.cyan, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Incoming Call — Ringing</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: COLORS.textPrimary }}>Sarah Johnson</div>
+                <div style={{ fontSize: 10, color: COLORS.textSecondary }}>CEO — Contoso Ltd · ⭐ VIP</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, color: COLORS.textPrimary, fontFamily: "monospace" }}>(555) 867-5309</div>
+                <div style={{ fontSize: 9, color: COLORS.textMuted }}>Ext 201 · Contoso PBX</div>
+              </div>
+            </div>
+
+            <div style={{ borderTop: `1px solid ${COLORS.border}40`, paddingTop: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: COLORS.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Open Tickets (2)</div>
+              <div style={{ fontSize: 10, color: COLORS.textPrimary, marginBottom: 2 }}>
+                <span style={{ color: COLORS.orange, fontWeight: 700 }}>[High]</span> #48291 — Outlook credential prompt loop <span style={{ color: COLORS.textMuted }}>· 2h</span>
+              </div>
+              <div style={{ fontSize: 10, color: COLORS.textPrimary }}>
+                <span style={{ color: COLORS.yellow, fontWeight: 700 }}>[Med]</span> #48195 — New employee onboarding: 3 users <span style={{ color: COLORS.textMuted }}>· 5d</span>
+              </div>
+            </div>
+
+            <div style={{ borderTop: `1px solid ${COLORS.border}40`, paddingTop: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: COLORS.textMuted, textTransform: "uppercase", marginBottom: 4 }}>Recent History</div>
+              <div style={{ fontSize: 10, color: COLORS.textSecondary }}>📞 Last called: 3 days ago (Jake M. — printer issue, resolved)</div>
+              <div style={{ fontSize: 10, color: COLORS.textSecondary }}>📊 30-day: 4 tickets, 3 resolved, 1 in-progress</div>
+              <div style={{ fontSize: 10, color: COLORS.green }}>🟢 No active alerts · Devices healthy · Patches 98%</div>
+            </div>
+
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              <ActionBtn label="Answer with Context" color={COLORS.green} />
+              <ActionBtn label="Create Ticket" color={COLORS.accent} />
+              <ActionBtn label="View Client" color={COLORS.purple} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── ARCHITECTURE TAB ──
 const ArchitectureView = ({ selectedTool, setSelectedTool, activeTier, setActiveTier }) => {
   const r = useResponsive();
@@ -1800,6 +2254,10 @@ const tabs = [
   { id: "ai", label: "AI Assistant" },
   { id: "infra", label: "Infrastructure & Cost" },
   { id: "roadmap", label: "Roadmap" },
+  { id: "sep1", label: "│", disabled: true },
+  { id: "techdash", label: "⚡ Tech Dashboard" },
+  { id: "analytics", label: "📊 Analytics" },
+  { id: "threecxdash", label: "📞 3CX PBX" },
 ];
 
 function MSPArchitecture() {
@@ -1820,10 +2278,12 @@ function MSPArchitecture() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 0, marginTop: 10, overflowX: "auto", WebkitOverflowScrolling: "touch", msOverflowStyle: "none", scrollbarWidth: "none" }}>
-          {tabs.map(tab => (
+          {tabs.map(tab => tab.disabled ? (
+            <span key={tab.id} style={{ color: COLORS.border, fontSize: 14, padding: "4px 2px", userSelect: "none" }}>{tab.label}</span>
+          ) : (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               background: "none", border: "none",
-              borderBottom: `2px solid ${activeTab === tab.id ? COLORS.accent : "transparent"}`,
+              borderBottom: `2px solid ${activeTab === tab.id ? (tab.id.startsWith("tech") || tab.id === "analytics" || tab.id === "threecxdash" ? COLORS.pink : COLORS.accent) : "transparent"}`,
               color: activeTab === tab.id ? COLORS.textPrimary : COLORS.textMuted,
               fontSize: r.isMobile ? 10 : 11, fontWeight: 600, padding: r.isMobile ? "8px 10px" : "8px 14px", cursor: "pointer",
               transition: "all 0.2s", whiteSpace: "nowrap",
@@ -1843,6 +2303,9 @@ function MSPArchitecture() {
         {activeTab === "ai" && <AIAssistantView />}
         {activeTab === "infra" && <InfraView />}
         {activeTab === "roadmap" && <PhaseView />}
+        {activeTab === "techdash" && <TechDashboardView />}
+        {activeTab === "analytics" && <AnalyticsView />}
+        {activeTab === "threecxdash" && <ThreeCXView />}
       </div>
     </div>
   );
