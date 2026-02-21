@@ -326,11 +326,14 @@ const ComplianceView = () => {
     {
       title: "System & Integration Health", color: COLORS.green, icon: "⚙️",
       events: [
+        { event: "integration.credential.created", fields: "admin user, tool name, credential type, timestamp" },
+        { event: "integration.credential.updated", fields: "admin user, tool name, field changed (never the value)" },
+        { event: "integration.credential.tested", fields: "admin user, tool name, test result (success/failure)" },
+        { event: "integration.health.degraded", fields: "tool name, response time, threshold exceeded" },
+        { event: "integration.health.failed", fields: "tool name, error code, consecutive failures" },
         { event: "connector.poll.success", fields: "tool, endpoint, records fetched, latency" },
         { event: "connector.poll.failure", fields: "tool, endpoint, error code, retry count" },
-        { event: "connector.ratelimit", fields: "tool, limit hit, backoff duration" },
         { event: "rag.index.updated", fields: "source (OneNote/ITGlue/SharePoint), chunks indexed, duration" },
-        { event: "platform.health", fields: "CPU, memory, disk, DB connections, Redis status, uptime" },
       ]
     },
     {
@@ -1244,6 +1247,11 @@ const DatabaseView = () => {
       desc: "Admin-configurable model routing — override which model handles each AI function"
     },
     {
+      name: "integration_config", color: COLORS.green, icon: "🔌",
+      columns: ["id (UUID, PK)", "tool_id (UNIQUE)", "display_name", "category", "credential_ref (Key Vault secret name)", "connection_status (connected/error/degraded/unconfigured)", "last_health_check", "last_sync", "config_metadata (JSONB: base_url, webhook_path)", "updated_by", "updated_at"],
+      desc: "API credential management — per-tool connection status, health checks, Key Vault references, admin-configurable"
+    },
+    {
       name: "user_preferences", color: COLORS.accent, icon: "🎨",
       columns: ["id (UUID, PK)", "user_id (FK, UNIQUE per key)", "key (VARCHAR)", "value (JSONB)", "updated_at"],
       desc: "Per-user UI customization — widget layout, pinned clients, default page, table density, sidebar state"
@@ -1317,6 +1325,7 @@ const RepoView = () => {
         { path: "  notifications/", desc: "Notification rules, on-call rotations, escalation config", indent: 1 },
         { path: "  analytics/", desc: "Built-in dashboards (Tremor/Recharts) + Grafana embed", indent: 1 },
         { path: "  reconciliation/", desc: "Contract reconciliation — licensed vs. actual per client/vendor", indent: 1 },
+        { path: "  settings/integrations/", desc: "Admin: API credentials for all 20 tools, test connection, health status", indent: 1 },
         { path: "  settings/ai-models/", desc: "Admin: configure model per AI function (GPT-4o vs mini)", indent: 1 },
         { path: "  settings/ai-usage/", desc: "Admin: AI usage dashboard, budgets, rate limits, reports", indent: 1 },
         { path: "  settings/users/[id]/", desc: "Admin: per-user feature flags, KB Write, rate overrides", indent: 1 },
@@ -1438,9 +1447,11 @@ const SecurityView = () => {
     ]},
     { title: "Secrets Management", color: COLORS.orange, icon: "🗝️", items: [
       "All API keys in Azure Key Vault — never in code",
+      "Settings → Integrations: Admin UI for all 20 tool credentials",
+      "Test Connection validates before saving, credentials never re-displayed",
       "Managed identities for Azure service-to-service auth",
-      "Connection strings injected as env vars at deploy time",
-      "Key rotation support without code changes",
+      "Connection health checks every 5 min, alerts on failures",
+      "All credential changes audit-logged (never the values)",
     ]},
     { title: "Data Protection", color: COLORS.green, icon: "🔒", items: [
       "TLS 1.3 for all connections (Azure-managed certs)",
@@ -1601,9 +1612,12 @@ const PhaseView = () => {
       "GitHub Actions CI/CD pipeline → Azure Container Apps auto-deploy",
       "Next.js app with App Router, Tailwind, shadcn/ui — dark mode only (no light theme)",
       "Auth.js + Entra ID OIDC + PKCE with 4 RBAC groups",
-      "Prisma schema: users, clients, audit_events tables",
+      "Prisma schema: users, clients, audit_events, integration_config tables",
       "Immutable audit logging service (Layer 0 — from day 1)",
-      "Dashboard shell with sidebar navigation + settings page",
+      "Dashboard shell with sidebar navigation",
+      "Settings → Integrations: API credential management for all 20 tools",
+      "Per-tool credential forms with Test Connection + Key Vault storage",
+      "Connection health monitoring (5-min health checks, status indicators)",
     ]},
     { phase: "Phase 2", title: "Core Integrations", weeks: "Weeks 4–6", color: COLORS.red, tasks: [
       "Base connector class: auth, retry, rate limiting, error handling",
