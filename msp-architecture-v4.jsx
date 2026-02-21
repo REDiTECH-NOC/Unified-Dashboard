@@ -328,71 +328,132 @@ const clientHealthData = [
   { name: "Woodgrove Bank", score: 83, patch: 92, backup: 90, edr: 100, mfa: 70, training: 62 },
 ];
 
+const techPerformance = [
+  { name: "Jake Miller", worked: 14, closed: 11, avgTime: "22 min", satisfaction: 96, color: COLORS.accent },
+  { name: "Sarah Chen", worked: 12, closed: 10, avgTime: "18 min", satisfaction: 98, color: COLORS.green },
+  { name: "Marcus Rodriguez", worked: 9, closed: 8, avgTime: "25 min", satisfaction: 94, color: COLORS.purple },
+  { name: "Emily Watson", worked: 8, closed: 6, avgTime: "31 min", satisfaction: 91, color: COLORS.cyan },
+  { name: "Derek Thompson", worked: 4, closed: 3, avgTime: "45 min", satisfaction: 89, color: COLORS.orange },
+];
+
+const dummySchedule = [
+  { time: "9:00 AM", task: "Team standup", type: "meeting", duration: "15 min" },
+  { time: "9:30 AM", task: "#48291 — Contoso Outlook issue (follow-up)", type: "ticket", client: "Contoso Ltd", priority: "High" },
+  { time: "10:30 AM", task: "#48284 — Northwind VPN troubleshooting", type: "ticket", client: "Northwind Inc", priority: "High" },
+  { time: "11:30 AM", task: "#48275 — Adventure Works printer setup", type: "ticket", client: "Adventure Works", priority: "Medium" },
+  { time: "1:00 PM", task: "Acme Corp — 5 user onboarding (scheduled)", type: "project", client: "Acme Corp" },
+  { time: "3:00 PM", task: "#48279 — Fabrikam shared mailbox permissions", type: "ticket", client: "Fabrikam", priority: "Low" },
+];
+
 // ── TECH DASHBOARD MOCKUP ──
 const TechDashboardView = () => {
   const r = useResponsive();
-  const sevColor = { Critical: COLORS.red, High: COLORS.orange, Medium: COLORS.yellow, Low: COLORS.green };
-  const priColor = { High: COLORS.orange, Medium: COLORS.yellow, Low: COLORS.green };
 
   return (
     <div>
-      <SectionHeader title="Tech Dashboard" subtitle="Your daily operations view — alerts, tickets, and activity at a glance (mockup with dummy data)" />
+      <SectionHeader title="Tech Dashboard" subtitle="Your daily operations view — tickets, schedule, client health, and activity (mockup with dummy data)" />
 
       {/* Stats Row */}
-      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr 1fr", "1fr 1fr 1fr 1fr", "1fr 1fr 1fr 1fr"), gap: 10, marginBottom: 14 }}>
-        <StatBox value="12" label="Open Tickets" desc="3 high priority" color={COLORS.accent} />
-        <StatBox value="3" label="Critical Alerts" desc="Requires immediate action" color={COLORS.red} />
-        <StatBox value="2" label="Devices Offline" desc="Across all clients" color={COLORS.orange} />
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr 1fr", "1fr 1fr 1fr 1fr 1fr", "1fr 1fr 1fr 1fr 1fr"), gap: 10, marginBottom: 14 }}>
+        <StatBox value="6" label="My Open Tickets" desc="2 high priority" color={COLORS.accent} />
         <StatBox value="97.3%" label="SLA Compliance" desc="This month" color={COLORS.green} />
+        <StatBox value="18 min" label="Avg Response" desc="Target: 30 min" color={COLORS.cyan} />
+        <StatBox value="11" label="Closed This Week" desc="↑ 3 from last week" color={COLORS.purple} />
+        <StatBox value="3" label="Unread Alerts" desc="View in Alert Triage →" color={COLORS.red} />
       </div>
 
-      {/* Alerts + Tickets */}
-      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr", "3fr 2fr"), gap: 12, marginBottom: 14 }}>
-        {/* Active Alerts */}
-        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.red}25`, borderRadius: 10, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary }}>🔔 Active Alerts</span>
-            <span style={{ fontSize: 9, color: COLORS.textMuted }}>{dummyAlerts.length} unresolved</span>
-          </div>
-          {dummyAlerts.map(a => (
-            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${COLORS.border}40` }}>
-              <SeverityBadge level={a.severity} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, color: COLORS.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.tool} — {a.message}</div>
-                <div style={{ fontSize: 9, color: COLORS.textMuted }}>{a.client} {a.device !== "—" ? `· ${a.device}` : ""}</div>
-              </div>
-              <span style={{ fontSize: 9, color: COLORS.textMuted, whiteSpace: "nowrap" }}>{a.time}</span>
-              <ActionBtn label="Ack" color={sevColor[a.severity]} />
-            </div>
-          ))}
-        </div>
-
+      {/* Tickets + Schedule */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "3fr 2fr"), gap: 12, marginBottom: 14 }}>
         {/* My Open Tickets */}
         <div style={{ background: COLORS.card, border: `1px solid ${COLORS.accent}25`, borderRadius: 10, padding: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary }}>🎫 My Open Tickets</span>
             <ActionBtn label="+ New Ticket" color={COLORS.accent} />
           </div>
-          {dummyTickets.map(t => (
-            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${COLORS.border}40` }}>
-              <span style={{ fontSize: 9, color: COLORS.textMuted, fontFamily: "monospace" }}>#{t.id}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, color: COLORS.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div>
-                <div style={{ fontSize: 9, color: COLORS.textMuted }}>{t.client} · {t.assignee} · {t.age}</div>
+          {dummyTickets.filter(t => t.assignee === "You").map(t => (
+            <div key={t.id} style={{ padding: "8px 0", borderBottom: `1px solid ${COLORS.border}40` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 9, color: COLORS.textMuted, fontFamily: "monospace" }}>#{t.id}</span>
+                <SeverityBadge level={t.priority} />
+                <span style={{ fontSize: 9, fontWeight: 600, color: t.status === "In Progress" ? COLORS.accent : t.status === "Waiting" ? COLORS.orange : COLORS.textMuted, background: t.status === "In Progress" ? `${COLORS.accent}15` : t.status === "Waiting" ? `${COLORS.orange}15` : `${COLORS.textMuted}15`, padding: "1px 6px", borderRadius: 8 }}>{t.status}</span>
+                <span style={{ fontSize: 9, color: COLORS.textMuted, marginLeft: "auto" }}>{t.age}</span>
               </div>
-              <SeverityBadge level={t.priority} />
-              <span style={{ fontSize: 9, color: t.status === "In Progress" ? COLORS.accent : t.status === "Waiting" ? COLORS.orange : COLORS.textMuted }}>{t.status}</span>
+              <div style={{ fontSize: 11, color: COLORS.textPrimary, marginBottom: 2 }}>{t.summary}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9, color: COLORS.textMuted }}>
+                <span>{t.client}</span>
+                <span style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+                  <ActionBtn label="Open" color={COLORS.accent} />
+                  <ActionBtn label="Add Note" color={COLORS.textSecondary} />
+                </span>
+              </div>
             </div>
           ))}
+          {/* Also show team tickets assigned to others */}
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${COLORS.border}` }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Team Tickets</span>
+            {dummyTickets.filter(t => t.assignee !== "You").map(t => (
+              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${COLORS.border}20` }}>
+                <span style={{ fontSize: 9, color: COLORS.textMuted, fontFamily: "monospace" }}>#{t.id}</span>
+                <div style={{ flex: 1, fontSize: 10, color: COLORS.textSecondary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.summary}</div>
+                <span style={{ fontSize: 9, color: COLORS.textMuted }}>{t.assignee}</span>
+                <SeverityBadge level={t.priority} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Today's Schedule */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.green}25`, borderRadius: 10, padding: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary }}>📅 Today's Schedule</span>
+            <span style={{ fontSize: 9, color: COLORS.textMuted }}>Thu, Feb 20</span>
+          </div>
+          {dummySchedule.map((s, i) => {
+            const typeColor = s.type === "meeting" ? COLORS.purple : s.type === "project" ? COLORS.cyan : COLORS.accent;
+            const isNow = i === 1;
+            return (
+              <div key={i} style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: `1px solid ${COLORS.border}30`, background: isNow ? `${COLORS.accent}08` : "none", marginLeft: -6, marginRight: -6, paddingLeft: 6, paddingRight: 6, borderRadius: isNow ? 6 : 0 }}>
+                <div style={{ width: 56, flexShrink: 0, textAlign: "right" }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: isNow ? COLORS.accent : COLORS.textSecondary }}>{s.time}</span>
+                </div>
+                <div style={{ width: 3, borderRadius: 2, background: isNow ? COLORS.accent : typeColor, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: COLORS.textPrimary, marginBottom: 2 }}>{s.task}</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 9, color: typeColor, fontWeight: 600, textTransform: "uppercase" }}>{s.type}</span>
+                    {s.client && <span style={{ fontSize: 9, color: COLORS.textMuted }}>{s.client}</span>}
+                    {s.priority && <SeverityBadge level={s.priority} />}
+                    {isNow && <span style={{ fontSize: 8, fontWeight: 700, color: COLORS.accent, background: `${COLORS.accent}20`, padding: "1px 6px", borderRadius: 8 }}>NOW</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* Recent Activity */}
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 14 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 10 }}>📋 Recent Activity</span>
-        <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 0 }}>
+      {/* Client Health Snapshot + Activity */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "2fr 3fr"), gap: 12, marginBottom: 14 }}>
+        {/* Quick Client Health */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.cyan}25`, borderRadius: 10, padding: 14 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 10 }}>🏥 Client Health</span>
+          {clientHealthData.map((c, i) => {
+            const sc = c.score >= 90 ? COLORS.green : c.score >= 75 ? COLORS.yellow : COLORS.orange;
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: COLORS.textPrimary, flex: 1 }}>{c.name}</span>
+                <div style={{ width: 60 }}><ProgressBar pct={c.score} color={sc} height={5} /></div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: sc, width: 28, textAlign: "right" }}>{c.score}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Recent Activity */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 14 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 10 }}>📋 Recent Activity</span>
           {dummyActivity.map((a, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderBottom: `1px solid ${COLORS.border}30` }}>
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${COLORS.border}30` }}>
               <span style={{ fontSize: 14 }}>{a.icon}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 10, color: COLORS.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.text}</div>
@@ -400,6 +461,20 @@ const TechDashboardView = () => {
               <span style={{ fontSize: 9, color: COLORS.textMuted, whiteSpace: "nowrap" }}>{a.time}</span>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* AI Chat Shortcut */}
+      <div style={{ background: `${COLORS.pink}08`, border: `1px solid ${COLORS.pink}25`, borderRadius: 10, padding: 14, display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 22 }}>🤖</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, marginBottom: 2 }}>AI Assistant</div>
+          <div style={{ fontSize: 10, color: COLORS.textMuted }}>Ask about tickets, look up clients, search knowledge base, create documentation, or retrieve passwords</div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <ActionBtn label="Open Chat" color={COLORS.pink} />
+          <ActionBtn label="Quick Ticket" color={COLORS.accent} />
+          <ActionBtn label="Search KB" color={COLORS.green} />
         </div>
       </div>
     </div>
@@ -508,6 +583,80 @@ const AnalyticsView = () => {
             <span style={{ fontSize: 10, color: COLORS.cyan }}>Avg: 14 min</span>
             <span style={{ fontSize: 10, color: COLORS.textMuted }}> · SLA target: 30 min · </span>
             <span style={{ fontSize: 10, color: COLORS.green }}>Well within target</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tech Performance */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 12, marginBottom: 14 }}>
+        {/* Tickets Worked & Closed by Tech */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.accent}25`, borderRadius: 10, padding: 14 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 12 }}>👥 Tickets by Tech (This Week)</span>
+          {(() => {
+            const maxWorked = Math.max(...techPerformance.map(t => t.worked));
+            return techPerformance.map((t, i) => (
+              <div key={i} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: COLORS.textPrimary }}>{t.name}</span>
+                  <span style={{ fontSize: 9, color: COLORS.textMuted }}>Avg: {t.avgTime}</span>
+                </div>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <div style={{ flex: 1, height: 18, background: `${COLORS.border}`, borderRadius: 4, overflow: "hidden", position: "relative" }}>
+                    <div style={{ position: "absolute", height: "100%", width: `${(t.worked / maxWorked) * 100}%`, background: `${t.color}35`, borderRadius: 4 }} />
+                    <div style={{ position: "absolute", height: "100%", width: `${(t.closed / maxWorked) * 100}%`, background: `${t.color}cc`, borderRadius: 4 }} />
+                    <div style={{ position: "relative", display: "flex", alignItems: "center", height: "100%", paddingLeft: 6, gap: 4 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: COLORS.textPrimary }}>{t.closed} closed</span>
+                      <span style={{ fontSize: 9, color: COLORS.textMuted }}>/ {t.worked} worked</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ));
+          })()}
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.border}40` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 12, height: 8, borderRadius: 2, background: `${COLORS.accent}cc` }} />
+              <span style={{ fontSize: 9, color: COLORS.textMuted }}>Closed</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 12, height: 8, borderRadius: 2, background: `${COLORS.accent}35` }} />
+              <span style={{ fontSize: 9, color: COLORS.textMuted }}>Worked (open)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Tech Stats Table */}
+        <div style={{ background: COLORS.card, border: `1px solid ${COLORS.green}25`, borderRadius: 10, padding: 14 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.textPrimary, display: "block", marginBottom: 12 }}>📈 Tech Performance Summary</span>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                {["Tech", "Worked", "Closed", "Close %", "Avg Time", "CSAT"].map(h => (
+                  <th key={h} style={{ padding: "5px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: COLORS.textMuted, textTransform: "uppercase" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {techPerformance.map((t, i) => {
+                const closeRate = Math.round((t.closed / t.worked) * 100);
+                const rateColor = closeRate >= 80 ? COLORS.green : closeRate >= 60 ? COLORS.yellow : COLORS.orange;
+                const satColor = t.satisfaction >= 95 ? COLORS.green : t.satisfaction >= 90 ? COLORS.yellow : COLORS.orange;
+                return (
+                  <tr key={i} style={{ borderBottom: `1px solid ${COLORS.border}30` }}>
+                    <td style={{ padding: "7px 6px", color: COLORS.textPrimary, fontWeight: 600 }}>{t.name}</td>
+                    <td style={{ padding: "7px 6px", color: COLORS.textSecondary }}>{t.worked}</td>
+                    <td style={{ padding: "7px 6px", color: COLORS.textPrimary, fontWeight: 700 }}>{t.closed}</td>
+                    <td style={{ padding: "7px 6px" }}><span style={{ color: rateColor, fontWeight: 700 }}>{closeRate}%</span></td>
+                    <td style={{ padding: "7px 6px", color: COLORS.textSecondary }}>{t.avgTime}</td>
+                    <td style={{ padding: "7px 6px" }}><span style={{ color: satColor, fontWeight: 700 }}>{t.satisfaction}%</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 8, padding: "6px 8px", background: `${COLORS.green}10`, borderRadius: 6, fontSize: 10 }}>
+            <span style={{ color: COLORS.green, fontWeight: 600 }}>Team Total: </span>
+            <span style={{ color: COLORS.textSecondary }}>{techPerformance.reduce((s, t) => s + t.worked, 0)} worked · {techPerformance.reduce((s, t) => s + t.closed, 0)} closed · {Math.round(techPerformance.reduce((s, t) => s + t.closed, 0) / techPerformance.reduce((s, t) => s + t.worked, 0) * 100)}% close rate</span>
           </div>
         </div>
       </div>
