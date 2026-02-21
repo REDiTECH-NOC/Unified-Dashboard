@@ -72,7 +72,7 @@ const tools = [
   { id: "watchguard", name: "WatchGuard", category: "Firewalls", group: "Network", color: COLORS.red, icon: "🔥", apiType: "REST API", dataPoints: ["VPN status", "Threat logs", "Interface health", "Tunnel status"] },
   // Business & Licensing
   { id: "pax8", name: "PAX8", category: "Licensing", group: "Business", color: COLORS.yellow, icon: "🏷️", apiType: "REST API", dataPoints: ["License counts", "Subscriptions", "Billing data", "Product catalog"] },
-  { id: "threecx", name: "3CX", category: "Phone System", group: "Business", color: COLORS.pink, icon: "📞", apiType: "API + Webhooks", dataPoints: ["Call logs", "Queue stats", "Voicemails + transcription", "Presence + ring groups", "SMS alerts to on-call techs", "Emergency VM → auto-ticket"] },
+  { id: "threecx", name: "3CX", category: "Phone System + PBX Management", group: "Business", color: COLORS.pink, icon: "📞", apiType: "API + Webhooks + WebSocket", dataPoints: ["Call logs", "Queue stats", "Voicemails + transcription", "Presence + ring groups", "SMS alerts to on-call techs", "Emergency VM → auto-ticket", "Real-time caller intelligence (screen pop)", "Multi-PBX dashboard (per-customer)", "Trunk status + SIP health", "PBX quick access (admin URL + IT Glue creds)"] },
 ];
 
 const toolGroups = [
@@ -124,6 +124,8 @@ const tiers = [
       { title: "On-Call & Escalation", desc: "Rotation schedules with substitutions. If no response within X min → escalate to secondary tech → manager" },
       { title: "Alert-to-Ticket Engine", desc: "Dedup + severity scoring → auto-creates ConnectWise tickets" },
       { title: "3CX Voicemail Automation", desc: "Emergency VM → OpenAI transcription → caller lookup in PSA → auto-ticket → notify on-call tech" },
+      { title: "3CX Caller Intelligence", desc: "Incoming call → webhook → phone match → screen pop with client, open tickets, history, alerts — WebSocket push to tech browser" },
+      { title: "3CX Multi-PBX Monitor", desc: "Per-customer PBX health checks — trunk status, SIP errors, extension registrations, queue stats, capacity alerts" },
       { title: "Event Queue (Azure Redis)", desc: "Buffered ingestion with retry logic and dead-letter handling" },
     ]
   },
@@ -145,6 +147,8 @@ const tiers = [
       { title: "Built-In Dashboards (Tremor + Recharts)", desc: "Real-time KPI charts, trend lines, bar/pie/area charts — embedded in every page. Replaces BrightGauge." },
       { title: "Grafana Analytics (Embedded)", desc: "4th Docker container — advanced ad-hoc dashboards, iframe embedded. Same PostgreSQL data source." },
       { title: "Client Health Scorecards", desc: "6 weighted metrics: patch, backup, EDR, MFA, training, tickets" },
+      { title: "3CX Caller Intelligence", desc: "Real-time screen pop on incoming calls — client, open tickets, call history, alerts, VIP flags" },
+      { title: "3CX Multi-PBX Dashboard", desc: "Per-customer PBX monitoring — trunk status, active calls, queue stats, admin quick access" },
       { title: "Contract Reconciliation (Future)", desc: "License counts vs. billing per client per vendor — device/user matching across tools. Replaces Gradient MSP." },
       { title: "QBR & Compliance Reports", desc: "Auto-generated PDFs with health trends, incidents, recommendations" },
     ]
@@ -350,6 +354,19 @@ const ComplianceView = () => {
       ]
     },
     {
+      title: "3CX Caller Intelligence & PBX", color: COLORS.pink, icon: "📱",
+      events: [
+        { event: "call.incoming", fields: "3CX instance, caller number, tech extension, matched client, matched contact" },
+        { event: "call.screenpop.delivered", fields: "call ID, tech user, client, delivery latency ms, tickets shown" },
+        { event: "call.answered", fields: "call ID, tech user, ring duration sec, client" },
+        { event: "call.completed", fields: "call ID, duration sec, recording URL, ticket created (bool)" },
+        { event: "call.ticket.created", fields: "call ID, CW ticket ID, client, contact, auto-populated fields" },
+        { event: "pbx.health.checked", fields: "instance ID, client, status (online/offline), trunk status, extensions registered" },
+        { event: "pbx.alert.triggered", fields: "instance ID, client, alert type (trunk_down/sip_error/queue_high/license_warn)" },
+        { event: "pbx.credential.accessed", fields: "tech user, instance ID, client, credential type (admin login), MFA verified" },
+      ]
+    },
+    {
       title: "Data Access & Export", color: COLORS.purple, icon: "📊",
       events: [
         { event: "report.generated", fields: "user, report type (QBR/health/audit), client, format" },
@@ -431,6 +448,14 @@ const AIAssistantView = () => {
         { role: "system", text: "📞 INCOMING EMERGENCY VOICEMAIL — 3CX After-Hours Queue\n\nCaller: (555) 234-5678 | Duration: 47 seconds | Queue: Emergency\nTimestamp: 11:43 PM EST" },
         { role: "ai", text: "🔍 VOICEMAIL PROCESSING\n\n1. OpenAI Whisper transcription complete:\n\"Hi, this is Mike from — I think Contoso — our server is down and nobody can access email or files. This is urgent, we have a deadline tomorrow morning. Please call me back at 555-234-5678.\"\n\n2. Caller lookup: (555) 234-5678 → ConnectWise PSA\n   ✅ Match: Mike Torres — Contoso Ltd (IT Contact)\n\n3. Auto-creating ConnectWise ticket..." },
         { role: "ticket", text: "📋 AUTO-CREATED TICKET\nBoard: Service — Emergency\nCompany: Contoso Ltd | Contact: Mike Torres\nPriority: Emergency (after-hours + server down)\nSummary: Server down — no email or file access (reported via voicemail)\n\nNotes:\n• OpenAI transcription attached\n• Callback: (555) 234-5678\n• Deadline mentioned: tomorrow morning\n\n📱 On-Call Tech: Jake Miller (primary)\n• Teams alert sent with transcription\n• SMS sent via 3CX: \"EMERGENCY: Contoso server down — see Teams for details\"\n• Email sent with full VM transcription\n\n⏱️ Escalation: If Jake doesn't acknowledge within 15 min → alert Sarah Chen (secondary) → then manager\n\n📝 Logged: voicemail.received → voicemail.transcribed → voicemail.caller.matched → voicemail.ticket.created → oncall.tech.notified" },
+      ]
+    },
+    {
+      title: "Caller Intelligence (Screen Pop)", color: COLORS.cyan,
+      messages: [
+        { role: "system", text: "📱 INCOMING CALL — 3CX Screen Pop\n\nRinging: Ext 201 (Jake Miller)\nCaller: (555) 867-5309\nPBX: Contoso 3CX (contoso-pbx.reditech.com)\nMatched: ✅ Contoso Ltd → Sarah Johnson (CEO)" },
+        { role: "ai", text: "📋 CALLER CONTEXT — Sarah Johnson, Contoso Ltd\n\n👤 Contact: Sarah Johnson — CEO\n⭐ VIP Client: Yes\n📞 Last called: 3 days ago (handled by Jake — printer issue, resolved)\n\n🎫 Open Tickets (2):\n• #48291 [High] — Outlook credential prompt loop (2 hours old)\n• #48195 [Medium] — New employee onboarding: 3 users (5 days old)\n\n📊 Recent History (30 days): 4 tickets, 3 resolved, 1 in-progress\n\n🔴 Active Alerts:\n• None — all clear across EDR/MDR/backup/network\n\n💻 Device Health: 12 devices, all healthy, patches 98% compliant\n\n— Answer with full context. After call, click 'Create Ticket' to auto-fill." },
+        { role: "ticket", text: "📋 POST-CALL TICKET (auto-populated)\nBoard: Service — Tier 1\nCompany: Contoso Ltd | Contact: Sarah Johnson (CEO)\nPhone: (555) 867-5309\nRelated: #48291 (Outlook credential prompt)\n\nCall Notes: ___________\n[AI can summarize notes into ticket description]\n[Attach call recording if enabled in 3CX]\n\n📝 Logged: call.incoming → call.screenpop.delivered → call.answered → call.ticket.created" },
       ]
     },
   ];
@@ -1222,6 +1247,21 @@ const DatabaseView = () => {
       desc: "Emergency voicemails — OpenAI transcription, caller identified via PSA lookup, auto-ticketed"
     },
     {
+      name: "threecx_instances", color: COLORS.pink, icon: "🏢",
+      columns: ["id (UUID, PK)", "client_id (FK)", "instance_name", "admin_url", "api_credential_ref (Key Vault)", "itglue_credential_id (nullable)", "status (online/offline/degraded)", "last_health_check", "trunk_status (JSONB)", "config (JSONB)", "created_at"],
+      desc: "Customer 3CX PBX instances — multi-instance monitoring, health checks, admin quick access via IT Glue creds"
+    },
+    {
+      name: "threecx_calls", color: COLORS.pink, icon: "📲",
+      columns: ["id (UUID, PK)", "instance_id (FK)", "direction (in/out)", "caller_number", "callee_number", "matched_client_id (FK, nullable)", "matched_contact", "duration_sec", "recording_url", "cw_ticket_id (FK, nullable)", "answered_by_user_id (FK, nullable)", "screenpop_delivered (BOOL)", "created_at"],
+      desc: "Call log for caller intelligence — phone match, screen pop delivery, post-call ticket linking"
+    },
+    {
+      name: "threecx_extensions", color: COLORS.pink, icon: "📞",
+      columns: ["id (UUID, PK)", "instance_id (FK)", "extension_number", "user_id (FK, nullable)", "display_name", "status (registered/offline)", "updated_at"],
+      desc: "Tech-to-extension mapping — links 3CX extensions to platform users for caller intelligence routing"
+    },
+    {
       name: "client_product_map", color: COLORS.yellow, icon: "🔗",
       columns: ["id (UUID, PK)", "client_id (FK)", "vendor (PAX8/CW/Ninja/etc)", "vendor_product_id", "product_name", "licensed_qty", "actual_qty", "unit_type (device/user/mailbox)", "monthly_cost", "last_synced"],
       desc: "Contract reconciliation — maps vendor products to clients with licensed vs. actual counts (future: replaces Gradient MSP)"
@@ -1321,6 +1361,7 @@ const RepoView = () => {
         { path: "  security/", desc: "EDR/MDR/email security overview", indent: 1 },
         { path: "  backups/", desc: "Cove + Dropsuite status", indent: 1 },
         { path: "  network/", desc: "Unifi + WatchGuard overview", indent: 1 },
+        { path: "  phone/", desc: "3CX Multi-PBX dashboard, call logs, queue stats", indent: 1 },
         { path: "  compliance/", desc: "Audit logs + reports", indent: 1 },
         { path: "  notifications/", desc: "Notification rules, on-call rotations, escalation config", indent: 1 },
         { path: "  analytics/", desc: "Built-in dashboards (Tremor/Recharts) + Grafana embed", indent: 1 },
@@ -1330,7 +1371,7 @@ const RepoView = () => {
         { path: "  settings/ai-usage/", desc: "Admin: AI usage dashboard, budgets, rate limits, reports", indent: 1 },
         { path: "  settings/users/[id]/", desc: "Admin: per-user feature flags, KB Write, rate overrides", indent: 1 },
         { path: "src/app/api/", desc: "API routes", indent: 0 },
-        { path: "  webhooks/", desc: "ninja/, blackpoint/, threecx/ (incl. voicemail events)", indent: 1 },
+        { path: "  webhooks/", desc: "ninja/, blackpoint/, threecx/ (voicemail + call events + PBX alerts)", indent: 1 },
         { path: "  ai/chat/", desc: "AI streaming endpoint", indent: 1 },
       ]
     },
@@ -1353,6 +1394,8 @@ const RepoView = () => {
         { path: "  notification-engine.ts", desc: "Outbound alerts: Teams webhooks + 3CX SMS + email", indent: 1 },
         { path: "  escalation-engine.ts", desc: "Timeout monitoring → auto-escalate if no acknowledgment", indent: 1 },
         { path: "  voicemail-pipeline.ts", desc: "3CX VM → OpenAI Whisper → PSA lookup → auto-ticket", indent: 1 },
+        { path: "  caller-intelligence.ts", desc: "Incoming call → phone match → screen pop context assembly", indent: 1 },
+        { path: "  pbx-monitor.ts", desc: "Multi-PBX health checks, trunk status, alert generation", indent: 1 },
         { path: "  on-call.ts", desc: "On-call schedule resolution, rotation, substitutions", indent: 1 },
         { path: "  reconciliation.ts", desc: "Contract reconciliation: licensed vs. actual counts across vendors", indent: 1 },
         { path: "  product-matcher.ts", desc: "Cross-vendor product name normalization and matching", indent: 1 },
@@ -1389,6 +1432,8 @@ const RepoView = () => {
         { path: "  sentinelone-threat-sync.json", desc: "SentinelOne polling workflow", indent: 1 },
         { path: "  blackpoint-webhook-handler.json", desc: "Blackpoint webhook processor", indent: 1 },
         { path: "  threecx-voicemail-handler.json", desc: "VM received → transcribe → lookup → ticket → notify", indent: 1 },
+        { path: "  threecx-call-handler.json", desc: "Incoming call → phone match → screen pop context → WebSocket push", indent: 1 },
+        { path: "  threecx-pbx-health.json", desc: "Multi-PBX health polling → trunk/SIP/extension status → alerts", indent: 1 },
         { path: "  alert-teams-webhook.json", desc: "Outbound alert → Teams channel notification", indent: 1 },
         { path: "  alert-sms-oncall.json", desc: "Emergency alert → SMS to on-call tech via 3CX", indent: 1 },
         { path: "  ... (more per tool)", desc: "One workflow per integration", indent: 1 },
@@ -1673,12 +1718,19 @@ const PhaseView = () => {
       "3CX connector — call logs, queue stats, voicemails, presence, inbound/outbound SMS",
       "3CX voicemail → OpenAI API (Whisper) transcription pipeline",
       "Emergency VM → auto-ticket: caller number lookup in ConnectWise PSA + transcription analysis",
+      "3CX Caller Intelligence — webhook → phone match → screen pop (client, tickets, history, alerts)",
+      "3CX Multi-PBX Dashboard — per-customer PBX cards, trunk status, active calls, queue stats",
+      "3CX PBX Quick Access — admin URL links + IT Glue credential retrieval (MFA-gated)",
+      "3CX multi-instance management in Settings → Integrations",
+      "WebSocket push for real-time screen pop delivery to tech browsers",
+      "Post-call ticketing: auto-create CW ticket with client/contact/call context pre-filled",
+      "threecx_instances, threecx_calls, threecx_extensions DB tables",
       "Notification & Alerting Engine — granular, customizable rules per severity/tool/client/schedule",
       "On-call rotation builder with substitutions + escalation paths (primary → secondary → manager)",
       "Escalation engine: if no response within X min → auto-escalate to next in chain",
       "Notification channels: Teams webhooks, SMS via 3CX, email — daily + on-call schedules",
       "PAX8 connector — license counts, subscriptions, billing",
-      "Backup + Network + Notification dashboard pages",
+      "Backup + Network + Phone + Notification dashboard pages",
     ]},
     { phase: "Phase 6", title: "Dashboards, Reporting & Compliance", weeks: "Weeks 16–19", color: COLORS.green, tasks: [
       "Built-in dashboards with Tremor + Recharts (replaces BrightGauge)",
