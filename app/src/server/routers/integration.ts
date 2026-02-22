@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { router, adminProcedure, protectedProcedure } from "../trpc";
 import { auditLog } from "@/lib/audit";
 
@@ -56,7 +57,7 @@ export const integrationRouter = router({
       const result = await ctx.prisma.integrationConfig.upsert({
         where: { toolId: input.toolId },
         update: {
-          config: input.config || null,
+          config: (input.config as Prisma.InputJsonValue) ?? undefined,
           credentialRef: input.credentialRef || null,
           status: "connected",
           updatedBy: ctx.user.id,
@@ -65,7 +66,7 @@ export const integrationRouter = router({
           toolId: input.toolId,
           displayName: tool.displayName,
           category: tool.category,
-          config: input.config || null,
+          config: (input.config as Prisma.InputJsonValue) ?? undefined,
           credentialRef: input.credentialRef || null,
           status: "connected",
           updatedBy: ctx.user.id,

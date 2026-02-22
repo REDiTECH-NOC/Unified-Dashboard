@@ -190,12 +190,12 @@ export const userRouter = router({
     .mutation(async ({ ctx, input }) => {
       const result = await ctx.prisma.userFeatureFlag.upsert({
         where: { userId_flag: { userId: input.userId, flag: input.flag } },
-        update: { enabled: input.enabled, value: input.value || null, updatedBy: ctx.user.id },
+        update: { enabled: input.enabled, value: (input.value as any) ?? undefined, updatedBy: ctx.user.id },
         create: {
           userId: input.userId,
           flag: input.flag,
           enabled: input.enabled,
-          value: input.value || null,
+          value: (input.value as any) ?? undefined,
           updatedBy: ctx.user.id,
         },
       });
