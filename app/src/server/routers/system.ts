@@ -233,25 +233,29 @@ export const systemRouter = router({
   health: protectedProcedure.query(async () => {
     const docker = await getDocker();
 
+    // Use internal URLs — works on both Docker Compose and Azure Container Apps
+    const n8nUrl = process.env.N8N_INTERNAL_URL ?? `http://${process.env.N8N_HOST ?? "n8n"}:5678`;
+    const grafanaUrl = process.env.GRAFANA_INTERNAL_URL ?? `http://${process.env.GRAFANA_HOST ?? "grafana"}:3000`;
+
     const [db, redisStatus, n8n, grafana] = await Promise.all([
       checkDatabase(),
       checkRedis(),
       checkHttpService(
         "n8n",
-        `http://${process.env.N8N_HOST ?? "n8n"}:5678/healthz`,
+        `${n8nUrl}/healthz`,
         "container",
         () => null
       ),
       checkHttpService(
         "Grafana",
-        `http://${process.env.GRAFANA_HOST ?? "grafana"}:3000/api/health`,
+        `${grafanaUrl}/api/health`,
         "container",
         (data) => (data as { version?: string })?.version ?? null
       ),
     ]);
 
-    // Get n8n version from Docker image labels (n8n doesn't expose version via HTTP)
-    if (n8n.status === "healthy" && !n8n.version) {
+    // Try Docker image labels for n8n version (only available in docker-compose env)
+    if (n8n.status === "healthy" && !n8n.version && docker) {
       const ver = await getContainerVersion("rcc-n8n", docker);
       if (ver) {
         n8n.version = ver;
@@ -311,16 +315,28 @@ export const systemRouter = router({
       canUpdate: boolean;
     }> = [];
 
-    // n8n version from Docker image labels
-    const n8nVersion = await getContainerVersion("rcc-n8n", docker);
+    // n8n version — try Docker labels first, then HTTP API
+    let n8nVersion = await getContainerVersion("rcc-n8n", docker);
+    if (!n8nVersion) {
+      const n8nUrl = process.env.N8N_INTERNAL_URL ?? `http://${process.env.N8N_HOST ?? "n8n"}:5678`;
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${n8nUrl}/healthz`, { signal: controller.signal });
+        clearTimeout(timeout);
+        // n8n healthz doesn't return version, but if reachable mark as running
+        if (res.ok) n8nVersion = "running";
+      } catch { /* ignore */ }
+    }
 
-    // Grafana version
+    // Grafana version — use internal URL (works on Docker Compose and Azure)
+    const grafanaUrl = process.env.GRAFANA_INTERNAL_URL ?? `http://${process.env.GRAFANA_HOST ?? "grafana"}:3000`;
     let grafanaVersion: string | null = null;
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
       const res = await fetch(
-        `http://${process.env.GRAFANA_HOST ?? "grafana"}:3000/api/health`,
+        `${grafanaUrl}/api/health`,
         { signal: controller.signal }
       );
       clearTimeout(timeout);
