@@ -222,9 +222,31 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             token.role = dbUser.role;
             token.mustSetupTotp = dbUser.mustSetupTotp;
             token.authMethod = dbUser.authMethod;
+            token.lastValidated = Date.now();
           }
         }
       }
+
+      // Periodic revalidation — verify user still exists in DB every 5 minutes
+      if (token.userId) {
+        const lastValidated = (token.lastValidated as number) || 0;
+        const fiveMinutes = 5 * 60 * 1000;
+        if (Date.now() - lastValidated > fiveMinutes) {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: token.userId as string },
+            select: { id: true, role: true, mustSetupTotp: true, authMethod: true },
+          });
+          if (!dbUser) {
+            // User no longer exists — invalidate token
+            return { email: token.email };
+          }
+          token.role = dbUser.role;
+          token.mustSetupTotp = dbUser.mustSetupTotp;
+          token.authMethod = dbUser.authMethod;
+          token.lastValidated = Date.now();
+        }
+      }
+
       return token;
     },
 
