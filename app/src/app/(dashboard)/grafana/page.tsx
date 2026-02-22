@@ -1,20 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldAlert, Loader2 } from "lucide-react";
+import { ShieldAlert, ServerOff, Loader2 } from "lucide-react";
+
+type GrafanaState = "loading" | "permitted" | "denied" | "unavailable";
 
 export default function AnalyticsPage() {
-  const [permitted, setPermitted] = useState<boolean | null>(null);
+  const [state, setState] = useState<GrafanaState>("loading");
 
   useEffect(() => {
     fetch("/api/embed/grafana/api/health")
       .then((res) => {
-        setPermitted(res.status !== 403);
+        if (res.status === 403) setState("denied");
+        else if (res.status === 502 || res.status === 504) setState("unavailable");
+        else if (res.ok) setState("permitted");
+        else setState("unavailable");
       })
-      .catch(() => setPermitted(false));
+      .catch(() => setState("unavailable"));
   }, []);
 
-  if (permitted === null) {
+  if (state === "loading") {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -22,7 +27,7 @@ export default function AnalyticsPage() {
     );
   }
 
-  if (!permitted) {
+  if (state === "denied") {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] text-center">
         <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-muted mb-4">
@@ -31,6 +36,20 @@ export default function AnalyticsPage() {
         <p className="text-sm font-medium text-foreground">Access Denied</p>
         <p className="text-xs text-muted-foreground mt-1 max-w-xs">
           You do not have permission to access Grafana analytics. Contact an administrator.
+        </p>
+      </div>
+    );
+  }
+
+  if (state === "unavailable") {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] text-center">
+        <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-muted mb-4">
+          <ServerOff className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium text-foreground">Grafana Unavailable</p>
+        <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+          The Grafana service is not reachable. It may be starting up or not yet configured.
         </p>
       </div>
     );
