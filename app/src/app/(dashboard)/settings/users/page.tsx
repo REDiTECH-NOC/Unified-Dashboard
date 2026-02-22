@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -79,6 +79,14 @@ const PERMISSION_MODULES: Record<string, { key: string; label: string; descripti
 };
 
 export default function UsersPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-muted-foreground p-6">Loading...</p>}>
+      <UsersContent />
+    </Suspense>
+  );
+}
+
+function UsersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab = searchParams.get("tab") === "roles" ? "roles" : "users";
