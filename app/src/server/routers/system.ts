@@ -318,8 +318,23 @@ export const systemRouter = router({
     // n8n version — try Docker labels first, then HTTP API
     let n8nVersion = await getContainerVersion("rcc-n8n", docker);
     let n8nReachable = false;
+    const n8nUrl = process.env.N8N_INTERNAL_URL ?? `http://${process.env.N8N_HOST ?? "n8n"}:5678`;
     if (!n8nVersion) {
-      const n8nUrl = process.env.N8N_INTERNAL_URL ?? `http://${process.env.N8N_HOST ?? "n8n"}:5678`;
+      // Try n8n's /rest/settings endpoint (returns version without auth in some configs)
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${n8nUrl}/rest/settings`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (res.ok) {
+          const data = await res.json() as { data?: { n8nVersion?: string; versionCli?: string } };
+          n8nVersion = data.data?.n8nVersion ?? data.data?.versionCli ?? null;
+          n8nReachable = true;
+        }
+      } catch { /* ignore */ }
+    }
+    if (!n8nVersion && !n8nReachable) {
+      // Fallback: just check if n8n is reachable
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
@@ -393,8 +408,8 @@ export const systemRouter = router({
       canUpdate: dockerAvailable,
     });
 
-    // Grafana
-    const grafanaRunning = !!containerUptimes["rcc-grafana"];
+    // Grafana — use HTTP reachability as fallback when Docker socket unavailable
+    const grafanaRunning = !!containerUptimes["rcc-grafana"] || !!grafanaVersion;
     containers.push({
       service: "Grafana",
       containerName: "rcc-grafana",

@@ -113,9 +113,8 @@ services:
       - GF_AUTH_PROXY_AUTO_SIGN_UP=true
       - GF_AUTH_PROXY_HEADERS=Role:X-WEBAUTH-ROLE
       - GF_AUTH_PROXY_SYNC_TTL=5
-      # ── Sub-path serving (match proxy route) ──
-      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/api/embed/grafana/
-      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      # ── Root URL for link generation (proxy strips /api/embed/grafana/ prefix) ──
+      - GF_SERVER_ROOT_URL=/api/embed/grafana/
     volumes:
       - grafanadata:/var/lib/grafana
     networks:

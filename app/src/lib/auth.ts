@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import type { Provider } from "next-auth/providers";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Credentials from "next-auth/providers/credentials";
+import { authConfig } from "./auth.config";
 import { prisma } from "./prisma";
 import { auditLog } from "./audit";
 import bcrypt from "bcryptjs";
@@ -133,11 +134,7 @@ if (ssoConfigured) {
 export { ssoConfigured };
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  session: { strategy: "jwt", maxAge: 8 * 60 * 60 },
-  pages: {
-    signIn: "/login",
-    error: "/login",
-  },
+  ...authConfig,
   providers,
   callbacks: {
     async signIn({ user, account }) {
@@ -250,14 +247,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token;
     },
 
-    async session({ session, token }) {
-      if (token.userId) {
-        session.user.id = token.userId as string;
-        session.user.role = token.role as string;
-        (session.user as any).mustSetupTotp = token.mustSetupTotp;
-        (session.user as any).authMethod = token.authMethod;
-      }
-      return session;
-    },
+    // Reuse Edge-safe session callback from auth.config.ts
+    session: authConfig.callbacks.session as any,
   },
 });
