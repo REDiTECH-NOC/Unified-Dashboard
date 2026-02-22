@@ -2,12 +2,15 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { router, adminProcedure, protectedProcedure } from "../trpc";
 import { auditLog } from "@/lib/audit";
+import { ConnectorFactory } from "../connectors/factory";
+import { CONNECTOR_REGISTRY } from "../connectors/registry";
+import { ConnectorNotConfiguredError } from "../connectors/_base/errors";
 
 const TOOL_REGISTRY = [
   { toolId: "entra-id", displayName: "Microsoft Entra ID (SSO)", category: "identity" },
   { toolId: "ninjaone", displayName: "NinjaOne (RMM)", category: "rmm" },
   { toolId: "connectwise", displayName: "ConnectWise PSA", category: "psa" },
-  { toolId: "sentinelone", displayName: "SentinelOne", category: "security" },
+  { toolId: "sentinelone", displayName: "SentinelOne", category: "edr" },
   { toolId: "blackpoint", displayName: "Blackpoint Compass One", category: "security" },
   { toolId: "avanan", displayName: "Avanan", category: "security" },
   { toolId: "dnsfilter", displayName: "DNS Filter", category: "security" },
@@ -39,25 +42,57 @@ export const integrationRouter = router({
         status: config?.status || "unconfigured",
         lastHealthCheck: config?.lastHealthCheck || null,
         lastSync: config?.lastSync || null,
-        config: config?.config || null,
+        hasConfig: !!config?.config,
         id: config?.id || null,
       };
     });
   }),
+
+  getConfig: adminProcedure
+    .input(z.object({ toolId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const config = await ctx.prisma.integrationConfig.findUnique({
+        where: { toolId: input.toolId },
+      });
+      if (!config?.config) return null;
+
+      const raw = config.config as Record<string, unknown>;
+      return {
+        config: raw,
+        status: config.status,
+      };
+    }),
 
   updateConfig: adminProcedure
     .input(z.object({
       toolId: z.string(),
       config: z.record(z.unknown()).optional(),
       credentialRef: z.string().optional(),
+      secretFields: z.array(z.string()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const tool = TOOL_REGISTRY.find((t) => t.toolId === input.toolId);
       if (!tool) throw new Error("Unknown tool");
+
+      let configToSave = { ...(input.config ?? {}) };
+
+      // Preserve existing values for blank secret fields
+      if (input.secretFields?.length) {
+        const existing = await ctx.prisma.integrationConfig.findUnique({
+          where: { toolId: input.toolId },
+        });
+        const existingConfig = (existing?.config as Record<string, unknown>) ?? {};
+        for (const secretKey of input.secretFields) {
+          if (!configToSave[secretKey]) {
+            configToSave[secretKey] = existingConfig[secretKey];
+          }
+        }
+      }
+
       const result = await ctx.prisma.integrationConfig.upsert({
         where: { toolId: input.toolId },
         update: {
-          config: (input.config as Prisma.InputJsonValue) ?? undefined,
+          config: (configToSave as Prisma.InputJsonValue) ?? undefined,
           credentialRef: input.credentialRef || null,
           status: "connected",
           updatedBy: ctx.user.id,
@@ -66,12 +101,15 @@ export const integrationRouter = router({
           toolId: input.toolId,
           displayName: tool.displayName,
           category: tool.category,
-          config: (input.config as Prisma.InputJsonValue) ?? undefined,
+          config: (configToSave as Prisma.InputJsonValue) ?? undefined,
           credentialRef: input.credentialRef || null,
           status: "connected",
           updatedBy: ctx.user.id,
         },
       });
+      // Invalidate cached connector instance so next use picks up new credentials
+      ConnectorFactory.invalidate(input.toolId);
+
       await auditLog({
         action: "integration.credential.updated",
         category: "INTEGRATION",
@@ -85,14 +123,45 @@ export const integrationRouter = router({
   testConnection: adminProcedure
     .input(z.object({ toolId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      let success = false;
+      let message = "No connector available for this tool";
+      let latencyMs: number | undefined;
+
+      // Try real health check if a connector is registered for this tool
+      if (CONNECTOR_REGISTRY[input.toolId]) {
+        try {
+          const connector = await ConnectorFactory.getByToolId(input.toolId, ctx.prisma);
+          const result = await (connector as { healthCheck: () => Promise<{ ok: boolean; latencyMs: number; message?: string }> }).healthCheck();
+          success = result.ok;
+          message = result.message ?? (result.ok ? "Connection successful" : "Connection failed");
+          latencyMs = result.latencyMs;
+
+          // Update status in DB based on health check result
+          await ctx.prisma.integrationConfig.update({
+            where: { toolId: input.toolId },
+            data: {
+              lastHealthCheck: new Date(),
+              status: result.ok ? "connected" : "error",
+            },
+          });
+        } catch (error) {
+          if (error instanceof ConnectorNotConfiguredError) {
+            message = "Integration not configured. Enter credentials first.";
+          } else {
+            message = error instanceof Error ? error.message : "Connection test failed";
+          }
+        }
+      }
+
       await auditLog({
         action: "integration.credential.tested",
         category: "INTEGRATION",
         actorId: ctx.user.id,
         resource: "integration:" + input.toolId,
-        detail: { toolId: input.toolId },
+        detail: { toolId: input.toolId, success, latencyMs },
       });
-      return { success: true, message: "Connection test placeholder" };
+
+      return { success, message, latencyMs };
     }),
 
   // Get SSO configuration (masked secrets)

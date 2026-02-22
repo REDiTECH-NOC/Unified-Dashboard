@@ -57,9 +57,8 @@ export function Header() {
         >
           <Menu className="h-5 w-5" />
         </button>
-        <h1 className="text-xl font-bold tracking-tight text-foreground">
-          Dashboard
-        </h1>
+        {/* Slot for page-specific actions (e.g. breadcrumbs, action buttons) */}
+        <div id="header-actions" className="flex items-center gap-2" />
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">

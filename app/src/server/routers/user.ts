@@ -13,6 +13,12 @@ export const userRouter = router({
     });
   }),
 
+  // Returns the set of granted permission keys for the current user (for sidebar/UI filtering)
+  myPermissions: protectedProcedure.query(async ({ ctx }) => {
+    const effective = await getUserEffectivePermissions(ctx.user.id);
+    return effective.filter((p) => p.granted).map((p) => p.permission);
+  }),
+
   getProfile: protectedProcedure.query(async ({ ctx }) => {
     const user = await ctx.prisma.user.findUnique({
       where: { id: ctx.user.id },
@@ -207,6 +213,34 @@ export const userRouter = router({
         detail: { flag: input.flag, enabled: input.enabled },
       });
       return result;
+    }),
+
+  // ── Dashboard Layout ──
+  getDashboardLayout: protectedProcedure.query(async ({ ctx }) => {
+    const pref = await ctx.prisma.userPreference.findUnique({
+      where: { userId_key: { userId: ctx.user.id, key: "dashboard.layout" } },
+    });
+    return pref?.value ?? null;
+  }),
+
+  saveDashboardLayout: protectedProcedure
+    .input(z.object({
+      version: z.number(),
+      items: z.array(z.object({
+        i: z.string(),
+        x: z.number().int().min(0),
+        y: z.number().int().min(0),
+        w: z.number().int().min(1).max(12),
+        h: z.number().int().min(1).max(20),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.prisma.userPreference.upsert({
+        where: { userId_key: { userId: ctx.user.id, key: "dashboard.layout" } },
+        update: { value: input as any },
+        create: { userId: ctx.user.id, key: "dashboard.layout", value: input as any },
+      });
+      return { success: true };
     }),
 
   // Create a new local user account
