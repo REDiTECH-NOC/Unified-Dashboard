@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import type { AuditCategory } from "@prisma/client";
+import type { AuditCategory, Prisma } from "@prisma/client";
 
 export type { AuditCategory };
 
@@ -46,7 +46,7 @@ export async function auditLog(params: AuditLogParams) {
         category: params.category,
         actorId: params.actorId || null,
         resource: params.resource || null,
-        detail: params.detail ?? undefined,
+        detail: (params.detail as Prisma.InputJsonValue) ?? undefined,
         ip: params.ip || null,
         userAgent: params.userAgent || null,
         outcome: params.outcome || "success",
