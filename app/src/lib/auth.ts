@@ -117,7 +117,6 @@ if (ssoConfigured) {
     MicrosoftEntraID({
       clientId,
       clientSecret,
-      tenantId,
       issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
       authorization: {
         url: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`,
