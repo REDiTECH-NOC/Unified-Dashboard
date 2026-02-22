@@ -317,6 +317,7 @@ export const systemRouter = router({
 
     // n8n version — try Docker labels first, then HTTP API
     let n8nVersion = await getContainerVersion("rcc-n8n", docker);
+    let n8nReachable = false;
     if (!n8nVersion) {
       const n8nUrl = process.env.N8N_INTERNAL_URL ?? `http://${process.env.N8N_HOST ?? "n8n"}:5678`;
       try {
@@ -324,8 +325,7 @@ export const systemRouter = router({
         const timeout = setTimeout(() => controller.abort(), 3000);
         const res = await fetch(`${n8nUrl}/healthz`, { signal: controller.signal });
         clearTimeout(timeout);
-        // n8n healthz doesn't return version, but if reachable mark as running
-        if (res.ok) n8nVersion = "running";
+        if (res.ok) n8nReachable = true;
       } catch { /* ignore */ }
     }
 
@@ -380,7 +380,7 @@ export const systemRouter = router({
     });
 
     // n8n
-    const n8nRunning = !!containerUptimes["rcc-n8n"];
+    const n8nRunning = !!containerUptimes["rcc-n8n"] || n8nReachable;
     containers.push({
       service: "n8n",
       containerName: "rcc-n8n",
