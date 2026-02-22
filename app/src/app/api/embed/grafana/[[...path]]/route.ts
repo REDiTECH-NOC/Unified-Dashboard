@@ -3,11 +3,12 @@ import { hasPermissions } from "@/lib/permissions";
 
 const GRAFANA_URL = process.env.GRAFANA_INTERNAL_URL || "http://grafana:3000";
 
-// Grafana serves from sub-path /api/embed/grafana/ (GF_SERVER_SERVE_FROM_SUB_PATH=true)
-// We must include the sub-path in the upstream URL so Grafana serves directly
-// without redirecting to http://localhost/api/embed/grafana/ (unreachable)
+// Grafana serves from root — GF_SERVER_ROOT_URL tells it to generate links
+// with /api/embed/grafana/ prefix, but it listens at /. Our Next.js route
+// at /api/embed/grafana/[[...path]] strips the prefix, so we forward to root.
+// Works identically on Docker Compose and Azure Container Apps.
 const handler = createProxyHandler({
-  upstreamUrl: GRAFANA_URL + "/api/embed/grafana",
+  upstreamUrl: GRAFANA_URL,
   permission: "tools.grafana",
   serviceName: "grafana",
   auditAction: "tools.grafana.access",

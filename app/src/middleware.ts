@@ -1,4 +1,10 @@
-import { auth } from "@/lib/auth";
+import NextAuth from "next-auth";
+import { authConfig } from "@/lib/auth.config";
+
+// Use Edge-safe auth config — no Prisma imports, no DB calls.
+// JWT token fields (userId, role, mustSetupTotp) are decoded from the
+// existing cookie; DB revalidation happens in server-side auth() calls.
+const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   const isLoggedIn = !!req.auth;
