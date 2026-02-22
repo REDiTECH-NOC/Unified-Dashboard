@@ -73,7 +73,7 @@ const PERMISSION_MAP = new Map(PERMISSIONS.map((p) => [p.key, p]));
 
 // Get all unique modules for grouping in UI
 export function getPermissionModules(): string[] {
-  return [...new Set(PERMISSIONS.map((p) => p.module))];
+  return Array.from(new Set(PERMISSIONS.map((p) => p.module)));
 }
 
 // Get permissions grouped by module
