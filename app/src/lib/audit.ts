@@ -46,7 +46,7 @@ export async function auditLog(params: AuditLogParams) {
         category: params.category,
         actorId: params.actorId || null,
         resource: params.resource || null,
-        detail: params.detail || null,
+        detail: params.detail ?? undefined,
         ip: params.ip || null,
         userAgent: params.userAgent || null,
         outcome: params.outcome || "success",
