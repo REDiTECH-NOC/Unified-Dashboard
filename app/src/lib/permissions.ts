@@ -63,9 +63,19 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "phone.view",           label: "View Phone Dashboard",     description: "View 3CX call logs and PBX status",           module: "Phone",         defaultRoles: ["ADMIN", "MANAGER", "USER"] },
   { key: "phone.manage",         label: "Manage Phone Settings",    description: "Configure 3CX instances and webhooks",         module: "Phone",         defaultRoles: ["ADMIN"] },
 
+  // ── Network ──
+  { key: "network.view",          label: "View Network",             description: "View UniFi sites, devices, and network health",   module: "Network",       defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "network.manage",        label: "Manage Network",           description: "Configure network integration settings",          module: "Network",       defaultRoles: ["ADMIN"] },
+
   // ── Reports ──
   { key: "reports.view",         label: "View Reports",             description: "Access dashboards and QBR reports",            module: "Reports",       defaultRoles: ["ADMIN", "MANAGER"] },
   { key: "reports.export",       label: "Export Reports",           description: "Export reports to PDF/CSV",                    module: "Reports",       defaultRoles: ["ADMIN", "MANAGER"] },
+
+  // ── Tools ──
+  { key: "tools.grafana",        label: "Access Grafana",           description: "View embedded Grafana analytics dashboards",   module: "Tools",         defaultRoles: ["ADMIN"] },
+  { key: "tools.grafana.edit",   label: "Edit Grafana Dashboards",  description: "Create and edit dashboards in Grafana",        module: "Tools",         defaultRoles: ["ADMIN"] },
+  { key: "tools.grafana.admin",  label: "Grafana Admin",            description: "Full Grafana admin (users, data sources, etc)",module: "Tools",         defaultRoles: ["ADMIN"] },
+  { key: "tools.uptime",         label: "Access Uptime Monitor",    description: "View and manage uptime monitors",              module: "Tools",         defaultRoles: ["ADMIN"] },
 ];
 
 // Build a quick lookup map

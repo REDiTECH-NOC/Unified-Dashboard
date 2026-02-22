@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/contexts/branding-context";
+import { trpc } from "@/lib/trpc";
 import {
   LayoutDashboard,
   AlertTriangle,
@@ -16,26 +17,42 @@ import {
   UserCog,
   Bell,
   Search,
+  BarChart3,
+  Activity,
 } from "lucide-react";
 
-const navSections = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  permission?: string; // If set, only shown when user has this permission
+}
+
+const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: "Operations",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/alerts", label: "Alerts", icon: AlertTriangle },
-      { href: "/tickets", label: "Tickets", icon: Ticket },
-      { href: "/clients", label: "Clients", icon: Users },
-      { href: "/audit", label: "Audit Log", icon: ScrollText },
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
+      { href: "/alerts", label: "Alerts", icon: AlertTriangle, permission: "alerts.view" },
+      { href: "/tickets", label: "Tickets", icon: Ticket, permission: "tickets.view" },
+      { href: "/clients", label: "Clients", icon: Users, permission: "clients.view" },
+      { href: "/audit", label: "Audit Log", icon: ScrollText, permission: "audit.view" },
+    ],
+  },
+  {
+    label: "Monitoring",
+    items: [
+      { href: "/grafana", label: "Grafana", icon: BarChart3, permission: "tools.grafana" },
+      { href: "/monitoring", label: "Uptime Monitor", icon: Activity, permission: "tools.uptime" },
     ],
   },
   {
     label: "Settings",
     items: [
-      { href: "/settings", label: "General", icon: Settings },
-      { href: "/settings/integrations", label: "Integrations", icon: Plug },
-      { href: "/settings/notifications", label: "Notifications", icon: Bell },
-      { href: "/settings/users", label: "Users", icon: UserCog },
+      { href: "/settings", label: "General", icon: Settings, permission: "settings.view" },
+      { href: "/settings/integrations", label: "Integrations", icon: Plug, permission: "settings.integrations" },
+      { href: "/settings/notifications", label: "Notifications", icon: Bell, permission: "settings.notifications" },
+      { href: "/settings/users", label: "Users", icon: UserCog, permission: "users.manage" },
     ],
   },
 ];
@@ -72,6 +89,27 @@ export function Sidebar() {
   const { logoUrl, companyName } = useBranding();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+
+  // Fetch user permissions for sidebar filtering
+  const { data: permissions } = trpc.user.myPermissions.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+  const permSet = useMemo(() => new Set(permissions || []), [permissions]);
+
+  // Filter nav sections based on permissions (hide empty sections)
+  const visibleSections = useMemo(() => {
+    // While loading, show all items (prevents flash of empty sidebar)
+    if (!permissions) return navSections;
+
+    return navSections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter(
+          (item) => !item.permission || permSet.has(item.permission)
+        ),
+      }))
+      .filter((section) => section.items.length > 0);
+  }, [permissions, permSet]);
 
   const isOverlay = bp.isMobile || bp.isTablet;
   const effectiveCollapsed = bp.isLaptop ? !hovered : false;
@@ -152,7 +190,7 @@ export function Sidebar() {
             effectiveCollapsed ? "px-2" : "px-3"
           )}
         >
-          {navSections.map((section) => (
+          {visibleSections.map((section) => (
             <div key={section.label} className="mt-6 first:mt-0">
               {!effectiveCollapsed && (
                 <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -204,11 +242,11 @@ export function Sidebar() {
         <div className="border-t border-border p-3">
           {effectiveCollapsed ? (
             <p className="text-[10px] text-muted-foreground text-center">
-              v0.1
+              v0.2
             </p>
           ) : (
             <p className="text-[10px] text-muted-foreground text-center">
-              v0.1.0 — Phase 1
+              v0.2.0 — Phase 2
             </p>
           )}
         </div>

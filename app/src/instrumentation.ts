@@ -23,5 +23,14 @@ export async function register() {
     // Seed glass-break admin
     const { seedGlassBreakAdmin } = await import("./lib/seed");
     await seedGlassBreakAdmin();
+
+    // Start uptime monitoring engine
+    try {
+      const { getUptimeEngine } = await import("./server/services/uptime");
+      const engine = getUptimeEngine();
+      await engine.start();
+    } catch (error) {
+      console.error("[UPTIME] Failed to start monitoring engine:", error);
+    }
   }
 }

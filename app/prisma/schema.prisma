@@ -19,6 +19,26 @@ enum AuthMethod {
   LOCAL
 }
 
+enum MonitorType {
+  HTTP
+  TCP
+  PING
+  DNS
+  REDIS
+  MYSQL
+  POSTGRESQL
+  SQLSERVER
+  MONGODB
+  DOCKER
+}
+
+enum MonitorStatus {
+  UP
+  DOWN
+  PENDING
+  UNKNOWN
+}
+
 enum AuditCategory {
   AUTH
   USER
@@ -53,11 +73,12 @@ model User {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  auditEvents      AuditEvent[]
-  preferences      UserPreference[]
-  featureFlags     UserFeatureFlag[]
-  permissions      UserPermission[]
-  permissionRoles  UserPermissionRole[]
+  auditEvents         AuditEvent[]
+  preferences         UserPreference[]
+  featureFlags        UserFeatureFlag[]
+  permissions         UserPermission[]
+  permissionRoles     UserPermissionRole[]
+  integrationMappings UserIntegrationMapping[]
 
   @@index([role])
   @@index([authMethod])
@@ -177,4 +198,198 @@ model NotificationConfig {
   smsRecipients   String[] // array of phone numbers
   updatedBy       String?
   updatedAt       DateTime @updatedAt
+}
+
+// ─── Uptime Monitoring ──────────────────────────────────────────
+
+model Monitor {
+  id              String        @id @default(cuid())
+  name            String
+  type            MonitorType
+  active          Boolean       @default(true)
+
+  // Organization assignment (optional — link to a client company)
+  companyId       String?
+  company         Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  // Scheduling
+  intervalSeconds Int           @default(60)
+  retrySeconds    Int           @default(60)
+  maxRetries      Int           @default(3)
+  timeoutMs       Int           @default(10000)
+
+  // Current state (denormalized for fast list queries)
+  status          MonitorStatus @default(PENDING)
+  lastCheckedAt   DateTime?
+  lastStatusChange DateTime?
+
+  // Per-type config (JSONB — discriminated by type)
+  config          Json          @default("{}")
+
+  description     String?
+  sslExpiryDays   Int           @default(30)
+
+  createdBy       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  heartbeats      Heartbeat[]
+  tags            MonitorTagAssignment[]
+
+  @@index([active])
+  @@index([status])
+  @@index([type])
+  @@index([companyId])
+}
+
+model Heartbeat {
+  id          String        @id @default(cuid())
+  monitorId   String
+  monitor     Monitor       @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  status      MonitorStatus
+  latencyMs   Int?
+  message     String?
+
+  // SSL/TLS info (populated on HTTPS checks)
+  tlsInfo     Json?         // { issuer, subject, validFrom, validTo, daysUntilExpiry, fingerprint }
+
+  // DNS result
+  dnsResult   Json?         // { resolvedAddresses: string[], recordType: string }
+
+  timestamp   DateTime      @default(now())
+
+  @@index([monitorId, timestamp(sort: Desc)])
+  @@index([timestamp])
+  @@index([monitorId, status])
+}
+
+model MonitorTag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String   @default("#ef4444") // hex color for badge display
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  monitors  MonitorTagAssignment[]
+}
+
+model MonitorTagAssignment {
+  id        String     @id @default(cuid())
+  monitorId String
+  monitor   Monitor    @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  tagId     String
+  tag       MonitorTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([monitorId, tagId])
+  @@index([monitorId])
+  @@index([tagId])
+}
+
+// ─── Company Management ─────────────────────────────────────────
+
+// Local company record — PSA (ConnectWise) is the source of truth.
+// All other tools map to these records via CompanyIntegrationMapping.
+model Company {
+  id           String    @id @default(cuid())
+  name         String
+  psaSourceId  String    @unique // ConnectWise company ID — authoritative link
+  identifier   String?           // CW short code (e.g., "JBDAW")
+  status       String    @default("Active")
+  phone        String?
+  website      String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  zip          String?
+  country      String?
+  lastSyncedAt DateTime?
+  syncEnabled  Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  integrationMappings CompanyIntegrationMapping[]
+  threecxInstances    ThreecxInstance[]
+  monitors            Monitor[]
+
+  @@index([name])
+  @@index([status])
+}
+
+// Maps a Company to its org/site ID in each non-PSA tool.
+// ConnectWise mapping is inherent via Company.psaSourceId — not stored here.
+model CompanyIntegrationMapping {
+  id           String    @id @default(cuid())
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  toolId       String    // "ninjaone", "sentinelone", "itglue", etc.
+  externalId   String    // org/site ID in the external tool
+  externalName String    // org name at match time (detect drift)
+  matchMethod  String    @default("manual") // "auto" | "manual" | "exact"
+  matchScore   Float?    // similarity score when auto-matched (0.0–1.0)
+  verifiedBy   String?   // userId of admin who verified/confirmed
+  verifiedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([toolId, externalId]) // one Company per external org per tool
+  @@unique([companyId, toolId])  // one mapping per Company per tool
+  @@index([companyId])
+  @@index([toolId])
+}
+
+// Maps app User to their member/tech ID in external tools (initially CW members).
+// Needed for: ticket assignment, time entries, "my tickets" filtering.
+model UserIntegrationMapping {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toolId        String   // "connectwise"
+  externalId    String   // e.g., ConnectWise member ID
+  externalName  String?  // display name from the tool
+  externalEmail String?  // email from the tool (used for auto-matching)
+  matchMethod   String   @default("manual") // "auto_email" | "manual"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([toolId, externalId])
+  @@unique([userId, toolId])
+  @@index([userId])
+}
+
+// ─── 3CX PBX Management ─────────────────────────────────────────
+
+// One record per customer PBX — 3CX is multi-instance (one PBX per client).
+// Credentials stored encrypted (AES-256-GCM). PBXs map to Companies.
+model ThreecxInstance {
+  id                   String    @id @default(cuid())
+  name                 String    // friendly name (e.g., "JB Dawson PBX")
+  fqdn                 String    @unique // e.g., "jbdawson.my3cx.us"
+  extensionNumber      String    // system owner extension for API auth
+  encryptedPassword    String    // AES-256-GCM encrypted web client password
+  companyId            String?
+  company              Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  status               String    @default("unknown") // online | offline | degraded | unknown
+  version              String?
+  os                   String?
+  isActive             Boolean   @default(true)
+  lastHealthCheck      DateTime?
+  lastSeenAt           DateTime?
+
+  // Cached status fields (updated by polling, avoids live queries for dashboard)
+  callsActive          Int?
+  extensionsRegistered Int?
+  extensionsTotal      Int?
+  trunksRegistered     Int?
+  trunksTotal          Int?
+  cpuUsage             Float?
+  diskUsagePercent     Int?
+  hasFailedServices    Boolean?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([status])
+  @@index([isActive])
 }

@@ -67,6 +67,7 @@ const PERMISSION_MODULES: Record<string, { key: string; label: string; descripti
     { key: "settings.integrations", label: "Manage Integrations", description: "Configure API credentials and connections" },
     { key: "settings.branding", label: "Manage Branding", description: "Change logo and company name" },
     { key: "settings.ai", label: "Manage AI Settings", description: "Configure models, budgets, rate limits" },
+    { key: "settings.notifications", label: "Manage Notifications", description: "Configure notification channels and rules" },
   ],
   Phone: [
     { key: "phone.view", label: "View Phone Dashboard", description: "View 3CX call logs and PBX status" },
@@ -75,6 +76,12 @@ const PERMISSION_MODULES: Record<string, { key: string; label: string; descripti
   Reports: [
     { key: "reports.view", label: "View Reports", description: "Access dashboards and QBR reports" },
     { key: "reports.export", label: "Export Reports", description: "Export reports to PDF/CSV" },
+  ],
+  Tools: [
+    { key: "tools.grafana", label: "Access Grafana", description: "View embedded Grafana analytics dashboards" },
+    { key: "tools.grafana.edit", label: "Edit Grafana Dashboards", description: "Create and edit dashboards in Grafana" },
+    { key: "tools.grafana.admin", label: "Grafana Admin", description: "Full Grafana admin (users, data sources, etc)" },
+    { key: "tools.uptime", label: "Access Uptime Monitor", description: "View and manage uptime monitors" },
   ],
 };
 

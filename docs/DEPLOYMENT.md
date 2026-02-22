@@ -19,14 +19,14 @@
    - **Supported account types:** Accounts in this organizational directory only (Single tenant)
    - **Redirect URI (Web):** `https://your-domain.com/api/auth/callback/microsoft-entra-id`
 3. After creation, copy these values:
-   - **Application (client) ID** → use as `AUTH_MICROSOFT_ENTRA_ID_ID`
-   - **Directory (tenant) ID** → use as `AUTH_MICROSOFT_ENTRA_ID_TENANT_ID`
+   - **Application (client) ID** → use as `AZURE_AD_CLIENT_ID`
+   - **Directory (tenant) ID** → use as `AZURE_AD_TENANT_ID`
 
 ### 1.2 Client Secret
 
 1. In the app registration → **Certificates & secrets** → **Client secrets** → **New client secret**
 2. Set a description (e.g., "RCC Production") and expiration (recommended: 24 months)
-3. Copy the **Value** immediately (it won't be shown again) → use as `AUTH_MICROSOFT_ENTRA_ID_SECRET`
+3. Copy the **Value** immediately (it won't be shown again) → use as `AZURE_AD_CLIENT_SECRET`
 
 ### 1.3 API Permissions
 
@@ -52,14 +52,27 @@ After adding all three, click **Grant admin consent for [your tenant]**.
 
 3. Add appropriate users as members of each group
 4. Copy each group's **Object ID**:
-   - RCC-Admins Object ID → use as `ENTRA_ADMIN_GROUP_ID`
-   - RCC-Users Object ID → use as `ENTRA_USER_GROUP_ID`
+   - RCC-Admins Object ID → use as `ENTRA_GROUP_ADMINS`
+   - RCC-Users Object ID → use as `ENTRA_GROUP_USERS`
 
 Users in RCC-Admins get full admin access. Users in RCC-Users get standard technician access. Users are auto-provisioned on first SSO login — no pre-registration needed.
 
+### 1.5 Multiple Environments (Same App Registration)
+
+A single Entra app registration supports both development and production. Add all redirect URIs under **Authentication** → **Web** → **Redirect URIs**:
+
+| Environment | Redirect URI |
+|---|---|
+| Local Dev | `https://dashboardv1.yourdomain.com/api/auth/callback/microsoft-entra-id` |
+| Production | `https://dashboard.yourdomain.com/api/auth/callback/microsoft-entra-id` |
+
+Both environments share the same Client ID, Tenant ID, and Client Secret.
+
 ---
 
-## 2. Docker Deployment
+## 2. Development Environment (Local Docker)
+
+The local Docker environment is used for building, testing, and iterating during development. Once a phase or feature is complete, changes are pushed to GitHub and automatically deployed to Azure via CI/CD.
 
 ### 2.1 Clone & Configure
 
@@ -70,19 +83,19 @@ cd Unified-Dashboard
 # Create environment file from template
 cp .env.example .env
 
-# Edit .env with your values from the Entra ID setup above
+# Edit .env with your values
 nano .env
 ```
 
 Required `.env` values to set:
 - `POSTGRES_PASSWORD` — choose a strong database password
-- `NEXTAUTH_URL` — your full domain (e.g., `https://dashboard.yourdomain.com`)
+- `NEXTAUTH_URL` — your dev domain (e.g., `https://dashboardv1.yourdomain.com`)
 - `NEXTAUTH_SECRET` — generate with `openssl rand -base64 32`
-- `AUTH_MICROSOFT_ENTRA_ID_ID` — from step 1.1
-- `AUTH_MICROSOFT_ENTRA_ID_SECRET` — from step 1.2
-- `AUTH_MICROSOFT_ENTRA_ID_TENANT_ID` — from step 1.1
-- `ENTRA_ADMIN_GROUP_ID` — from step 1.4
-- `ENTRA_USER_GROUP_ID` — from step 1.4
+- `AZURE_AD_CLIENT_ID` — from step 1.1
+- `AZURE_AD_CLIENT_SECRET` — from step 1.2
+- `AZURE_AD_TENANT_ID` — from step 1.1
+- `ENTRA_GROUP_ADMINS` — from step 1.4
+- `ENTRA_GROUP_USERS` — from step 1.4
 - `GLASSBREAK_ADMIN_EMAIL` — emergency local admin email
 - `GLASSBREAK_ADMIN_PASSWORD` — emergency local admin password
 
@@ -93,7 +106,7 @@ Required `.env` values to set:
 docker compose up -d --build
 
 # Run database migrations
-docker compose exec app npx prisma db push
+docker compose exec app npx prisma@5.22.0 db push
 
 # Verify all containers are running
 docker compose ps
@@ -108,52 +121,98 @@ You should see 5 containers running:
 
 ### 2.3 Reverse Proxy (HTTPS)
 
-Set up a reverse proxy (Nginx, Caddy, or Traefik) to handle TLS termination:
+Set up a reverse proxy (Nginx Proxy Manager, Caddy, or Traefik) to handle TLS termination and route your dev domain to port 3000.
 
-**Nginx example:**
-```nginx
-server {
-    listen 443 ssl;
-    server_name dashboard.yourdomain.com;
+### 2.4 Rebuilding After Code Changes
 
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
+```bash
+# Rebuild and restart only the app container
+docker compose up -d --build app
 
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+# If schema changed, run migrations
+docker compose exec app npx prisma@5.22.0 db push
 ```
 
 ---
 
-## 3. Post-Deployment Verification
+## 3. Production Deployment (Azure)
 
-### 3.1 Health Check
+Production runs on Azure Container Apps with managed PostgreSQL and Redis. Deployments are automated via GitHub Actions CI/CD.
+
+### 3.1 Development → Production Workflow
+
+```
+Local Docker (dev) → Test & Verify → Git Push to main → GitHub Actions CI/CD → Azure Container Apps
+```
+
+1. **Develop locally** — build and test features on the local Docker environment
+2. **Commit & push** — push changes to `main` branch on GitHub
+3. **CI/CD auto-deploys** — GitHub Actions builds the Docker image, pushes to ACR, and deploys to Azure Container Apps
+4. **Verify in production** — confirm at your production domain
+
+### 3.2 Azure Infrastructure
+
+The following Azure resources are provisioned:
+
+| Resource | Name | Details |
+|---|---|---|
+| Resource Group | reditech-command-center | Central US |
+| Container Registry | reditechacr | Basic tier, admin enabled |
+| Container App | rcc-app | 0.5 vCPU, 1Gi RAM, min 1 replica |
+| Container App | rcc-n8n | 0.5 vCPU, 1Gi RAM, scale-to-zero |
+| Container App | rcc-grafana | 0.25 vCPU, 0.5Gi RAM, scale-to-zero |
+| PostgreSQL | rcc-postgres | Burstable B1ms, v16, 32GB |
+| Redis | rcc-redis | Basic C0, TLS on port 6380 |
+| Key Vault | rcc-vault-prod | Standard tier, RBAC authorization |
+
+### 3.3 Secrets Management
+
+Production secrets are stored in Azure Key Vault (`rcc-vault-prod`) and injected into the Container App via managed identity. No plain-text secrets in the Container App configuration.
+
+Key Vault secrets:
+- `database-url` — PostgreSQL connection string
+- `redis-url` — Redis TLS connection string
+- `nextauth-secret` — JWT signing secret
+- `azure-ad-client-secret` — Entra app client secret
+- `glassbreak-password` — Local admin emergency password
+
+### 3.4 GitHub Actions CI/CD
+
+The workflow (`.github/workflows/deploy.yml`) triggers on:
+- Push to `main` branch when `app/` files change
+- Manual dispatch from GitHub Actions UI
+
+**Required GitHub Secrets** (set via GitHub web UI → Settings → Secrets):
+- `AZURE_CREDENTIALS` — service principal JSON
+- `ACR_USERNAME` — ACR admin username
+- `ACR_PASSWORD` — ACR admin password
+
+### 3.5 Custom Domain & SSL
+
+Production uses a custom domain with Azure-managed SSL certificate (CNAME → Container App FQDN).
+
+---
+
+## 4. Post-Deployment Verification
+
+### 4.1 Health Check
 
 ```bash
 # Check app is responding
-curl -s http://localhost:3000 | head -20
+curl -s https://your-domain.com | head -20
 
-# Check database connection
-docker compose exec app npx prisma db execute --stdin <<< "SELECT 1;"
-
-# Check container logs for errors
+# Check container logs for errors (local)
 docker compose logs app --tail 50
 ```
 
-### 3.2 First Login
+### 4.2 First Login
 
 1. Navigate to `https://your-domain.com` in a browser
 2. Click **Sign in with Microsoft** — you should be redirected to Microsoft login
 3. After authenticating, you'll be auto-provisioned with the role matching your Entra group
 4. Verify your role in the top-right profile dropdown
 
-### 3.3 Glass-Break Admin
+### 4.3 Glass-Break Admin
 
 If SSO is unavailable, use the local admin account:
 1. Navigate to `https://your-domain.com/login`
@@ -162,24 +221,17 @@ If SSO is unavailable, use the local admin account:
 
 ---
 
-## 4. Updating
+## 5. Updating
 
+### Local Development
 ```bash
-cd Unified-Dashboard
 git pull origin main
 docker compose up -d --build
-docker compose exec app npx prisma db push
+docker compose exec app npx prisma@5.22.0 db push
 ```
 
----
+### Production (Automated)
+Push to `main` triggers GitHub Actions → builds Docker image → deploys to Azure Container Apps automatically.
 
-## 5. Azure Container Apps (Future)
-
-For production Azure deployment, the same Docker image will be pushed to Azure Container Registry (ACR) and deployed via Bicep templates to Azure Container Apps. This provides:
-- Auto-scaling based on HTTP traffic
-- Managed TLS certificates
-- Azure-managed PostgreSQL Flexible Server
-- Azure Cache for Redis
-- Azure Key Vault for secrets injection
-
-Bicep templates will be added in a future phase.
+### Manual Production Deploy
+If needed, trigger a manual deploy from GitHub → Actions → "Build & Deploy to Azure" → "Run workflow".
