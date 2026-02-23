@@ -163,12 +163,15 @@ export default function SettingsPage() {
               <span className="text-foreground">Phase 2 — Core Integrations</span>
             </div>
             <div className="flex justify-between sm:flex-col sm:gap-1">
-              <span className="text-muted-foreground">Docker Access</span>
+              <span className="text-muted-foreground">Environment</span>
               <span className={cn(
                 "text-foreground",
-                containerQuery.data?.dockerAvailable ? "text-green-500" : "text-muted-foreground"
+                (containerQuery.data?.dockerAvailable || containerQuery.data?.azureAvailable) ? "text-green-500" : "text-muted-foreground"
               )}>
-                {containerQuery.isLoading ? "Checking..." : containerQuery.data?.dockerAvailable ? "Connected" : "Not available"}
+                {containerQuery.isLoading ? "Checking..."
+                  : containerQuery.data?.dockerAvailable ? "Docker"
+                  : containerQuery.data?.azureAvailable ? "Azure Container Apps"
+                  : "Unknown"}
               </span>
             </div>
           </div>

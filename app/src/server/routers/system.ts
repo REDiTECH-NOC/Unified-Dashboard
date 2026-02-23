@@ -25,6 +25,12 @@ const UPDATABLE_CONTAINERS: Record<string, { image: string; containerName: strin
   app: { image: "reditech-command-center-app", containerName: "rcc-app" },
 };
 
+// Azure Container App names (same as Docker container names)
+const AZURE_CONTAINER_APPS: Record<string, string> = {
+  n8n: "rcc-n8n",
+  grafana: "rcc-grafana",
+};
+
 // ─── Health Check Helpers ───────────────────────────────────────────
 
 async function checkDatabase(): Promise<ServiceStatus> {
@@ -226,6 +232,97 @@ async function getContainerVersion(
   }
 }
 
+// ─── Azure Container Apps Helpers ────────────────────────────────────
+
+/** Check if running on Azure Container Apps with managed identity */
+function isAzureContainerApps(): boolean {
+  return !!(
+    process.env.IDENTITY_ENDPOINT &&
+    process.env.IDENTITY_HEADER &&
+    process.env.AZURE_SUBSCRIPTION_ID &&
+    process.env.AZURE_RESOURCE_GROUP
+  );
+}
+
+/** Get an Azure managed identity access token for the Management API */
+async function getAzureManagedIdentityToken(): Promise<string> {
+  const endpoint = process.env.IDENTITY_ENDPOINT;
+  const header = process.env.IDENTITY_HEADER;
+  if (!endpoint || !header) {
+    throw new Error("Managed identity not configured on this container.");
+  }
+
+  const res = await fetch(
+    `${endpoint}?api-version=2019-08-01&resource=https://management.azure.com/`,
+    { headers: { "X-IDENTITY-HEADER": header } }
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to get managed identity token (${res.status}): ${body}`);
+  }
+  const data = await res.json() as { access_token: string };
+  return data.access_token;
+}
+
+/** Update an Azure Container App's image via the Azure Management REST API */
+async function updateAzureContainerApp(
+  appName: string,
+  image: string
+): Promise<void> {
+  const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID;
+  const resourceGroup = process.env.AZURE_RESOURCE_GROUP;
+  if (!subscriptionId || !resourceGroup) {
+    throw new Error("AZURE_SUBSCRIPTION_ID and AZURE_RESOURCE_GROUP must be set.");
+  }
+
+  const token = await getAzureManagedIdentityToken();
+  const baseUrl = `https://management.azure.com/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.App/containerApps/${appName}`;
+  const apiVersion = "api-version=2024-03-01";
+
+  // GET current container app config to preserve all settings
+  const getRes = await fetch(`${baseUrl}?${apiVersion}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!getRes.ok) {
+    const body = await getRes.text();
+    throw new Error(`Failed to read container app config (${getRes.status}): ${body}`);
+  }
+  const currentConfig = await getRes.json() as {
+    properties?: {
+      template?: {
+        containers?: Array<{ name: string; image: string; [key: string]: unknown }>;
+      };
+    };
+  };
+
+  const containers = currentConfig.properties?.template?.containers;
+  if (!containers || containers.length === 0) {
+    throw new Error("No containers found in the container app template.");
+  }
+
+  // Update the image on the first (primary) container
+  containers[0].image = image;
+
+  // PATCH back with updated container image
+  const patchRes = await fetch(`${baseUrl}?${apiVersion}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      properties: {
+        template: { containers },
+      },
+    }),
+  });
+
+  if (!patchRes.ok) {
+    const body = await patchRes.text();
+    throw new Error(`Azure API error (${patchRes.status}): ${body}`);
+  }
+}
+
 // ─── Router ─────────────────────────────────────────────────────────
 
 export const systemRouter = router({
@@ -306,11 +403,11 @@ export const systemRouter = router({
 
     if (latestN8n) {
       n8n.latestVersion = latestN8n;
-      if (n8n.version && n8n.version !== latestN8n) n8n.updateAvailable = true;
+      if (n8n.version && compareSemver(latestN8n, n8n.version) > 0) n8n.updateAvailable = true;
     }
     if (latestGrafana) {
       grafana.latestVersion = latestGrafana;
-      if (grafana.version && grafana.version !== latestGrafana) grafana.updateAvailable = true;
+      if (grafana.version && compareSemver(latestGrafana, grafana.version) > 0) grafana.updateAvailable = true;
     }
 
     const services: ServiceStatus[] = [app, db, redisStatus, n8n, grafana];
@@ -325,6 +422,7 @@ export const systemRouter = router({
   containerInfo: adminProcedure.query(async () => {
     const docker = await getDocker();
     const dockerAvailable = !!docker;
+    const azureAvailable = isAzureContainerApps();
 
     // Get running container details if Docker is accessible
     const containers: Array<{
@@ -435,10 +533,10 @@ export const systemRouter = router({
       image: "n8nio/n8n",
       currentVersion: n8nVersion,
       latestVersion: latestN8n,
-      updateAvailable: !!(n8nVersion && latestN8n && n8nVersion !== latestN8n),
+      updateAvailable: !!(n8nVersion && latestN8n && compareSemver(latestN8n, n8nVersion) > 0),
       status: n8nRunning ? "running" : "unknown",
       uptime: containerUptimes["rcc-n8n"] ?? null,
-      canUpdate: dockerAvailable,
+      canUpdate: dockerAvailable || azureAvailable,
     });
 
     // Grafana — use HTTP reachability as fallback when Docker socket unavailable
@@ -449,30 +547,33 @@ export const systemRouter = router({
       image: "grafana/grafana-oss",
       currentVersion: grafanaVersion,
       latestVersion: latestGrafana,
-      updateAvailable: !!(grafanaVersion && latestGrafana && grafanaVersion !== latestGrafana),
+      updateAvailable: !!(grafanaVersion && latestGrafana && compareSemver(latestGrafana, grafanaVersion) > 0),
       status: grafanaRunning ? "running" : "unknown",
       uptime: containerUptimes["rcc-grafana"] ?? null,
-      canUpdate: dockerAvailable,
+      canUpdate: dockerAvailable || azureAvailable,
     });
 
     return {
       dockerAvailable,
+      azureAvailable,
       containers,
       checkedAt: new Date().toISOString(),
     };
   }),
 
-  /** Pull specific version tag and recreate a container */
+  /** Pull specific version tag and recreate a container (Docker or Azure) */
   applyUpdate: adminProcedure
     .input(z.object({
       service: z.enum(["n8n", "grafana"]),
     }))
     .mutation(async ({ ctx, input }) => {
       const docker = await getDocker();
-      if (!docker) {
+      const azure = isAzureContainerApps();
+
+      if (!docker && !azure) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "Docker socket not available. Cannot apply updates.",
+          message: "Neither Docker socket nor Azure managed identity available. Cannot apply updates.",
         });
       }
 
@@ -496,68 +597,68 @@ export const systemRouter = router({
         category: "SYSTEM",
         actorId: ctx.user.id,
         resource: `container:${input.service}`,
-        detail: { service: input.service, image: imageName },
+        detail: { service: input.service, image: imageName, method: docker ? "docker" : "azure" },
       });
 
       try {
-        // Step 1: Pull the latest image
-        const stream = await docker.pull(imageName);
+        if (docker) {
+          // ── Docker path: pull image, recreate container ──
+          const stream = await docker.pull(imageName);
+          await new Promise<void>((resolve, reject) => {
+            docker.modem.followProgress(
+              stream,
+              (err: Error | null) => {
+                if (err) reject(err);
+                else resolve();
+              }
+            );
+          });
 
-        // Wait for pull to complete
-        await new Promise<void>((resolve, reject) => {
-          docker.modem.followProgress(
-            stream,
-            (err: Error | null) => {
-              if (err) reject(err);
-              else resolve();
-            }
-          );
-        });
+          const oldContainer = docker.getContainer(containerDef.containerName);
+          const oldInspect = await oldContainer.inspect();
 
-        // Step 2: Get the old container config
-        const oldContainer = docker.getContainer(containerDef.containerName);
-        const oldInspect = await oldContainer.inspect();
+          const networks = oldInspect.NetworkSettings?.Networks ?? {};
+          const endpointsConfig: Record<string, { Aliases?: string[] }> = {};
+          for (const [netName, netInfo] of Object.entries(networks)) {
+            endpointsConfig[netName] = {
+              Aliases: (netInfo as { Aliases?: string[] })?.Aliases ?? [],
+            };
+          }
 
-        // Build networking config from inspected NetworkSettings
-        const networks = oldInspect.NetworkSettings?.Networks ?? {};
-        const endpointsConfig: Record<string, { Aliases?: string[] }> = {};
-        for (const [netName, netInfo] of Object.entries(networks)) {
-          endpointsConfig[netName] = {
-            Aliases: (netInfo as { Aliases?: string[] })?.Aliases ?? [],
-          };
-        }
+          try {
+            await oldContainer.stop({ t: 10 });
+          } catch {
+            // might already be stopped
+          }
 
-        // Step 3: Stop the old container
-        try {
-          await oldContainer.stop({ t: 10 });
-        } catch {
-          // might already be stopped
-        }
+          const backupName = `${containerDef.containerName}-old-${Date.now()}`;
+          await oldContainer.rename({ name: backupName });
 
-        // Step 4: Rename old container (backup)
-        const backupName = `${containerDef.containerName}-old-${Date.now()}`;
-        await oldContainer.rename({ name: backupName });
+          const newContainer = await docker.createContainer({
+            name: containerDef.containerName,
+            Image: imageName,
+            Env: oldInspect.Config.Env,
+            ExposedPorts: oldInspect.Config.ExposedPorts,
+            HostConfig: oldInspect.HostConfig,
+            NetworkingConfig: {
+              EndpointsConfig: endpointsConfig,
+            },
+          } as Record<string, unknown>);
 
-        // Step 5: Create new container with same config
-        const newContainer = await docker.createContainer({
-          name: containerDef.containerName,
-          Image: imageName,
-          Env: oldInspect.Config.Env,
-          ExposedPorts: oldInspect.Config.ExposedPorts,
-          HostConfig: oldInspect.HostConfig,
-          NetworkingConfig: {
-            EndpointsConfig: endpointsConfig,
-          },
-        } as Record<string, unknown>);
+          await newContainer.start();
 
-        // Step 6: Start the new container
-        await newContainer.start();
-
-        // Step 7: Remove the old container
-        try {
-          await docker.getContainer(backupName).remove({ force: true });
-        } catch {
-          // non-critical
+          try {
+            await docker.getContainer(backupName).remove({ force: true });
+          } catch {
+            // non-critical
+          }
+        } else {
+          // ── Azure path: update container app image via REST API ──
+          const azureAppName = AZURE_CONTAINER_APPS[input.service];
+          if (!azureAppName) {
+            throw new Error(`No Azure container app mapping for service: ${input.service}`);
+          }
+          await updateAzureContainerApp(azureAppName, imageName);
         }
 
         await auditLog({
