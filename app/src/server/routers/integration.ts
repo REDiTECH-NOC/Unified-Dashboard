@@ -28,6 +28,7 @@ const TOOL_REGISTRY = [
   { toolId: "watchguard", displayName: "WatchGuard", category: "network" },
   { toolId: "threecx", displayName: "3CX", category: "phone" },
   { toolId: "pax8", displayName: "PAX8", category: "licensing" },
+  { toolId: "n8n", displayName: "n8n Automation", category: "automation" },
 ];
 
 export const integrationRouter = router({
@@ -149,6 +150,38 @@ export const integrationRouter = router({
             message = "Integration not configured. Enter credentials first.";
           } else {
             message = error instanceof Error ? error.message : "Connection test failed";
+          }
+        }
+      } else if (input.toolId === "n8n") {
+        // Simple URL reachability check for n8n
+        const config = await ctx.prisma.integrationConfig.findUnique({
+          where: { toolId: "n8n" },
+        });
+        const instanceUrl = (config?.config as Record<string, string>)?.instanceUrl;
+        if (!instanceUrl) {
+          message = "No instance URL configured. Enter the URL first.";
+        } else {
+          try {
+            const start = Date.now();
+            const res = await fetch(`${instanceUrl.replace(/\/$/, "")}/healthz`, {
+              method: "GET",
+              signal: AbortSignal.timeout(10000),
+            });
+            latencyMs = Date.now() - start;
+            success = res.ok;
+            message = res.ok
+              ? `n8n is reachable (${res.status})`
+              : `n8n returned HTTP ${res.status}`;
+
+            await ctx.prisma.integrationConfig.update({
+              where: { toolId: "n8n" },
+              data: {
+                lastHealthCheck: new Date(),
+                status: success ? "connected" : "error",
+              },
+            });
+          } catch (error) {
+            message = error instanceof Error ? `Cannot reach n8n: ${error.message}` : "Connection failed";
           }
         }
       }

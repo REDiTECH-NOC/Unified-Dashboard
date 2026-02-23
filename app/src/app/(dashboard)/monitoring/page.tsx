@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
+import { useTimezone } from "@/hooks/use-timezone";
 
 /* ─── STATUS HELPERS ────────────────────────────────────────── */
 
@@ -129,6 +130,7 @@ function StatCard({ label, value, icon: Icon, color }: { label: string; value: n
 /* ─── UPTIME BAR ─────────────────────────────────────────────── */
 
 function UptimeBar({ monitorId }: { monitorId: string }) {
+  const { time } = useTimezone();
   const { data: bars } = trpc.uptime.uptimeBars.useQuery(
     { monitorId, segments: 45 },
     { refetchInterval: 60000 }
@@ -144,7 +146,7 @@ function UptimeBar({ monitorId }: { monitorId: string }) {
           <div
             key={i}
             className={cn("flex-1 rounded-sm transition-all relative", bg, bar.status ? "h-full hover:opacity-80" : "h-full")}
-            title={bar.status ? `${new Date(bar.timestamp).toLocaleTimeString()} — ${bar.status}${bar.latencyMs ? ` (${bar.latencyMs}ms)` : ""}` : "No data"}
+            title={bar.status ? `${time(bar.timestamp)} — ${bar.status}${bar.latencyMs ? ` (${bar.latencyMs}ms)` : ""}` : "No data"}
           />
         );
       })}
@@ -162,6 +164,7 @@ const TIME_RANGES = [
 ] as const;
 
 function ResponseTimeChart({ monitorId }: { monitorId: string }) {
+  const { timeShort, dateShort, dateTime } = useTimezone();
   const [range, setRange] = useState<number>(24);
   const { data } = trpc.uptime.heartbeats.useQuery(
     { monitorId, hours: range, limit: 200 },
@@ -222,10 +225,7 @@ function ResponseTimeChart({ monitorId }: { monitorId: string }) {
                   dataKey="time"
                   type="number"
                   domain={["dataMin", "dataMax"]}
-                  tickFormatter={(v) => {
-                    const d = new Date(v);
-                    return range <= 24 ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" });
-                  }}
+                  tickFormatter={(v) => range <= 24 ? timeShort(v) : dateShort(v)}
                   tick={{ fontSize: 9, fill: "#71717a" }}
                   axisLine={false}
                   tickLine={false}
@@ -240,7 +240,7 @@ function ResponseTimeChart({ monitorId }: { monitorId: string }) {
                 />
                 <RechartsTooltip
                   contentStyle={{ backgroundColor: "#1c1c1e", border: "1px solid #27272a", borderRadius: "8px", fontSize: "11px" }}
-                  labelFormatter={(v) => new Date(v).toLocaleString()}
+                  labelFormatter={(v) => dateTime(v)}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(value: any) => [`${value}ms`, "Latency"]}
                 />
@@ -264,6 +264,7 @@ function ResponseTimeChart({ monitorId }: { monitorId: string }) {
 /* ─── MONITOR DETAIL PANEL ───────────────────────────────────── */
 
 function MonitorDetail({ monitorId, onClose }: { monitorId: string; onClose: () => void }) {
+  const { dateTime, time } = useTimezone();
   const { data: monitor } = trpc.uptime.get.useQuery({ id: monitorId }, { refetchInterval: 15000 });
   const { data: stats } = trpc.uptime.stats.useQuery({ monitorId }, { refetchInterval: 30000 });
   const testNow = trpc.uptime.testNow.useMutation();
@@ -329,8 +330,8 @@ function MonitorDetail({ monitorId, onClose }: { monitorId: string; onClose: () 
             </p>
             {monitor.lastCheckedAt && (
               <p className="text-[10px] text-muted-foreground">
-                Last checked: {new Date(monitor.lastCheckedAt).toLocaleString()}
-                {monitor.lastStatusChange && <> | Status since: {new Date(monitor.lastStatusChange).toLocaleString()}</>}
+                Last checked: {dateTime(monitor.lastCheckedAt)}
+                {monitor.lastStatusChange && <> | Status since: {dateTime(monitor.lastStatusChange)}</>}
               </p>
             )}
           </div>
@@ -410,7 +411,7 @@ function MonitorDetail({ monitorId, onClose }: { monitorId: string; onClose: () 
               {monitor.heartbeats.slice(0, 30).map((hb) => (
                 <div key={hb.id} className="flex items-center gap-2 text-xs py-1">
                   <div className={cn("w-2 h-2 rounded-full shrink-0", statusDot(hb.status))} />
-                  <span className="text-muted-foreground shrink-0">{new Date(hb.timestamp).toLocaleTimeString()}</span>
+                  <span className="text-muted-foreground shrink-0">{time(hb.timestamp)}</span>
                   {hb.latencyMs && <span className="text-muted-foreground shrink-0">{hb.latencyMs}ms</span>}
                   <span className="text-muted-foreground truncate flex-1">{hb.message}</span>
                 </div>
@@ -1131,6 +1132,7 @@ function MonitorFormDialog({ open, onClose, onSuccess, editMonitor }: {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function MonitorRow({ monitor, onEdit, onDetail }: { monitor: any; onEdit: () => void; onDetail: () => void }) {
+  const { time } = useTimezone();
   const utils = trpc.useUtils();
   const pauseMutation = trpc.uptime.pause.useMutation({ onSuccess: () => utils.uptime.list.invalidate() });
   const resumeMutation = trpc.uptime.resume.useMutation({ onSuccess: () => utils.uptime.list.invalidate() });
@@ -1187,7 +1189,7 @@ function MonitorRow({ monitor, onEdit, onDetail }: { monitor: any; onEdit: () =>
       {/* Interval + Last Checked */}
       <div className="hidden md:flex flex-col items-end text-[10px] text-muted-foreground w-20 shrink-0">
         <span>{monitor.intervalSeconds}s interval</span>
-        {monitor.lastCheckedAt && <span>{new Date(monitor.lastCheckedAt).toLocaleTimeString()}</span>}
+        {monitor.lastCheckedAt && <span>{time(monitor.lastCheckedAt)}</span>}
       </div>
 
       {/* Actions */}

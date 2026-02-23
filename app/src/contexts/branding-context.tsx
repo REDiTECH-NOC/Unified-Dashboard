@@ -4,7 +4,10 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 
 interface BrandingSettings {
   logoUrl: string;
+  logoUrlLight: string;
   companyName: string;
+  faviconUrl: string;
+  reportLogoUrl: string;
 }
 
 interface BrandingContextValue extends BrandingSettings {
@@ -13,7 +16,10 @@ interface BrandingContextValue extends BrandingSettings {
 
 const defaults: BrandingSettings = {
   logoUrl: "/logo.png",
+  logoUrlLight: "",
   companyName: "REDiTECH",
+  faviconUrl: "",
+  reportLogoUrl: "",
 };
 
 const STORAGE_KEY = "rcc-branding";

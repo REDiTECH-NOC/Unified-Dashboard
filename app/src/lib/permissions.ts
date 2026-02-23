@@ -76,6 +76,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "tools.grafana.edit",   label: "Edit Grafana Dashboards",  description: "Create and edit dashboards in Grafana",        module: "Tools",         defaultRoles: ["ADMIN"] },
   { key: "tools.grafana.admin",  label: "Grafana Admin",            description: "Full Grafana admin (users, data sources, etc)",module: "Tools",         defaultRoles: ["ADMIN"] },
   { key: "tools.uptime",         label: "Access Uptime Monitor",    description: "View and manage uptime monitors",              module: "Tools",         defaultRoles: ["ADMIN"] },
+  { key: "tools.n8n",            label: "Access n8n",               description: "Access n8n workflow automation platform",       module: "Tools",         defaultRoles: [] },
 ];
 
 // Build a quick lookup map

@@ -80,14 +80,21 @@ services:
       - DB_POSTGRESDB_USER=${POSTGRES_USER:-rcc}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
       - DB_POSTGRESDB_SCHEMA=n8n
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-changeme}
       - N8N_HOST=0.0.0.0
-      - N8N_PROTOCOL=http
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
       - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678}
+      # OIDC SSO (Entra ID) — leave OIDC vars empty to keep basic auth fallback
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-}
+      - N8N_OIDC_ALLOWED_EMAILS=${N8N_OIDC_ALLOWED_EMAILS:-}
+      - EXTERNAL_HOOK_FILES=/home/node/app/hooks.js
+      - EXTERNAL_FRONTEND_HOOKS_URLS=/assets/oidc-frontend-hook.js
+      - N8N_ADDITIONAL_NON_UI_ROUTES=auth
     volumes:
       - n8ndata:/home/node/.n8n
+      - ./n8n/hooks.js:/home/node/app/hooks.js:ro
     depends_on:
       db:
         condition: service_healthy

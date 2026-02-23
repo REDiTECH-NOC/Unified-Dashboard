@@ -107,7 +107,7 @@ async function checkHttpService(
   const start = Date.now();
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
 
@@ -139,7 +139,7 @@ async function checkHttpService(
       status: "down",
       latencyMs: null,
       message: error instanceof Error
-        ? (error.name === "AbortError" ? "Timeout (5s)" : error.message)
+        ? (error.name === "AbortError" ? "Timeout (8s)" : error.message)
         : "Connection failed",
       type,
       version: null,
@@ -192,15 +192,28 @@ async function getLatestDockerTag(image: string): Promise<string | null> {
 
 // ─── Docker Helpers ─────────────────────────────────────────────────
 
-/** Get a Dockerode instance (lazy, fail-safe) */
+/** Get a Dockerode instance (cached, fail-safe).
+ *  Once we know Docker socket is unavailable (e.g. Azure), stop retrying for 5 min. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _dockerInstance: any = undefined;
+let _dockerCheckedAt = 0;
+const DOCKER_CACHE_MS = 5 * 60_000; // re-check every 5 min
+
 async function getDocker() {
+  const now = Date.now();
+  if (_dockerInstance !== undefined && now - _dockerCheckedAt < DOCKER_CACHE_MS) {
+    return _dockerInstance;
+  }
   try {
     const Dockerode = (await import("dockerode")).default;
     const docker = new Dockerode({ socketPath: "/var/run/docker.sock" });
-    // Quick ping to verify connectivity
     await docker.ping();
+    _dockerInstance = docker;
+    _dockerCheckedAt = now;
     return docker;
   } catch {
+    _dockerInstance = null;
+    _dockerCheckedAt = now;
     return null;
   }
 }
@@ -323,99 +336,148 @@ async function updateAzureContainerApp(
   }
 }
 
+// ─── Health Cache ───────────────────────────────────────────────────
+
+const HEALTH_CACHE_KEY = "rcc:system:health";
+const HEALTH_CACHE_TTL = 15; // seconds — all users share one cached result
+
+async function fetchHealthData() {
+  const docker = await getDocker();
+
+  const n8nUrl = process.env.N8N_INTERNAL_URL ?? `http://${process.env.N8N_HOST ?? "n8n"}:5678`;
+  const grafanaUrl = process.env.GRAFANA_INTERNAL_URL ?? `http://${process.env.GRAFANA_HOST ?? "grafana"}:3000`;
+
+  const [db, redisStatus, n8n, grafana] = await Promise.all([
+    checkDatabase(),
+    checkRedis(),
+    checkHttpService(
+      "n8n",
+      `${n8nUrl}/healthz`,
+      "container",
+      () => null
+    ),
+    checkHttpService(
+      "Grafana",
+      `${grafanaUrl}/api/health`,
+      "container",
+      (data) => (data as { version?: string })?.version ?? null
+    ),
+  ]);
+
+  // Try Docker image labels for n8n version (only available in docker-compose env)
+  if (n8n.status === "healthy" && !n8n.version && docker) {
+    const ver = await getContainerVersion("rcc-n8n", docker);
+    if (ver) {
+      n8n.version = ver;
+      n8n.message = `Running (v${ver})`;
+    }
+  }
+
+  // Fallback: scrape n8n version from HTML root page (works on both Docker and Azure)
+  if (n8n.status === "healthy" && !n8n.version) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${n8nUrl}/`, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const html = await res.text();
+        const match = html.match(/name="n8n:config:sentry"\s+content="([^"]+)"/);
+        if (match?.[1]) {
+          try {
+            const decoded = JSON.parse(Buffer.from(match[1], "base64").toString());
+            const release = decoded?.release as string | undefined;
+            if (release?.startsWith("n8n@")) {
+              n8n.version = release.slice(4);
+              n8n.message = `Running (v${n8n.version})`;
+            }
+          } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  const appVersion = process.env.APP_VERSION ?? process.env.npm_package_version ?? "0.1.0";
+  const app: ServiceStatus = {
+    name: "RCC App",
+    status: "healthy",
+    latencyMs: 0,
+    message: `Running (v${appVersion})`,
+    type: "container",
+    version: appVersion,
+    latestVersion: null,
+    updateAvailable: false,
+  };
+
+  const services: ServiceStatus[] = [app, db, redisStatus, n8n, grafana];
+  const overallStatus = services.every((s) => s.status === "healthy")
+    ? "healthy"
+    : "degraded";
+
+  return { status: overallStatus, services, checkedAt: new Date().toISOString() };
+}
+
+type HealthResult = Awaited<ReturnType<typeof fetchHealthData>>;
+
+// In-flight dedup: if a health check is already running, share its result
+let healthInflight: Promise<HealthResult> | null = null;
+
 // ─── Router ─────────────────────────────────────────────────────────
 
 export const systemRouter = router({
   /** Dashboard widget: quick health + version check for all services */
-  health: protectedProcedure.query(async () => {
-    const docker = await getDocker();
+  health: protectedProcedure.query(async (): Promise<HealthResult> => {
+    // Try Redis cache first — avoids re-running all health checks for every user
+    try {
+      const cached = await redis.get(HEALTH_CACHE_KEY);
+      if (cached) return JSON.parse(cached) as HealthResult;
+    } catch { /* Redis down — fall through to live check */ }
 
-    // Use internal URLs — works on both Docker Compose and Azure Container Apps
-    const n8nUrl = process.env.N8N_INTERNAL_URL ?? `http://${process.env.N8N_HOST ?? "n8n"}:5678`;
-    const grafanaUrl = process.env.GRAFANA_INTERNAL_URL ?? `http://${process.env.GRAFANA_HOST ?? "grafana"}:3000`;
-
-    const [db, redisStatus, n8n, grafana] = await Promise.all([
-      checkDatabase(),
-      checkRedis(),
-      checkHttpService(
-        "n8n",
-        `${n8nUrl}/healthz`,
-        "container",
-        () => null
-      ),
-      checkHttpService(
-        "Grafana",
-        `${grafanaUrl}/api/health`,
-        "container",
-        (data) => (data as { version?: string })?.version ?? null
-      ),
-    ]);
-
-    // Try Docker image labels for n8n version (only available in docker-compose env)
-    if (n8n.status === "healthy" && !n8n.version && docker) {
-      const ver = await getContainerVersion("rcc-n8n", docker);
-      if (ver) {
-        n8n.version = ver;
-        n8n.message = `Running (v${ver})`;
-      }
-    }
-
-    // Fallback: scrape n8n version from HTML root page (works on both Docker and Azure)
-    if (n8n.status === "healthy" && !n8n.version) {
+    // Dedup concurrent requests: if another request is already fetching, wait for it
+    if (healthInflight) {
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const res = await fetch(`${n8nUrl}/`, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (res.ok) {
-          const html = await res.text();
-          const match = html.match(/name="n8n:config:sentry"\s+content="([^"]+)"/);
-          if (match?.[1]) {
-            try {
-              const decoded = JSON.parse(Buffer.from(match[1], "base64").toString());
-              const release = decoded?.release as string | undefined;
-              if (release?.startsWith("n8n@")) {
-                n8n.version = release.slice(4);
-                n8n.message = `Running (v${n8n.version})`;
-              }
-            } catch { /* ignore */ }
-          }
-        }
-      } catch { /* ignore */ }
+        return await healthInflight;
+      } catch { /* fall through to fresh fetch */ }
     }
 
-    const appVersion = process.env.APP_VERSION ?? process.env.npm_package_version ?? "0.1.0";
-    const app: ServiceStatus = {
-      name: "RCC App",
-      status: "healthy",
-      latencyMs: 0,
-      message: `Running (v${appVersion})`,
-      type: "container",
-      version: appVersion,
-      latestVersion: null,
-      updateAvailable: false,
-    };
+    healthInflight = fetchHealthData();
+    try {
+      const result = await healthInflight;
+      // Cache in Redis for all users to share
+      try {
+        await redis.set(HEALTH_CACHE_KEY, JSON.stringify(result), "EX", HEALTH_CACHE_TTL);
+      } catch { /* Redis down — still return the result */ }
+      return result;
+    } finally {
+      healthInflight = null;
+    }
+  }),
 
+  /** Separate endpoint for update availability — called infrequently, not on every health poll */
+  updateInfo: protectedProcedure.query(async () => {
     const [latestN8n, latestGrafana] = await Promise.all([
       getLatestDockerTag("n8nio/n8n"),
       getLatestDockerTag("grafana/grafana-oss"),
     ]);
 
-    if (latestN8n) {
-      n8n.latestVersion = latestN8n;
-      if (n8n.version && compareSemver(latestN8n, n8n.version) > 0) n8n.updateAvailable = true;
-    }
-    if (latestGrafana) {
-      grafana.latestVersion = latestGrafana;
-      if (grafana.version && compareSemver(latestGrafana, grafana.version) > 0) grafana.updateAvailable = true;
-    }
+    return {
+      n8n: latestN8n,
+      grafana: latestGrafana,
+      checkedAt: new Date().toISOString(),
+    };
+  }),
 
-    const services: ServiceStatus[] = [app, db, redisStatus, n8n, grafana];
-    const overallStatus = services.every((s) => s.status === "healthy")
-      ? "healthy"
-      : "degraded";
+  /** Runtime external URLs for sidebar links — reads from integration config DB */
+  externalUrls: protectedProcedure.query(async () => {
+    const n8nConfig = await prisma.integrationConfig.findUnique({
+      where: { toolId: "n8n" },
+      select: { config: true },
+    });
+    const n8nUrl = (n8nConfig?.config as Record<string, unknown>)?.instanceUrl as string | undefined;
 
-    return { status: overallStatus, services, checkedAt: new Date().toISOString() };
+    return {
+      n8n: n8nUrl || process.env.N8N_EXTERNAL_URL || null,
+    };
   }),
 
   /** Settings page: detailed container info with Docker metadata */

@@ -29,6 +29,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
+import { useTimezone } from "@/hooks/use-timezone";
 
 const settingsSections = [
   {
@@ -66,6 +67,7 @@ const SERVICE_ICONS: Record<string, React.ElementType> = {
 };
 
 export default function SettingsPage() {
+  const { dateTime } = useTimezone();
   const utils = trpc.useUtils();
 
   const containerQuery = trpc.system.containerInfo.useQuery(undefined, {
@@ -337,7 +339,7 @@ export default function SettingsPage() {
           {/* Last checked */}
           {containerQuery.data?.checkedAt && (
             <p className="text-[10px] text-muted-foreground pt-2 border-t border-border">
-              Last checked: {new Date(containerQuery.data.checkedAt).toLocaleString()}
+              Last checked: {dateTime(containerQuery.data.checkedAt)}
             </p>
           )}
         </CardContent>

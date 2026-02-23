@@ -10,6 +10,8 @@ interface ProxyConfig {
   auditAction: string;
   injectHeaders?: (session: any) => Record<string, string> | Promise<Record<string, string>>;
   stripCookies?: boolean;
+  /** Rewrite rules applied to text responses (HTML/JS/CSS) going through the proxy */
+  responseRewrite?: { from: string; to: string }[];
 }
 
 const STRIP_REQUEST_HEADERS = new Set([
@@ -120,6 +122,23 @@ export function createProxyHandler(config: ProxyConfig) {
           actorId: session.user.id,
           resource: `${config.serviceName}:/${path}`,
           detail: { method: req.method, path },
+        });
+      }
+
+      // 8. Response body rewriting for text content (HTML/JS/CSS)
+      if (
+        config.responseRewrite?.length &&
+        contentType.match(/text\/html|application\/javascript|text\/css/)
+      ) {
+        let body = await upstreamRes.text();
+        for (const rule of config.responseRewrite) {
+          body = body.replaceAll(rule.from, rule.to);
+        }
+        responseHeaders.delete("content-length");
+        return new NextResponse(body, {
+          status: upstreamRes.status,
+          statusText: upstreamRes.statusText,
+          headers: responseHeaders,
         });
       }
 

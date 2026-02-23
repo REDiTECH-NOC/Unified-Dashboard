@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { BrandingProvider } from "@/contexts/branding-context";
+import { DynamicFavicon } from "@/components/dynamic-favicon";
 
 export default function DashboardLayout({
   children,
@@ -9,6 +10,7 @@ export default function DashboardLayout({
 }) {
   return (
     <BrandingProvider>
+      <DynamicFavicon />
       <div className="flex min-h-screen">
         <Sidebar />
         <div className="flex flex-1 flex-col lg:ml-18 xl:ml-sidebar transition-all duration-200">
