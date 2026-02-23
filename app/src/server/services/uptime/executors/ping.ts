@@ -1,5 +1,6 @@
 import { execFile } from "child_process";
 import { platform } from "os";
+import * as net from "net";
 import type { MonitorExecutor } from "./base";
 import type { ExecutorResult, PingConfig } from "../types";
 
@@ -19,6 +20,56 @@ function parsePingOutput(stdout: string): number | null {
   if (timeMatch) return Math.round(parseFloat(timeMatch[1]));
 
   return null;
+}
+
+/** Detect if a string is a raw IP address (v4 or v6) */
+function isIpAddress(host: string): boolean {
+  return net.isIP(host) !== 0;
+}
+
+/**
+ * TCP connect fallback for environments where ICMP is blocked
+ * (e.g. Azure Container Apps which don't grant CAP_NET_RAW).
+ * Uses port 53 for IP addresses (DNS), port 80 for hostnames.
+ */
+function tcpPing(hostname: string, timeoutMs: number): Promise<ExecutorResult> {
+  const start = performance.now();
+  const port = isIpAddress(hostname) ? 53 : 80;
+
+  return new Promise<ExecutorResult>((resolve) => {
+    const socket = new net.Socket();
+
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve({
+        status: "DOWN",
+        latencyMs: Math.round(performance.now() - start),
+        message: `TCP ping to ${hostname}:${port} timeout after ${timeoutMs}ms`,
+      });
+    }, timeoutMs);
+
+    socket.connect(port, hostname, () => {
+      clearTimeout(timer);
+      const latencyMs = Math.round(performance.now() - start);
+      socket.destroy();
+      resolve({
+        status: "UP",
+        latencyMs,
+        message: `Ping to ${hostname}: ${latencyMs}ms (tcp)`,
+      });
+    });
+
+    socket.on("error", (err) => {
+      clearTimeout(timer);
+      const latencyMs = Math.round(performance.now() - start);
+      socket.destroy();
+      resolve({
+        status: "DOWN",
+        latencyMs,
+        message: `TCP ping to ${hostname}:${port} failed: ${err.message}`,
+      });
+    });
+  });
 }
 
 export class PingExecutor implements MonitorExecutor {
@@ -63,6 +114,22 @@ export class PingExecutor implements MonitorExecutor {
         const latencyMs = Math.round(performance.now() - start);
 
         if (error) {
+          // If ping failed due to permission/binary issues (not a network timeout),
+          // fall back to TCP connect — works on Azure Container Apps where ICMP is blocked
+          const msg = error.message.toLowerCase();
+          const isPermissionOrBinaryError =
+            msg.includes("permission") ||
+            msg.includes("operation not permitted") ||
+            msg.includes("enoent") ||
+            msg.includes("command failed") ||
+            msg.includes("spawn") ||
+            msg.includes("not found");
+
+          if (isPermissionOrBinaryError) {
+            resolve(tcpPing(c.hostname, timeoutMs));
+            return;
+          }
+
           resolve({
             status: "DOWN",
             latencyMs,
