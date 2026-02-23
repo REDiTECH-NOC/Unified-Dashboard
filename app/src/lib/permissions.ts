@@ -77,6 +77,15 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "tools.grafana.admin",  label: "Grafana Admin",            description: "Full Grafana admin (users, data sources, etc)",module: "Tools",         defaultRoles: ["ADMIN"] },
   { key: "tools.uptime",         label: "Access Uptime Monitor",    description: "View and manage uptime monitors",              module: "Tools",         defaultRoles: ["ADMIN"] },
   { key: "tools.n8n",            label: "Access n8n",               description: "Access n8n workflow automation platform",       module: "Tools",         defaultRoles: [] },
+  { key: "tools.azure",          label: "Azure Management",         description: "Access Azure resource health, databases, firewall, and monitoring", module: "Tools", defaultRoles: ["ADMIN"] },
+
+  // ── CIPP (M365 Management) ──
+  { key: "cipp.view",            label: "View CIPP",                description: "Access the CIPP dashboard — view tenants, users, licenses, security",        module: "CIPP",     defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "cipp.manage",          label: "Manage via CIPP",          description: "Create/disable users, reset passwords, manage groups, offboard",              module: "CIPP",     defaultRoles: ["ADMIN", "MANAGER"] },
+  { key: "cipp.security",        label: "CIPP Security Actions",    description: "Manage security alerts/incidents, device actions, LAPS, password resets",      module: "CIPP",     defaultRoles: ["ADMIN"] },
+
+  // ── Quick Links ──
+  { key: "quicklinks.manage",    label: "Manage Quick Links",       description: "Create, edit, and assign quick link groups and shortcuts", module: "Settings", defaultRoles: ["ADMIN"] },
 ];
 
 // Build a quick lookup map

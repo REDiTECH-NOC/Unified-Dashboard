@@ -20,6 +20,8 @@ import {
   BarChart3,
   Activity,
   Workflow,
+  Cloud,
+  Monitor,
 } from "lucide-react";
 
 interface NavItem {
@@ -39,6 +41,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: "/alerts", label: "Alerts", icon: AlertTriangle, permission: "alerts.view" },
       { href: "/tickets", label: "Tickets", icon: Ticket, permission: "tickets.view" },
       { href: "/clients", label: "Clients", icon: Users, permission: "clients.view" },
+      { href: "/cipp", label: "CIPP", icon: Monitor, permission: "cipp.view" },
       { href: "/audit", label: "Audit Log", icon: ScrollText, permission: "audit.view" },
     ],
   },
@@ -48,6 +51,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: "/grafana", label: "Grafana", icon: BarChart3, permission: "tools.grafana" },
       { href: "/monitoring", label: "Uptime Monitor", icon: Activity, permission: "tools.uptime" },
       { href: "#", label: "n8n", icon: Workflow, permission: "tools.n8n", external: true, externalKey: "n8n" },
+      { href: "/azure", label: "Azure", icon: Cloud, permission: "tools.azure" },
     ],
   },
   {

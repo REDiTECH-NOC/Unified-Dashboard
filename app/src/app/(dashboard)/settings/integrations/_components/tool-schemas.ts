@@ -33,6 +33,8 @@ export const BUILT_TOOLS = new Set([
   "itglue",
   "unifi",
   "n8n",
+  "blackpoint",
+  "cipp",
 ]);
 
 /** 3CX has its own multi-instance dialog */
@@ -179,6 +181,75 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     instructions:
       "Log into unifi.ui.com, click API in the left navigation, then generate an API key. " +
       "A single key provides read-only access to all sites your Ubiquiti account is admin/owner on.",
+  },
+
+  blackpoint: {
+    toolId: "blackpoint",
+    displayName: "Blackpoint CompassOne",
+    description:
+      "Blackpoint CompassOne MDR/SOC platform. Provides detections, assets, vulnerability management, " +
+      "cloud MDR (M365/Google/Cisco), and notification channel management.",
+    fields: [
+      {
+        key: "apiToken",
+        label: "API Token (JWT)",
+        type: "password",
+        placeholder: "Enter CompassOne API token",
+        required: true,
+        helpText: "Bearer token for API authentication. Generate in CompassOne portal under Settings → API.",
+      },
+    ],
+    instructions:
+      "Log into the CompassOne portal, navigate to Settings → API, and generate an API token. " +
+      "The token provides access to all tenants (customers) under your MSP account. " +
+      "Endpoints are scoped per-tenant using the x-tenant-id header.",
+  },
+
+  cipp: {
+    toolId: "cipp",
+    displayName: "CIPP",
+    description:
+      "CyberDrain Improved Partner Portal — multi-tenant Microsoft 365 management via GDAP. " +
+      "User management, license administration, security monitoring, Intune, and Teams/SharePoint.",
+    fields: [
+      {
+        key: "baseUrl",
+        label: "CIPP API URL",
+        type: "url",
+        placeholder: "https://your-cipp-instance.azurewebsites.net",
+        required: true,
+        helpText: "The base URL of your self-hosted CIPP deployment (Azure Function App URL).",
+      },
+      {
+        key: "applicationId",
+        label: "Application (Client) ID",
+        type: "text",
+        placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        required: true,
+        helpText: "Entra ID App Registration Application (Client) ID for CIPP API access.",
+      },
+      {
+        key: "applicationSecret",
+        label: "Application Secret",
+        type: "password",
+        placeholder: "Enter client secret value",
+        required: true,
+        helpText: "Client secret from the Entra App Registration. Use the secret value, not the secret ID.",
+      },
+      {
+        key: "tenantId",
+        label: "Tenant ID",
+        type: "text",
+        placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        required: true,
+        helpText: "Your MSP tenant ID (the tenant where CIPP's app registration lives, NOT a customer tenant).",
+      },
+    ],
+    instructions:
+      "CIPP requires an Entra ID App Registration with the CIPP API permissions. " +
+      "Create an API client in CIPP under Settings → CIPP → API Clients. " +
+      "The Application ID, Secret, and Tenant ID come from your MSP tenant's app registration. " +
+      "The API URL is your CIPP Function App deployment URL.",
   },
 
   n8n: {

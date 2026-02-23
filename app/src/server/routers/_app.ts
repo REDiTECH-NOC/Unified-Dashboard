@@ -14,6 +14,10 @@ import { companyMatchingRouter } from "./company-matching";
 import { threecxRouter } from "./threecx";
 import { systemRouter } from "./system";
 import { networkRouter } from "./network";
+import { blackpointRouter } from "./blackpoint";
+import { infrastructureRouter } from "./infrastructure";
+import { quicklinksRouter } from "./quicklinks";
+import { cippRouter } from "./cipp";
 
 export const appRouter = router({
   user: userRouter,
@@ -31,6 +35,10 @@ export const appRouter = router({
   threecx: threecxRouter,
   system: systemRouter,
   network: networkRouter,
+  blackpoint: blackpointRouter,
+  infrastructure: infrastructureRouter,
+  quicklinks: quicklinksRouter,
+  cipp: cippRouter,
 });
 
 export type AppRouter = typeof appRouter;

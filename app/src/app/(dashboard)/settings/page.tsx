@@ -13,6 +13,7 @@ import {
   UserCog,
   Palette,
   Bell,
+  Bookmark,
   Info,
   Server,
   Database,
@@ -55,6 +56,12 @@ const settingsSections = [
     description: "Customize logo, company name, and platform appearance",
     icon: Palette,
     href: "/settings/branding",
+  },
+  {
+    title: "Quick Links",
+    description: "Manage shortcut links and assign to roles or users",
+    icon: Bookmark,
+    href: "/settings/quick-links",
   },
 ];
 

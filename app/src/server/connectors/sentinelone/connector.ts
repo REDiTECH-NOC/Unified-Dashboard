@@ -6,10 +6,10 @@
  */
 
 import type { ConnectorConfig, PaginatedResponse } from "../_base/types";
-import type { IEdrConnector, ThreatFilter, AgentFilter, MitigationAction, CreateExclusionInput, DeepVisibilityQuery } from "../_interfaces/edr";
+import type { IEdrConnector, ThreatFilter, AgentFilter, MitigationAction, CreateExclusionInput, DeepVisibilityQuery, IncidentStatus, AnalystVerdict, ThreatNote, ThreatTimelineEntry, AgentApplication } from "../_interfaces/edr";
 import type { NormalizedThreat, NormalizedDevice } from "../_interfaces/common";
 import { SentinelOneClient } from "./client";
-import type { S1Threat, S1Agent, S1Site, S1Group, S1Activity, S1Exclusion, S1AffectedResponse, S1DeepVisibilityQuery, S1DeepVisibilityEvent } from "./types";
+import type { S1Threat, S1Agent, S1Site, S1Group, S1Activity, S1Exclusion, S1AffectedResponse, S1DeepVisibilityQuery, S1DeepVisibilityEvent, S1ThreatNote, S1ThreatTimelineEvent, S1Application } from "./types";
 import { mapThreat, mapAgent } from "./mappers";
 
 export class SentinelOneEdrConnector implements IEdrConnector {
@@ -91,6 +91,162 @@ export class SentinelOneEdrConnector implements IEdrConnector {
     });
   }
 
+  // ─── Threat Workflow Actions ──────────────────────────────
+
+  async updateIncidentStatus(
+    threatIds: string[],
+    status: IncidentStatus
+  ): Promise<void> {
+    const statusMap: Record<IncidentStatus, string> = {
+      resolved: "resolved",
+      in_progress: "in_progress",
+      unresolved: "unresolved",
+    };
+
+    await this.client.requestS1<S1AffectedResponse>({
+      method: "POST",
+      path: "/threats/incident",
+      body: {
+        filter: { ids: threatIds },
+        data: { incidentStatus: statusMap[status] },
+      },
+    });
+  }
+
+  async updateAnalystVerdict(
+    threatIds: string[],
+    verdict: AnalystVerdict
+  ): Promise<void> {
+    const verdictMap: Record<AnalystVerdict, string> = {
+      true_positive: "true_positive",
+      false_positive: "false_positive",
+      suspicious: "suspicious",
+      undefined: "undefined",
+    };
+
+    await this.client.requestS1<S1AffectedResponse>({
+      method: "POST",
+      path: "/threats/analyst-verdict",
+      body: {
+        filter: { ids: threatIds },
+        data: { analystVerdict: verdictMap[verdict] },
+      },
+    });
+  }
+
+  async markAsBenign(
+    threatIds: string[],
+    whiteningOption?: string
+  ): Promise<void> {
+    const body: Record<string, unknown> = {
+      filter: { ids: threatIds },
+    };
+    if (whiteningOption) {
+      body.data = { targetScope: whiteningOption };
+    }
+
+    await this.client.requestS1<S1AffectedResponse>({
+      method: "POST",
+      path: "/threats/mark-as-benign",
+      body,
+    });
+  }
+
+  async markAsThreat(
+    threatIds: string[],
+    whiteningOption?: string
+  ): Promise<void> {
+    const body: Record<string, unknown> = {
+      filter: { ids: threatIds },
+    };
+    if (whiteningOption) {
+      body.data = { targetScope: whiteningOption };
+    }
+
+    await this.client.requestS1<S1AffectedResponse>({
+      method: "POST",
+      path: "/threats/mark-as-threat",
+      body,
+    });
+  }
+
+  // ─── Threat Notes ───────────────────────────────────────────
+
+  async getThreatNotes(
+    threatId: string,
+    cursor?: string,
+    pageSize = 50
+  ): Promise<PaginatedResponse<ThreatNote>> {
+    const params: Record<string, string | number | boolean | undefined> = {
+      limit: Math.min(pageSize, 1000),
+      sortBy: "createdAt",
+      sortOrder: "desc",
+    };
+    if (cursor) params.cursor = cursor;
+
+    const response = await this.client.requestS1<S1ThreatNote[]>({
+      path: `/threats/${threatId}/notes`,
+      params,
+    });
+
+    return {
+      data: response.data.map((n) => ({
+        id: n.id,
+        text: n.text ?? "",
+        createdAt: n.createdAt ? new Date(n.createdAt) : new Date(),
+        creatorId: n.creatorId,
+        creatorName: n.creator,
+      })),
+      hasMore: !!response.nextCursor,
+      nextCursor: response.nextCursor,
+    };
+  }
+
+  async addThreatNote(
+    threatId: string,
+    text: string
+  ): Promise<{ id: string }> {
+    const response = await this.client.requestS1<S1ThreatNote>({
+      method: "POST",
+      path: `/threats/${threatId}/notes`,
+      body: { data: { text } },
+    });
+
+    return { id: response.data.id };
+  }
+
+  // ─── Threat Timeline ────────────────────────────────────────
+
+  async getThreatTimeline(
+    threatId: string,
+    cursor?: string,
+    pageSize = 50
+  ): Promise<PaginatedResponse<ThreatTimelineEntry>> {
+    const params: Record<string, string | number | boolean | undefined> = {
+      limit: Math.min(pageSize, 1000),
+      sortBy: "createdAt",
+      sortOrder: "asc",
+    };
+    if (cursor) params.cursor = cursor;
+
+    const response = await this.client.requestS1<S1ThreatTimelineEvent[]>({
+      path: `/threats/${threatId}/timeline`,
+      params,
+    });
+
+    return {
+      data: response.data.map((e) => ({
+        id: e.id,
+        activityType: String(e.activityType ?? "unknown"),
+        description: e.primaryDescription ?? e.description ?? "",
+        timestamp: e.createdAt ? new Date(e.createdAt) : new Date(),
+        data: e.data,
+      })),
+      hasMore: !!response.nextCursor,
+      nextCursor: response.nextCursor,
+    };
+  }
+
   // ─── Agent Actions ─────────────────────────────────────────
 
   async isolateDevice(agentId: string): Promise<void> {
@@ -170,6 +326,39 @@ export class SentinelOneEdrConnector implements IEdrConnector {
     }
 
     return mapAgent(response.data[0]);
+  }
+
+  // ─── Agent Applications ──────────────────────────────────
+
+  async getAgentApplications(
+    agentId: string,
+    cursor?: string,
+    pageSize = 50
+  ): Promise<PaginatedResponse<AgentApplication>> {
+    const params: Record<string, string | number | boolean | undefined> = {
+      ids: agentId,
+      limit: Math.min(pageSize, 1000),
+      sortBy: "name",
+      sortOrder: "asc",
+    };
+    if (cursor) params.cursor = cursor;
+
+    const response = await this.client.requestS1<S1Application[]>({
+      path: "/agents/applications",
+      params,
+    });
+
+    return {
+      data: response.data.map((app) => ({
+        name: app.name ?? "Unknown",
+        version: app.version,
+        publisher: app.publisher,
+        size: app.size,
+        installedDate: app.installedDate,
+      })),
+      hasMore: !!response.nextCursor,
+      nextCursor: response.nextCursor,
+    };
   }
 
   // ─── Sites & Groups ────────────────────────────────────────
@@ -268,6 +457,13 @@ export class SentinelOneEdrConnector implements IEdrConnector {
     });
 
     return { id: response.data.id };
+  }
+
+  async deleteExclusion(exclusionId: string): Promise<void> {
+    await this.client.requestS1<S1AffectedResponse>({
+      method: "DELETE",
+      path: `/exclusions/${exclusionId}`,
+    });
   }
 
   // ─── Deep Visibility ──────────────────────────────────────

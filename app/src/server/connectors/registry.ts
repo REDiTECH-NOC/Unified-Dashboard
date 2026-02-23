@@ -15,8 +15,10 @@ import { NinjaOneRmmConnector } from "./ninjaone/connector";
 import { SentinelOneEdrConnector } from "./sentinelone/connector";
 import { ItGlueDocumentationConnector } from "./itglue/connector";
 import { UnifiNetworkConnector } from "./unifi/connector";
+import { BlackpointConnector } from "./blackpoint/connector";
+import { CIPPConnector } from "./cipp/connector";
 
-export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network";
+export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network" | "mdr" | "cipp";
 
 export interface ConnectorRegistration {
   category: ConnectorCategory;
@@ -61,5 +63,19 @@ export const CONNECTOR_REGISTRY: Record<string, ConnectorRegistration> = {
     rateLimitMax: 150,
     rateLimitWindowMs: 60_000,
     factory: (config) => new UnifiNetworkConnector(config),
+  },
+
+  blackpoint: {
+    category: "mdr",
+    defaultBaseUrl: "https://api.blackpointcyber.com",
+    rateLimitMax: 120,
+    rateLimitWindowMs: 60_000,
+    factory: (config) => new BlackpointConnector(config),
+  },
+
+  cipp: {
+    category: "cipp",
+    defaultBaseUrl: "", // Always from config — instance-specific CIPP deployment URL
+    factory: (config) => new CIPPConnector(config),
   },
 };

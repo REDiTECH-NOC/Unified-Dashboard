@@ -75,6 +75,150 @@ export const edrRouter = router({
       return { success: true };
     }),
 
+  // ─── Threat Workflow Actions ─────────────────────────────
+
+  updateIncidentStatus: protectedProcedure
+    .input(
+      z.object({
+        threatIds: z.array(z.string()).min(1),
+        status: z.enum(["resolved", "in_progress", "unresolved"]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      await edr.updateIncidentStatus(input.threatIds, input.status);
+
+      await auditLog({
+        action: `security.threat.incident.${input.status}`,
+        category: "SECURITY",
+        actorId: ctx.user.id,
+        resource: `threats:${input.threatIds.join(",")}`,
+        detail: { status: input.status, count: input.threatIds.length },
+      });
+
+      return { success: true };
+    }),
+
+  updateAnalystVerdict: protectedProcedure
+    .input(
+      z.object({
+        threatIds: z.array(z.string()).min(1),
+        verdict: z.enum(["true_positive", "false_positive", "suspicious", "undefined"]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      await edr.updateAnalystVerdict(input.threatIds, input.verdict);
+
+      await auditLog({
+        action: `security.threat.verdict.${input.verdict}`,
+        category: "SECURITY",
+        actorId: ctx.user.id,
+        resource: `threats:${input.threatIds.join(",")}`,
+        detail: { verdict: input.verdict, count: input.threatIds.length },
+      });
+
+      return { success: true };
+    }),
+
+  markAsBenign: protectedProcedure
+    .input(
+      z.object({
+        threatIds: z.array(z.string()).min(1),
+        whiteningOption: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      await edr.markAsBenign(input.threatIds, input.whiteningOption);
+
+      await auditLog({
+        action: "security.threat.marked_benign",
+        category: "SECURITY",
+        actorId: ctx.user.id,
+        resource: `threats:${input.threatIds.join(",")}`,
+        detail: { whiteningOption: input.whiteningOption, count: input.threatIds.length },
+      });
+
+      return { success: true };
+    }),
+
+  markAsThreat: protectedProcedure
+    .input(
+      z.object({
+        threatIds: z.array(z.string()).min(1),
+        whiteningOption: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      await edr.markAsThreat(input.threatIds, input.whiteningOption);
+
+      await auditLog({
+        action: "security.threat.marked_threat",
+        category: "SECURITY",
+        actorId: ctx.user.id,
+        resource: `threats:${input.threatIds.join(",")}`,
+        detail: { whiteningOption: input.whiteningOption, count: input.threatIds.length },
+      });
+
+      return { success: true };
+    }),
+
+  // ─── Threat Notes ──────────────────────────────────────────
+
+  getThreatNotes: protectedProcedure
+    .input(
+      z.object({
+        threatId: z.string(),
+        cursor: z.string().optional(),
+        pageSize: z.number().min(1).max(100).default(50),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      return edr.getThreatNotes(input.threatId, input.cursor, input.pageSize);
+    }),
+
+  addThreatNote: protectedProcedure
+    .input(
+      z.object({
+        threatId: z.string(),
+        text: z.string().min(1).max(10000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      const result = await edr.addThreatNote(input.threatId, input.text);
+
+      await auditLog({
+        action: "security.threat.note.added",
+        category: "SECURITY",
+        actorId: ctx.user.id,
+        resource: `threat:${input.threatId}`,
+        detail: { noteId: result.id },
+      });
+
+      return result;
+    }),
+
+  // ─── Threat Timeline ──────────────────────────────────────
+
+  getThreatTimeline: protectedProcedure
+    .input(
+      z.object({
+        threatId: z.string(),
+        cursor: z.string().optional(),
+        pageSize: z.number().min(1).max(100).default(50),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      return edr.getThreatTimeline(input.threatId, input.cursor, input.pageSize);
+    }),
+
+  // ─── Agent Actions ─────────────────────────────────────────
+
   isolateDevice: protectedProcedure
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -157,6 +301,21 @@ export const edrRouter = router({
       return edr.getAgentById(input.id);
     }),
 
+  // ─── Agent Applications ─────────────────────────────────
+
+  getAgentApplications: protectedProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        cursor: z.string().optional(),
+        pageSize: z.number().min(1).max(100).default(50),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      return edr.getAgentApplications(input.agentId, input.cursor, input.pageSize);
+    }),
+
   // ─── Sites & Groups ─────────────────────────────────────
 
   getSites: protectedProcedure.query(async ({ ctx }) => {
@@ -210,6 +369,22 @@ export const edrRouter = router({
       });
 
       return result;
+    }),
+
+  deleteExclusion: protectedProcedure
+    .input(z.object({ exclusionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      await edr.deleteExclusion(input.exclusionId);
+
+      await auditLog({
+        action: "security.exclusion.deleted",
+        category: "SECURITY",
+        actorId: ctx.user.id,
+        resource: `exclusion:${input.exclusionId}`,
+      });
+
+      return { success: true };
     }),
 
   // ─── Deep Visibility ────────────────────────────────────

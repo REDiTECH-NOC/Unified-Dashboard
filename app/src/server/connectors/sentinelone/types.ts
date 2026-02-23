@@ -247,3 +247,32 @@ export interface S1DeepVisibilityEvent {
 export interface S1AffectedResponse {
   affected: number;
 }
+
+/** Threat note from /threats/{id}/notes */
+export interface S1ThreatNote {
+  id: string;
+  text?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  creator?: string;
+  creatorId?: string;
+}
+
+/** Timeline event from /threats/{id}/timeline */
+export interface S1ThreatTimelineEvent {
+  id: string;
+  activityType?: number;
+  primaryDescription?: string;
+  description?: string;
+  createdAt?: string;
+  data?: Record<string, unknown>;
+}
+
+/** Application installed on an agent */
+export interface S1Application {
+  name?: string;
+  version?: string;
+  publisher?: string;
+  size?: number;
+  installedDate?: string;
+}

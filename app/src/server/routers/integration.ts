@@ -11,7 +11,7 @@ const TOOL_REGISTRY = [
   { toolId: "ninjaone", displayName: "NinjaOne (RMM)", category: "rmm" },
   { toolId: "connectwise", displayName: "ConnectWise PSA", category: "psa" },
   { toolId: "sentinelone", displayName: "SentinelOne", category: "edr" },
-  { toolId: "blackpoint", displayName: "Blackpoint Compass One", category: "security" },
+  { toolId: "blackpoint", displayName: "Blackpoint CompassOne", category: "mdr" },
   { toolId: "avanan", displayName: "Avanan", category: "security" },
   { toolId: "dnsfilter", displayName: "DNS Filter", category: "security" },
   { toolId: "huntress", displayName: "Huntress SAT", category: "security" },

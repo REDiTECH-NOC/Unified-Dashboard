@@ -14,6 +14,7 @@ import {
   Sun,
   Moon,
 } from "lucide-react";
+import { QuickLinksDropdown } from "@/components/quick-links-dropdown";
 
 export function Header() {
   const { data: session } = useSession();
@@ -91,6 +92,9 @@ export function Header() {
           <Bell className="h-[18px] w-[18px]" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />
         </button>
+
+        {/* Quick Links */}
+        <QuickLinksDropdown />
 
         {/* Theme toggle */}
         <button
