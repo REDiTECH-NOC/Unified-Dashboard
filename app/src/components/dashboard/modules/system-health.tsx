@@ -47,7 +47,16 @@ const STATUS_CONFIG = {
 export function SystemHealthModule() {
   const healthQuery = trpc.system.health.useQuery(undefined, {
     refetchInterval: 30_000,
-    staleTime: 15_000,
+    staleTime: 20_000,
+    retry: 1,
+    retryDelay: 2_000,
+  });
+
+  // Update info fetched separately — much less frequently (every 5 min)
+  const updateQuery = trpc.system.updateInfo.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    retry: false,
   });
 
   const { data, isLoading, isRefetching } = healthQuery;
@@ -100,6 +109,11 @@ export function SystemHealthModule() {
         const Icon = SERVICE_ICONS[service.name] ?? Server;
         const statusConfig = STATUS_CONFIG[service.status];
 
+        // Merge update availability from the separate updateInfo query
+        const updateKey = service.name === "n8n" ? "n8n" : service.name === "Grafana" ? "grafana" : null;
+        const latestVersion = updateKey ? updateQuery.data?.[updateKey] ?? null : null;
+        const hasUpdate = !!(latestVersion && service.version && latestVersion !== service.version);
+
         return (
           <div
             key={service.name}
@@ -134,10 +148,10 @@ export function SystemHealthModule() {
 
             {/* Status + Update badge */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              {service.updateAvailable ? (
+              {hasUpdate ? (
                 <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">
                   <ArrowUpCircle className="h-3 w-3" />
-                  {service.latestVersion ?? "Update"}
+                  {latestVersion}
                 </span>
               ) : service.version && service.status === "healthy" ? (
                 <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-500/70 bg-green-500/5 px-1.5 py-0.5 rounded">

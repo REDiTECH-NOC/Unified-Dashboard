@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { GripVertical, X } from "lucide-react";
+import { GripVertical, X, Settings } from "lucide-react";
 import type { DashboardModuleDef } from "@/lib/dashboard-modules";
 
 interface ModuleWrapperProps {
   module: DashboardModuleDef;
   editing: boolean;
+  instanceName?: string;
   onRemove?: () => void;
+  onOpenConfig?: () => void;
   children: React.ReactNode;
 }
 
-export function ModuleWrapper({ module, editing, onRemove, children }: ModuleWrapperProps) {
+export function ModuleWrapper({ module, editing, instanceName, onRemove, onOpenConfig, children }: ModuleWrapperProps) {
   const Icon = module.icon;
 
   return (
@@ -36,9 +38,20 @@ export function ModuleWrapper({ module, editing, onRemove, children }: ModuleWra
             </div>
           )}
           <Icon className="h-4 w-4 text-red-500 flex-shrink-0" />
-          <h3 className="text-sm font-semibold text-foreground truncate">{module.name}</h3>
+          <h3 className="text-sm font-semibold text-foreground truncate">
+            {instanceName || module.name}
+          </h3>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {module.configurable && onOpenConfig && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenConfig(); }}
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label={`Configure ${module.name}`}
+            >
+              <Settings className="h-3.5 w-3.5" />
+            </button>
+          )}
           {!editing && module.viewAllHref && (
             <Link
               href={module.viewAllHref}

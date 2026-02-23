@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Shield, Monitor, FileText, Key, HardDrive, Wifi, Phone, Package, Activity,
+  Shield, Monitor, FileText, Key, HardDrive, Wifi, Phone, Package, Activity, Workflow,
 } from "lucide-react";
 import { IntegrationCard } from "./integration-card";
 
@@ -16,6 +16,7 @@ const categoryIcons: Record<string, typeof Shield> = {
   phone: Phone,
   licensing: Package,
   monitoring: Activity,
+  automation: Workflow,
 };
 
 const categoryLabels: Record<string, string> = {
@@ -29,6 +30,7 @@ const categoryLabels: Record<string, string> = {
   phone: "Phone",
   licensing: "Licensing",
   monitoring: "Uptime Monitoring",
+  automation: "Automation",
 };
 
 interface ToolInfo {

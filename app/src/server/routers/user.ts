@@ -42,6 +42,7 @@ export const userRouter = router({
       createdAt: user.createdAt,
       phone: (prefs["profile.phone"] as string) || "",
       title: (prefs["profile.title"] as string) || "",
+      timezone: (prefs["profile.timezone"] as string) || "",
       permissionRoles: user.permissionRoles.map((pr) => pr.permissionRole.name),
     };
   }),
@@ -51,6 +52,7 @@ export const userRouter = router({
       name: z.string().min(1).max(200).optional(),
       phone: z.string().max(50).optional(),
       title: z.string().max(200).optional(),
+      timezone: z.string().max(100).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (input.name !== undefined) {
@@ -73,6 +75,13 @@ export const userRouter = router({
           where: { userId_key: { userId: ctx.user.id, key: "profile.title" } },
           update: { value: input.title },
           create: { userId: ctx.user.id, key: "profile.title", value: input.title },
+        });
+      }
+      if (input.timezone !== undefined) {
+        await ctx.prisma.userPreference.upsert({
+          where: { userId_key: { userId: ctx.user.id, key: "profile.timezone" } },
+          update: { value: input.timezone },
+          create: { userId: ctx.user.id, key: "profile.timezone", value: input.timezone },
         });
       }
 
@@ -232,6 +241,7 @@ export const userRouter = router({
         y: z.number().int().min(0),
         w: z.number().int().min(1).max(12),
         h: z.number().int().min(1).max(20),
+        config: z.record(z.unknown()).optional(),
       })),
     }))
     .mutation(async ({ ctx, input }) => {

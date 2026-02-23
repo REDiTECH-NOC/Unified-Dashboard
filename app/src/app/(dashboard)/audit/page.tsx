@@ -16,6 +16,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useTimezone } from "@/hooks/use-timezone";
 
 type AuditCategory = "AUTH" | "USER" | "SECURITY" | "INTEGRATION" | "SYSTEM" | "API" | "DATA";
 
@@ -52,6 +53,7 @@ export default function AuditPage() {
     );
 
   const { data: categoryCounts } = trpc.audit.categoryCounts.useQuery();
+  const { dateTime } = useTimezone();
 
   const allItems = data?.pages.flatMap((page) => page.items) ?? [];
 
@@ -157,7 +159,7 @@ export default function AuditPage() {
                         {event.category}
                       </Badge>
                       <p className="text-[11px] text-muted-foreground whitespace-nowrap">
-                        {new Date(event.createdAt).toLocaleString()}
+                        {dateTime(event.createdAt)}
                       </p>
                     </div>
                   </div>

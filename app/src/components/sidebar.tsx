@@ -19,13 +19,16 @@ import {
   Search,
   BarChart3,
   Activity,
+  Workflow,
 } from "lucide-react";
 
 interface NavItem {
   href: string;
   label: string;
   icon: React.ElementType;
-  permission?: string; // If set, only shown when user has this permission
+  permission?: string;   // If set, only shown when user has this permission
+  external?: boolean;    // If true, opens in a new tab via <a target="_blank">
+  externalKey?: string;  // Runtime URL key resolved from system.externalUrls
 }
 
 const navSections: { label: string; items: NavItem[] }[] = [
@@ -44,6 +47,7 @@ const navSections: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/grafana", label: "Grafana", icon: BarChart3, permission: "tools.grafana" },
       { href: "/monitoring", label: "Uptime Monitor", icon: Activity, permission: "tools.uptime" },
+      { href: "#", label: "n8n", icon: Workflow, permission: "tools.n8n", external: true, externalKey: "n8n" },
     ],
   },
   {
@@ -83,10 +87,25 @@ function useBreakpoint() {
   };
 }
 
+function useIsDarkMode() {
+  const [isDark, setIsDark] = useState(true);
+  useEffect(() => {
+    setIsDark(document.documentElement.classList.contains("dark"));
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return isDark;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const bp = useBreakpoint();
-  const { logoUrl, companyName } = useBranding();
+  const { logoUrl, logoUrlLight, companyName } = useBranding();
+  const isDark = useIsDarkMode();
+  const activeLogo = !isDark && logoUrlLight ? logoUrlLight : logoUrl;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
 
@@ -96,7 +115,13 @@ export function Sidebar() {
   });
   const permSet = useMemo(() => new Set(permissions || []), [permissions]);
 
+  // Fetch runtime external URLs (n8n, etc.) — set once by admin in .env
+  const { data: externalUrls } = trpc.system.externalUrls.useQuery(undefined, {
+    staleTime: 10 * 60 * 1000,
+  });
+
   // Filter nav sections based on permissions (hide empty sections)
+  // Also resolve externalKey → actual URL and hide items with no configured URL
   const visibleSections = useMemo(() => {
     // While loading, show all items (prevents flash of empty sidebar)
     if (!permissions) return navSections;
@@ -104,12 +129,27 @@ export function Sidebar() {
     return navSections
       .map((section) => ({
         ...section,
-        items: section.items.filter(
-          (item) => !item.permission || permSet.has(item.permission)
-        ),
+        items: section.items
+          .filter((item) => !item.permission || permSet.has(item.permission))
+          .filter((item) => {
+            // Hide external items whose URL hasn't been configured
+            if (item.externalKey) {
+              const url = externalUrls?.[item.externalKey as keyof typeof externalUrls];
+              return !!url;
+            }
+            return true;
+          })
+          .map((item) => {
+            // Resolve externalKey to actual href
+            if (item.externalKey && externalUrls) {
+              const url = externalUrls[item.externalKey as keyof typeof externalUrls];
+              if (url) return { ...item, href: url };
+            }
+            return item;
+          }),
       }))
       .filter((section) => section.items.length > 0);
-  }, [permissions, permSet]);
+  }, [permissions, permSet, externalUrls]);
 
   const isOverlay = bp.isMobile || bp.isTablet;
   const effectiveCollapsed = bp.isLaptop ? !hovered : false;
@@ -160,7 +200,7 @@ export function Sidebar() {
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={logoUrl}
+            src={activeLogo}
             alt={companyName}
             className={cn(
               "object-contain",
@@ -200,22 +240,22 @@ export function Sidebar() {
               <div className="flex flex-col gap-0.5">
                 {section.items.map((item) => {
                   const isActive =
-                    pathname === item.href ||
-                    pathname.startsWith(item.href + "/");
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={cn(
-                        "relative flex items-center gap-3 rounded-md transition-colors duration-100",
-                        effectiveCollapsed
-                          ? "justify-center px-0 h-10"
-                          : "px-3 h-10",
-                        isActive
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                      )}
-                    >
+                    !item.external &&
+                    (pathname === item.href ||
+                    pathname.startsWith(item.href + "/"));
+
+                  const linkClasses = cn(
+                    "relative flex items-center gap-3 rounded-md transition-colors duration-100",
+                    effectiveCollapsed
+                      ? "justify-center px-0 h-10"
+                      : "px-3 h-10",
+                    isActive
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  );
+
+                  const linkContent = (
+                    <>
                       {isActive && (
                         <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-red-500" />
                       )}
@@ -230,6 +270,30 @@ export function Sidebar() {
                           {item.label}
                         </span>
                       )}
+                    </>
+                  );
+
+                  if (item.external) {
+                    return (
+                      <a
+                        key={item.label}
+                        href={item.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={linkClasses}
+                      >
+                        {linkContent}
+                      </a>
+                    );
+                  }
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={linkClasses}
+                    >
+                      {linkContent}
                     </Link>
                   );
                 })}

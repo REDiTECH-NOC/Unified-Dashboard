@@ -11,6 +11,8 @@ import {
   LogOut,
   User,
   ChevronDown,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 export function Header() {
@@ -25,7 +27,29 @@ export function Header() {
       .toUpperCase() || "?";
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [dark, setDark] = useState(true);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Hydrate theme from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem("rcc-theme");
+    if (stored === "light") {
+      setDark(false);
+      document.documentElement.classList.remove("dark");
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const next = !dark;
+    setDark(next);
+    if (next) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("rcc-theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("rcc-theme", "light");
+    }
+  };
 
   const toggleSidebar = () => {
     if (typeof window !== "undefined" && (window as any).__toggleSidebar) {
@@ -66,6 +90,15 @@ export function Header() {
         <button className="relative flex items-center justify-center w-9 h-9 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
           <Bell className="h-[18px] w-[18px]" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />
+        </button>
+
+        {/* Theme toggle */}
+        <button
+          onClick={toggleTheme}
+          title={dark ? "Switch to light mode" : "Switch to dark mode"}
+          className="flex items-center justify-center w-9 h-9 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          {dark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
         </button>
 
         {/* User profile dropdown */}

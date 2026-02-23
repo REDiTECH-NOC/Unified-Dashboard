@@ -86,13 +86,19 @@
   opacity: 0.95;
 }
 
+/* Hide resize handles by default — only show in edit/customize mode */
 .react-grid-item > .react-resizable-handle {
+  display: none;
+}
+
+.dashboard-editing .react-grid-item > .react-resizable-handle {
+  display: block;
   position: absolute;
   width: 20px;
   height: 20px;
 }
 
-.react-grid-item > .react-resizable-handle::after {
+.dashboard-editing .react-grid-item > .react-resizable-handle::after {
   content: "";
   position: absolute;
   right: 4px;
@@ -104,17 +110,17 @@
   border-radius: 1px;
 }
 
-.react-grid-item > .react-resizable-handle:hover::after {
+.dashboard-editing .react-grid-item > .react-resizable-handle:hover::after {
   border-color: hsl(var(--primary));
 }
 
-.react-grid-item > .react-resizable-handle.react-resizable-handle-se {
+.dashboard-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-se {
   bottom: 0;
   right: 0;
   cursor: se-resize;
 }
 
-.react-grid-item > .react-resizable-handle.react-resizable-handle-sw {
+.dashboard-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-sw {
   bottom: 0;
   left: 0;
   cursor: sw-resize;

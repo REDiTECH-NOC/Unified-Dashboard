@@ -9,9 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   User, Mail, Phone, Shield, ShieldCheck, Clock, Lock, Briefcase,
-  Check, Pencil, X,
+  Check, Pencil, X, Globe,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useTimezone } from "@/hooks/use-timezone";
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from "@/lib/datetime";
 
 const roleColors: Record<string, string> = {
   ADMIN: "destructive",
@@ -24,10 +26,12 @@ export default function ProfilePage() {
   const { data: session, update: updateSession } = useSession();
   const { data: profile, isLoading, refetch } = trpc.user.getProfile.useQuery();
 
+  const { date } = useTimezone();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [title, setTitle] = useState("");
+  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
   const [saved, setSaved] = useState(false);
 
   const updateProfile = trpc.user.updateProfile.useMutation({
@@ -45,11 +49,12 @@ export default function ProfilePage() {
       setName(profile.name || "");
       setPhone(profile.phone || "");
       setTitle(profile.title || "");
+      setTimezone(profile.timezone || DEFAULT_TIMEZONE);
     }
   }, [profile]);
 
   function handleSave() {
-    updateProfile.mutate({ name, phone, title });
+    updateProfile.mutate({ name, phone, title, timezone });
   }
 
   function handleCancel() {
@@ -57,6 +62,7 @@ export default function ProfilePage() {
       setName(profile.name || "");
       setPhone(profile.phone || "");
       setTitle(profile.title || "");
+      setTimezone(profile.timezone || DEFAULT_TIMEZONE);
     }
     setEditing(false);
   }
@@ -120,12 +126,12 @@ export default function ProfilePage() {
                 {profile.lastLoginAt && (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Clock className="h-3.5 w-3.5" />
-                    Last login: {new Date(profile.lastLoginAt).toLocaleDateString()}
+                    Last login: {date(profile.lastLoginAt)}
                   </div>
                 )}
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Clock className="h-3.5 w-3.5" />
-                  Member since: {new Date(profile.createdAt).toLocaleDateString()}
+                  Member since: {date(profile.createdAt)}
                 </div>
               </div>
 
@@ -229,6 +235,27 @@ export default function ProfilePage() {
                 <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. (555) 123-4567" />
               ) : (
                 <p className="text-sm px-3 py-2 rounded-md bg-muted/50">{profile.phone || "—"}</p>
+              )}
+            </div>
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
+                <Globe className="h-3.5 w-3.5" />
+                Timezone
+              </label>
+              {editing ? (
+                <select
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {TIMEZONE_OPTIONS.map((tz) => (
+                    <option key={tz.value} value={tz.value}>{tz.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm px-3 py-2 rounded-md bg-muted/50">
+                  {TIMEZONE_OPTIONS.find((tz) => tz.value === (profile.timezone || DEFAULT_TIMEZONE))?.label || timezone}
+                </p>
               )}
             </div>
           </div>

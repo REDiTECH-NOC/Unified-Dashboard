@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Plus } from "lucide-react";
+import { Plus, Check } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -19,29 +19,23 @@ import {
 interface ModulePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Module IDs already on the dashboard */
-  activeModuleIds: Set<string>;
-  /** Permission keys the current user has */
+  activeModuleTypes: Set<string>;
   userPermissions: Set<string>;
-  /** Called when a module is selected to add */
   onAddModule: (moduleId: string) => void;
 }
 
 export function ModulePicker({
   open,
   onOpenChange,
-  activeModuleIds,
+  activeModuleTypes,
   userPermissions,
   onAddModule,
 }: ModulePickerProps) {
-  // Filter to modules the user has permission for and hasn't already added
   const available = MODULE_REGISTRY.filter((m) => {
-    if (activeModuleIds.has(m.id)) return false;
     if (m.requiredPermission && !userPermissions.has(m.requiredPermission)) return false;
     return true;
   });
 
-  // Group by category
   const grouped = available.reduce<Record<ModuleCategory, DashboardModuleDef[]>>(
     (acc, m) => {
       if (!acc[m.category]) acc[m.category] = [];
@@ -59,16 +53,14 @@ export function ModulePicker({
         <SheetHeader>
           <SheetTitle>Add Module</SheetTitle>
           <SheetDescription>
-            Choose a module to add to your dashboard.
+            Choose a module to add to your dashboard. Modules marked MULTI can be added multiple times with different settings.
           </SheetDescription>
         </SheetHeader>
 
         <div className="px-6 pb-6 overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
           {categories.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-sm text-muted-foreground">
-                All available modules are already on your dashboard.
-              </p>
+              <p className="text-sm text-muted-foreground">No modules available.</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -78,16 +70,24 @@ export function ModulePicker({
                     {CATEGORY_LABELS[cat]}
                   </h4>
                   <div className="space-y-2">
-                    {grouped[cat].map((m) => (
-                      <ModuleCard
-                        key={m.id}
-                        module={m}
-                        onAdd={() => {
-                          onAddModule(m.id);
-                          onOpenChange(false);
-                        }}
-                      />
-                    ))}
+                    {grouped[cat].map((m) => {
+                      const isAdded = activeModuleTypes.has(m.id);
+                      const canAdd = m.allowDuplicates || !isAdded;
+
+                      return (
+                        <ModuleCard
+                          key={m.id}
+                          module={m}
+                          isAdded={isAdded}
+                          canAdd={canAdd}
+                          onAdd={() => {
+                            if (!canAdd) return;
+                            onAddModule(m.id);
+                            onOpenChange(false);
+                          }}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -99,28 +99,44 @@ export function ModulePicker({
   );
 }
 
-function ModuleCard({ module, onAdd }: { module: DashboardModuleDef; onAdd: () => void }) {
+function ModuleCard({ module, isAdded, canAdd, onAdd }: {
+  module: DashboardModuleDef;
+  isAdded: boolean;
+  canAdd: boolean;
+  onAdd: () => void;
+}) {
   const Icon = module.icon;
 
   return (
     <button
       onClick={onAdd}
+      disabled={!canAdd}
       className={cn(
         "w-full flex items-start gap-3 p-3 rounded-lg border border-border",
-        "bg-card hover:bg-muted/50 transition-colors text-left group"
+        "text-left group transition-colors",
+        canAdd ? "bg-card hover:bg-muted/50" : "bg-muted/20 opacity-50 cursor-not-allowed"
       )}
     >
       <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-red-500/10 flex-shrink-0">
         <Icon className="h-4 w-4 text-red-500" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-foreground">{module.name}</p>
-        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-          {module.description}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-foreground">{module.name}</p>
+          {module.allowDuplicates && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-accent text-muted-foreground font-medium">MULTI</span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{module.description}</p>
       </div>
-      <div className="flex items-center justify-center w-7 h-7 rounded-md bg-muted opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5">
-        <Plus className="h-3.5 w-3.5 text-foreground" />
+      <div className="flex items-center justify-center w-7 h-7 rounded-md flex-shrink-0 mt-0.5">
+        {isAdded && !module.allowDuplicates ? (
+          <Check className="h-3.5 w-3.5 text-green-500" />
+        ) : (
+          <div className="bg-muted rounded-md w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <Plus className="h-3.5 w-3.5 text-foreground" />
+          </div>
+        )}
       </div>
     </button>
   );

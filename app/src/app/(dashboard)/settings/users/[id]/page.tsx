@@ -25,6 +25,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useTimezone } from "@/hooks/use-timezone";
 
 type TabKey = "permissions" | "roles" | "activity";
 
@@ -62,6 +63,7 @@ const sourceLabels: Record<string, { label: string; color: string }> = {
 };
 
 export default function UserDetailPage() {
+  const { dateTime, date } = useTimezone();
   const params = useParams();
   const router = useRouter();
   const userId = params.id as string;
@@ -149,8 +151,8 @@ export default function UserDetailPage() {
             </div>
             <p className="text-sm text-muted-foreground">{user.email}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Last login: {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : "Never"}
-              {" · "}Joined: {new Date(user.createdAt).toLocaleDateString()}
+              Last login: {user.lastLoginAt ? dateTime(user.lastLoginAt) : "Never"}
+              {" · "}Joined: {date(user.createdAt)}
             </p>
           </div>
           {user.totpEnabled && (
@@ -314,7 +316,7 @@ export default function UserDetailPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <p className="text-[10px] text-muted-foreground">
-                          {new Date(ur.assignedAt).toLocaleDateString()}
+                          {date(ur.assignedAt)}
                         </p>
                         <Button
                           variant="ghost"
@@ -431,7 +433,7 @@ export default function UserDetailPage() {
                           {event.category}
                         </Badge>
                         <p className="text-[11px] text-muted-foreground whitespace-nowrap">
-                          {new Date(event.createdAt).toLocaleString()}
+                          {dateTime(event.createdAt)}
                         </p>
                       </div>
                     </div>

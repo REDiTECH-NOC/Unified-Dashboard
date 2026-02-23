@@ -32,6 +32,7 @@ export const BUILT_TOOLS = new Set([
   "sentinelone",
   "itglue",
   "unifi",
+  "n8n",
 ]);
 
 /** 3CX has its own multi-instance dialog */
@@ -178,6 +179,34 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     instructions:
       "Log into unifi.ui.com, click API in the left navigation, then generate an API key. " +
       "A single key provides read-only access to all sites your Ubiquiti account is admin/owner on.",
+  },
+
+  n8n: {
+    toolId: "n8n",
+    displayName: "n8n Automation",
+    description: "n8n workflow automation platform. Configure the instance URL for sidebar access and API key for workflow integration.",
+    fields: [
+      {
+        key: "instanceUrl",
+        label: "Instance URL",
+        type: "url",
+        placeholder: "https://n8n.yourdomain.com",
+        required: true,
+        helpText: "The public-facing URL for your n8n instance. Used for sidebar link and API calls.",
+      },
+      {
+        key: "apiKey",
+        label: "API Key",
+        type: "password",
+        placeholder: "Enter n8n API key",
+        required: false,
+        helpText: "Required for workflow triggers, status monitoring, and execution history. Generate in n8n under Settings → API.",
+      },
+    ],
+    instructions:
+      "Enter the public URL where your n8n instance is accessible and an API key for backend integration. " +
+      "The URL appears as a sidebar link for users with the 'Access n8n' permission. " +
+      "The API key enables the dashboard to trigger workflows and monitor execution status.",
   },
 
 };

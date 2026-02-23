@@ -1,17 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Ticket, ArrowUpRight } from "lucide-react";
+import { UserCheck, ArrowUpRight } from "lucide-react";
 import { ModuleConfigPanel, ConfigSection, ConfigChip, ConfigSelect } from "../module-config-panel";
 import type { ModuleComponentProps } from "../dashboard-grid";
-
-const BOARDS = [
-  { id: "service", label: "Service Board" },
-  { id: "project", label: "Project Board" },
-  { id: "support", label: "Support Board" },
-  { id: "sales", label: "Sales Board" },
-  { id: "internal", label: "Internal Board" },
-];
 
 const STATUSES = [
   { id: "new", label: "New" },
@@ -19,29 +11,21 @@ const STATUSES = [
   { id: "in-progress", label: "In Progress" },
   { id: "waiting", label: "Waiting" },
   { id: "escalated", label: "Escalated" },
-  { id: "resolved", label: "Resolved" },
-  { id: "closed", label: "Closed" },
 ];
 
-export function RecentTicketsModule({ config, onConfigChange, isConfigOpen, onConfigClose }: ModuleComponentProps) {
-  const boards = (config.boards as string[]) || [];
+export function MyTicketsModule({ config, onConfigChange, isConfigOpen, onConfigClose }: ModuleComponentProps) {
   const statuses = (config.statuses as string[]) || [];
-  const sortOrder = (config.sortOrder as string) || "newest";
-
-  const hasFilters = boards.length > 0 || statuses.length > 0;
+  const sortOrder = (config.sortOrder as string) || "priority";
 
   return (
     <>
       <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
         <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-muted mb-4">
-          <Ticket className="h-6 w-6 text-muted-foreground" />
+          <UserCheck className="h-6 w-6 text-muted-foreground" />
         </div>
-        <p className="text-sm font-medium text-foreground">No tickets</p>
+        <p className="text-sm font-medium text-foreground">No tickets assigned</p>
         <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-          {hasFilters
-            ? `Filtered to: ${[...boards, ...statuses].join(", ")}. Connect your PSA to see tickets.`
-            : "Connect your PSA to see tickets here. AI will auto-triage incoming alerts."
-          }
+          Once connected to your PSA, tickets assigned to you will appear here with status, priority, age, and client.
         </p>
         <Link
           href="/settings/integrations"
@@ -52,25 +36,9 @@ export function RecentTicketsModule({ config, onConfigChange, isConfigOpen, onCo
         </Link>
       </div>
 
-      <ModuleConfigPanel title="Ticket Feed Settings" open={isConfigOpen} onClose={onConfigClose}>
-        <ConfigSection label="Filter by board">
-          <p className="text-[10px] text-muted-foreground mb-2">Leave empty to show all boards. Boards populate from PSA once connected.</p>
-          <div className="flex flex-wrap gap-1.5">
-            {BOARDS.map((b) => (
-              <ConfigChip
-                key={b.id}
-                label={b.label}
-                active={boards.includes(b.id)}
-                onClick={() => {
-                  const next = boards.includes(b.id) ? boards.filter((x) => x !== b.id) : [...boards, b.id];
-                  onConfigChange({ ...config, boards: next });
-                }}
-              />
-            ))}
-          </div>
-        </ConfigSection>
-
+      <ModuleConfigPanel title="My Tickets Settings" open={isConfigOpen} onClose={onConfigClose}>
         <ConfigSection label="Filter by status">
+          <p className="text-[10px] text-muted-foreground mb-2">Only show tickets in these statuses. Leave empty for all.</p>
           <div className="flex flex-wrap gap-1.5">
             {STATUSES.map((s) => (
               <ConfigChip
@@ -91,9 +59,9 @@ export function RecentTicketsModule({ config, onConfigChange, isConfigOpen, onCo
             value={sortOrder}
             onChange={(v) => onConfigChange({ ...config, sortOrder: v })}
             options={[
-              { value: "newest", label: "Newest first" },
-              { value: "oldest", label: "Oldest first" },
               { value: "priority", label: "Priority (high to low)" },
+              { value: "newest", label: "Newest first" },
+              { value: "oldest", label: "Oldest first (most stale)" },
               { value: "updated", label: "Recently updated" },
             ]}
           />

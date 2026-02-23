@@ -5,13 +5,19 @@ import {
   Ticket,
   Activity,
   Wifi,
+  UserCheck,
+  Shield,
+  MonitorCheck,
+  Phone,
+  HardDrive,
+  FileText,
+  Star,
+  Columns3,
 } from "lucide-react";
 
 // ─── Module Definition ────────────────────────────────────────────
-// Each dashboard module must implement this interface.
-// To add a new module: create the component, then add an entry here.
 
-export type ModuleCategory = "overview" | "operations" | "monitoring" | "admin";
+export type ModuleCategory = "overview" | "operations" | "monitoring" | "security" | "admin";
 
 export interface DashboardModuleDef {
   id: string;
@@ -19,56 +25,127 @@ export interface DashboardModuleDef {
   description: string;
   icon: LucideIcon;
   category: ModuleCategory;
-  /** Existing permission key from permissions.ts — null = always available */
   requiredPermission: string | null;
-  /** Default grid size in grid units (12-col grid) */
   defaultSize: { w: number; h: number };
-  /** Minimum resize dimensions */
   minSize: { w: number; h: number };
-  /** Maximum resize dimensions */
   maxSize?: { w: number; h: number };
-  /** Optional "View all" link shown in module header */
   viewAllHref?: string;
+  /** Whether this module has per-instance settings (gear icon) */
+  configurable?: boolean;
+  /** Whether users can add multiple instances of this module */
+  allowDuplicates?: boolean;
+  /** Default config for new instances */
+  defaultConfig?: Record<string, unknown>;
 }
 
 // ─── Module Registry ──────────────────────────────────────────────
-// All available dashboard modules. Order here determines display order
-// in the module picker.
 
 export const MODULE_REGISTRY: DashboardModuleDef[] = [
+  // ── Overview ──
   {
     id: "stat-overview",
     name: "Key Metrics",
-    description: "Open tickets, active alerts, devices online, and SLA compliance at a glance.",
+    description: "Configurable metric tiles — choose which stats to display and how many columns.",
     icon: LayoutDashboard,
     category: "overview",
     requiredPermission: "dashboard.view",
-    defaultSize: { w: 12, h: 2 },
-    minSize: { w: 6, h: 2 },
-    maxSize: { w: 12, h: 2 },
+    defaultSize: { w: 12, h: 4 },
+    minSize: { w: 6, h: 3 },
+    configurable: true,
+    allowDuplicates: true,
+    defaultConfig: {
+      columns: 4,
+      metrics: ["open-tickets", "active-alerts", "monitors-down", "servers-offline"],
+    },
   },
+
+  // ── Operations ──
   {
     id: "recent-alerts",
     name: "Recent Alerts",
-    description: "Live feed of the latest alerts from all monitoring integrations.",
+    description: "Live feed of the latest alerts. Filter by source and severity.",
     icon: Bell,
     category: "operations",
     requiredPermission: "alerts.view",
-    defaultSize: { w: 6, h: 4 },
-    minSize: { w: 4, h: 3 },
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
     viewAllHref: "/alerts",
+    configurable: true,
+    allowDuplicates: true,
+    defaultConfig: {
+      sources: [],
+      severities: [],
+      sortOrder: "newest",
+    },
   },
   {
     id: "recent-tickets",
     name: "Recent Tickets",
-    description: "Latest tickets from your PSA with status and priority.",
+    description: "Latest tickets from your PSA. Filter by board and status.",
     icon: Ticket,
     category: "operations",
     requiredPermission: "tickets.view",
-    defaultSize: { w: 6, h: 4 },
-    minSize: { w: 4, h: 3 },
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
     viewAllHref: "/tickets",
+    configurable: true,
+    allowDuplicates: true,
+    defaultConfig: {
+      boards: [],
+      statuses: [],
+      sortOrder: "newest",
+    },
   },
+  {
+    id: "my-tickets",
+    name: "My Tickets",
+    description: "Tickets assigned to you — status, priority, age, and client at a glance.",
+    icon: UserCheck,
+    category: "operations",
+    requiredPermission: "tickets.view",
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
+    viewAllHref: "/tickets",
+    configurable: true,
+    defaultConfig: {
+      statuses: [],
+      sortOrder: "priority",
+    },
+  },
+  {
+    id: "ticket-board",
+    name: "Ticket Board",
+    description: "Compact kanban-style view of a single PSA board with status columns.",
+    icon: Columns3,
+    category: "operations",
+    requiredPermission: "tickets.view",
+    defaultSize: { w: 12, h: 10 },
+    minSize: { w: 8, h: 7 },
+    configurable: true,
+    allowDuplicates: true,
+    defaultConfig: {
+      board: "",
+      maxPerColumn: 5,
+    },
+  },
+  {
+    id: "client-quick-access",
+    name: "Client Quick Access",
+    description: "Pinned client cards — favorite clients with ticket, alert, and device counts.",
+    icon: Star,
+    category: "operations",
+    requiredPermission: "clients.view",
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
+    viewAllHref: "/clients",
+    configurable: true,
+    defaultConfig: {
+      pinnedClients: [],
+      columns: 2,
+    },
+  },
+
+  // ── Monitoring ──
   {
     id: "system-health",
     name: "System Health",
@@ -76,8 +153,8 @@ export const MODULE_REGISTRY: DashboardModuleDef[] = [
     icon: Activity,
     category: "monitoring",
     requiredPermission: "dashboard.view",
-    defaultSize: { w: 6, h: 5 },
-    minSize: { w: 4, h: 4 },
+    defaultSize: { w: 6, h: 10 },
+    minSize: { w: 4, h: 7 },
   },
   {
     id: "network-health",
@@ -86,9 +163,107 @@ export const MODULE_REGISTRY: DashboardModuleDef[] = [
     icon: Wifi,
     category: "monitoring",
     requiredPermission: "network.view",
-    defaultSize: { w: 6, h: 5 },
-    minSize: { w: 4, h: 4 },
-    maxSize: { w: 12, h: 8 },
+    defaultSize: { w: 6, h: 10 },
+    minSize: { w: 4, h: 7 },
+  },
+  {
+    id: "uptime-status",
+    name: "Uptime Status Board",
+    description: "Mini status page — monitors with colored dots for at-a-glance uptime.",
+    icon: MonitorCheck,
+    category: "monitoring",
+    requiredPermission: "tools.uptime",
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
+    viewAllHref: "/monitoring",
+    configurable: true,
+    allowDuplicates: true,
+    defaultConfig: {
+      filterStatus: "all",
+      filterTags: [],
+      filterCompany: "",
+      showLatency: true,
+    },
+  },
+  {
+    id: "patch-compliance",
+    name: "Patch Compliance",
+    description: "NinjaRMM patch status — devices needing patches, reboots, and compliance rate.",
+    icon: HardDrive,
+    category: "monitoring",
+    requiredPermission: "dashboard.view",
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
+    configurable: true,
+    defaultConfig: {
+      displayMode: "summary",
+    },
+  },
+
+  // ── Security ──
+  {
+    id: "security-posture",
+    name: "Security Posture",
+    description: "Combined EDR/MDR overview — SentinelOne, Blackpoint, and Huntress threat counts.",
+    icon: Shield,
+    category: "security",
+    requiredPermission: "alerts.view",
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
+    configurable: true,
+    defaultConfig: {
+      vendors: ["sentinelone", "blackpoint", "huntress"],
+      displayMode: "cards",
+    },
+  },
+  {
+    id: "backup-status",
+    name: "Backup Status",
+    description: "Cross-vendor backup overview — Veeam, Datto, Acronis job results by client.",
+    icon: HardDrive,
+    category: "security",
+    requiredPermission: "dashboard.view",
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
+    configurable: true,
+    defaultConfig: {
+      vendors: ["veeam", "datto", "acronis"],
+      displayMode: "summary",
+    },
+  },
+
+  // ── Admin ──
+  {
+    id: "call-activity",
+    name: "3CX Call Activity",
+    description: "Live call stats — active calls, queue depth, missed today, recent call log.",
+    icon: Phone,
+    category: "admin",
+    requiredPermission: "phone.view",
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
+    configurable: true,
+    allowDuplicates: true,
+    defaultConfig: {
+      pbxInstance: "",
+      displayMode: "summary",
+    },
+  },
+  {
+    id: "recent-activity",
+    name: "Recent Activity",
+    description: "Audit log feed — latest actions by all users in the platform.",
+    icon: FileText,
+    category: "admin",
+    requiredPermission: "audit.view",
+    defaultSize: { w: 6, h: 8 },
+    minSize: { w: 4, h: 5 },
+    viewAllHref: "/audit",
+    configurable: true,
+    defaultConfig: {
+      scope: "all",
+      maxItems: 15,
+    },
   },
 ];
 
@@ -100,5 +275,21 @@ export const CATEGORY_LABELS: Record<ModuleCategory, string> = {
   overview: "Overview",
   operations: "Operations",
   monitoring: "Monitoring",
+  security: "Security",
   admin: "Administration",
 };
+
+// ─── Instance ID helpers ──────────────────────────────────────────
+// Instance IDs: "moduleType" for first/single, "moduleType__nanoid" for duplicates.
+
+export function getModuleType(instanceId: string): string {
+  const idx = instanceId.indexOf("__");
+  return idx === -1 ? instanceId : instanceId.substring(0, idx);
+}
+
+let _counter = 0;
+export function generateInstanceId(moduleType: string): string {
+  _counter++;
+  const suffix = Date.now().toString(36) + _counter.toString(36);
+  return `${moduleType}__${suffix}`;
+}

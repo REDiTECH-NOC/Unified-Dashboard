@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import RGL from "react-grid-layout";
 import { useSession } from "next-auth/react";
@@ -9,8 +9,8 @@ import { cn } from "@/lib/utils";
 import { Pencil, Check, RotateCcw, Plus } from "lucide-react";
 import type { Role } from "@prisma/client";
 
-import { MODULE_MAP, MODULE_REGISTRY } from "@/lib/dashboard-modules";
-import { getDefaultLayout, type DashboardLayoutItem, type DashboardLayoutData } from "@/lib/dashboard-defaults";
+import { MODULE_MAP, getModuleType, generateInstanceId } from "@/lib/dashboard-modules";
+import { getDefaultLayout, LAYOUT_VERSION, type DashboardLayoutItem, type DashboardLayoutData } from "@/lib/dashboard-defaults";
 import { ModuleWrapper } from "./module-wrapper";
 import { ModulePicker } from "./module-picker";
 
@@ -20,23 +20,48 @@ import { RecentAlertsModule } from "./modules/recent-alerts";
 import { RecentTicketsModule } from "./modules/recent-tickets";
 import { SystemHealthModule } from "./modules/system-health";
 import { NetworkHealthModule } from "./modules/network-health";
+import { MyTicketsModule } from "./modules/my-tickets";
+import { UptimeStatusModule } from "./modules/uptime-status";
+import { SecurityPostureModule } from "./modules/security-posture";
+import { BackupStatusModule } from "./modules/backup-status";
+import { CallActivityModule } from "./modules/call-activity";
+import { PatchComplianceModule } from "./modules/patch-compliance";
+import { RecentActivityModule } from "./modules/recent-activity";
+import { ClientQuickAccessModule } from "./modules/client-quick-access";
+import { TicketBoardModule } from "./modules/ticket-board";
+
+// ─── Module Props Interface ─────────────────────────────────────
+
+export interface ModuleComponentProps {
+  config: Record<string, unknown>;
+  onConfigChange: (config: Record<string, unknown>) => void;
+  isConfigOpen: boolean;
+  onConfigClose: () => void;
+  editing?: boolean;
+}
 
 // ─── Component Map ──────────────────────────────────────────────
-// Maps module IDs to their React components.
-// When adding a new module: import it above, add the mapping here.
-
-const MODULE_COMPONENTS: Record<string, React.ComponentType> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const MODULE_COMPONENTS: Record<string, React.ComponentType<any>> = {
   "stat-overview": StatOverviewModule,
   "recent-alerts": RecentAlertsModule,
   "recent-tickets": RecentTicketsModule,
   "system-health": SystemHealthModule,
   "network-health": NetworkHealthModule,
+  "my-tickets": MyTicketsModule,
+  "uptime-status": UptimeStatusModule,
+  "security-posture": SecurityPostureModule,
+  "backup-status": BackupStatusModule,
+  "call-activity": CallActivityModule,
+  "patch-compliance": PatchComplianceModule,
+  "recent-activity": RecentActivityModule,
+  "client-quick-access": ClientQuickAccessModule,
+  "ticket-board": TicketBoardModule,
 };
 
 const ResponsiveGridLayout = RGL.WidthProvider(RGL.Responsive);
 
-// Row height in pixels for grid calculations
-const ROW_HEIGHT = 80;
+const ROW_HEIGHT = 40;
 const GRID_MARGIN: [number, number] = [16, 16];
 const GRID_COLS = { lg: 12, md: 12, sm: 6, xs: 1 };
 
@@ -47,70 +72,79 @@ export function DashboardGrid() {
   const role = (session?.user?.role as Role) ?? "USER";
   const utils = trpc.useUtils();
 
-  // Fetch saved layout from DB
   const layoutQuery = trpc.user.getDashboardLayout.useQuery(undefined, {
     staleTime: 60_000,
   });
 
-  // Fetch user permissions for module filtering
   const permissionsQuery = trpc.user.myPermissions.useQuery(undefined, {
     staleTime: 60_000,
   });
 
   const saveMutation = trpc.user.saveDashboardLayout.useMutation({
     onSuccess: (_data, variables) => {
-      // Update the query cache immediately so the UI stays in sync
-      utils.user.getDashboardLayout.setData(undefined, variables);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      utils.user.getDashboardLayout.setData(undefined, variables as any);
     },
   });
 
   const [editing, setEditing] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  // Local layout state — tracks user changes during editing.
-  // This is the source of truth while editing; server data is source of truth otherwise.
+  const [configOpenId, setConfigOpenId] = useState<string | null>(null);
   const [localItems, setLocalItems] = useState<DashboardLayoutItem[] | null>(null);
 
-  // Permission set for quick lookups
   const userPermissions = useMemo(
     () => new Set(permissionsQuery.data ?? []),
     [permissionsQuery.data]
   );
 
-  // Server layout: saved preference → role default
   const serverLayout = useMemo((): DashboardLayoutData => {
-    if (layoutQuery.data) return layoutQuery.data as unknown as DashboardLayoutData;
+    if (layoutQuery.data) {
+      const data = layoutQuery.data as unknown as DashboardLayoutData;
+      const savedVersion = data.version || 2;
+      let items = (data.items || []).map((item) => ({
+        ...item,
+        config: item.config ?? MODULE_MAP.get(getModuleType(item.i))?.defaultConfig,
+      }));
+
+      // Migrate v2 → v3: ROW_HEIGHT halved from 80→40, so double h and y values
+      if (savedVersion < 3) {
+        items = items.map((item) => ({
+          ...item,
+          h: item.h * 2,
+          y: item.y * 2,
+        }));
+      }
+
+      return { ...data, version: LAYOUT_VERSION, items };
+    }
     return getDefaultLayout(role);
   }, [layoutQuery.data, role]);
 
-  // The active items: local edits when editing, server data otherwise
   const activeItems = localItems ?? serverLayout.items;
 
-  // When entering edit mode, snapshot the current layout into local state
-  // When exiting, clear local state (server cache is already updated)
   useEffect(() => {
     if (editing) {
       setLocalItems([...serverLayout.items]);
     } else {
       setLocalItems(null);
     }
-  }, [editing]); // intentionally only depend on editing toggle
+  }, [editing]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Filter layout items to only modules the user has permission for
   const visibleItems = useMemo(() => {
     return activeItems.filter((item) => {
-      const mod = MODULE_MAP.get(item.i);
+      const moduleType = getModuleType(item.i);
+      const mod = MODULE_MAP.get(moduleType);
       if (!mod) return false;
-      if (!MODULE_COMPONENTS[item.i]) return false;
+      if (!MODULE_COMPONENTS[moduleType]) return false;
       if (mod.requiredPermission && !userPermissions.has(mod.requiredPermission)) return false;
       return true;
     });
   }, [activeItems, userPermissions]);
 
-  // Convert to react-grid-layout format
   const gridLayout = useMemo((): RGL.Layout[] => {
     return visibleItems.map((item) => {
-      const mod = MODULE_MAP.get(item.i)!;
+      const moduleType = getModuleType(item.i);
+      const mod = MODULE_MAP.get(moduleType)!;
       return {
         i: item.i,
         x: item.x,
@@ -126,71 +160,65 @@ export function DashboardGrid() {
     });
   }, [visibleItems, editing]);
 
-  // Active module IDs for the picker
-  const activeModuleIds = useMemo(
-    () => new Set(activeItems.map((item) => item.i)),
+  const activeModuleTypes = useMemo(
+    () => new Set(activeItems.map((item) => getModuleType(item.i))),
     [activeItems]
   );
 
-  // Save layout to server (immediate, no debounce)
   const saveItems = useCallback(
     (items: DashboardLayoutItem[]) => {
-      saveMutation.mutate({ version: 1, items });
+      saveMutation.mutate({ version: LAYOUT_VERSION, items });
     },
     [saveMutation]
   );
 
-  // Handle layout change from react-grid-layout (drag/resize)
   const handleLayoutChange = useCallback(
     (newLayout: RGL.Layout[]) => {
       if (!editing) return;
-
+      const configMap = new Map(activeItems.map((item) => [item.i, item.config]));
       const items: DashboardLayoutItem[] = newLayout.map((l) => ({
         i: l.i,
         x: l.x,
         y: l.y,
         w: l.w,
         h: l.h,
+        config: configMap.get(l.i),
       }));
-
-      // Update local state immediately so the UI stays in sync
       setLocalItems(items);
     },
-    [editing]
+    [editing, activeItems]
   );
 
-  // Done button: save current local state and exit edit mode
   const handleDone = useCallback(() => {
-    if (localItems) {
-      saveItems(localItems);
-    }
+    if (localItems) saveItems(localItems);
     setEditing(false);
   }, [localItems, saveItems]);
 
-  // Remove a module
   const handleRemove = useCallback(
-    (moduleId: string) => {
-      const items = activeItems.filter((item) => item.i !== moduleId);
+    (instanceId: string) => {
+      const items = activeItems.filter((item) => item.i !== instanceId);
       setLocalItems(items);
       saveItems(items);
     },
     [activeItems, saveItems]
   );
 
-  // Add a module
   const handleAddModule = useCallback(
-    (moduleId: string) => {
-      const mod = MODULE_MAP.get(moduleId);
+    (moduleType: string) => {
+      const mod = MODULE_MAP.get(moduleType);
       if (!mod) return;
 
+      const existing = activeItems.some((item) => getModuleType(item.i) === moduleType);
+      const instanceId = existing ? generateInstanceId(moduleType) : moduleType;
       const maxY = activeItems.reduce((max, item) => Math.max(max, item.y + item.h), 0);
 
       const newItem: DashboardLayoutItem = {
-        i: moduleId,
+        i: instanceId,
         x: 0,
         y: maxY,
         w: mod.defaultSize.w,
         h: mod.defaultSize.h,
+        config: mod.defaultConfig ? { ...mod.defaultConfig } : undefined,
       };
 
       const items = [...activeItems, newItem];
@@ -200,20 +228,28 @@ export function DashboardGrid() {
     [activeItems, saveItems]
   );
 
-  // Reset to role defaults
+  const handleConfigChange = useCallback(
+    (instanceId: string, newConfig: Record<string, unknown>) => {
+      const items = activeItems.map((item) =>
+        item.i === instanceId ? { ...item, config: newConfig } : item
+      );
+      setLocalItems(items);
+      saveItems(items);
+    },
+    [activeItems, saveItems]
+  );
+
   const handleReset = useCallback(() => {
     const defaults = getDefaultLayout(role);
     setLocalItems([...defaults.items]);
     saveItems(defaults.items);
   }, [role, saveItems]);
 
-  // Portal target for header actions
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
     setPortalTarget(document.getElementById("header-actions"));
   }, []);
 
-  // Header toolbar buttons (portaled into the header)
   const toolbarContent = portalTarget
     ? createPortal(
         <>
@@ -245,15 +281,9 @@ export function DashboardGrid() {
             )}
           >
             {editing ? (
-              <>
-                <Check className="h-3 w-3" />
-                Done
-              </>
+              <><Check className="h-3 w-3" />Done</>
             ) : (
-              <>
-                <Pencil className="h-3 w-3" />
-                Customize
-              </>
+              <><Pencil className="h-3 w-3" />Customize</>
             )}
           </button>
         </>,
@@ -261,7 +291,6 @@ export function DashboardGrid() {
       )
     : null;
 
-  // Loading state
   if (layoutQuery.isLoading || permissionsQuery.isLoading) {
     return (
       <div className="space-y-4">
@@ -281,10 +310,9 @@ export function DashboardGrid() {
   }
 
   return (
-    <div>
+    <div className={editing ? "dashboard-editing" : undefined}>
       {toolbarContent}
 
-      {/* Grid */}
       <ResponsiveGridLayout
         layouts={{ lg: gridLayout }}
         breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 0 }}
@@ -299,9 +327,13 @@ export function DashboardGrid() {
         useCSSTransforms
       >
         {visibleItems.map((item) => {
-          const mod = MODULE_MAP.get(item.i);
-          const Component = MODULE_COMPONENTS[item.i];
+          const moduleType = getModuleType(item.i);
+          const mod = MODULE_MAP.get(moduleType);
+          const Component = MODULE_COMPONENTS[moduleType];
           if (!mod || !Component) return null;
+
+          const itemConfig = item.config ?? mod.defaultConfig ?? {};
+          const isConfigOpen = configOpenId === item.i;
 
           return (
             <div key={item.i}>
@@ -309,19 +341,25 @@ export function DashboardGrid() {
                 module={mod}
                 editing={editing}
                 onRemove={() => handleRemove(item.i)}
+                onOpenConfig={mod.configurable ? () => setConfigOpenId(item.i) : undefined}
               >
-                <Component />
+                <Component
+                  config={itemConfig}
+                  onConfigChange={(newConfig: Record<string, unknown>) => handleConfigChange(item.i, newConfig)}
+                  isConfigOpen={isConfigOpen}
+                  onConfigClose={() => setConfigOpenId(null)}
+                  editing={editing}
+                />
               </ModuleWrapper>
             </div>
           );
         })}
       </ResponsiveGridLayout>
 
-      {/* Module Picker */}
       <ModulePicker
         open={pickerOpen}
         onOpenChange={setPickerOpen}
-        activeModuleIds={activeModuleIds}
+        activeModuleTypes={activeModuleTypes}
         userPermissions={userPermissions}
         onAddModule={handleAddModule}
       />
