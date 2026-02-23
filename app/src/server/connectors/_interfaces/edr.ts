@@ -31,6 +31,38 @@ export type MitigationAction =
   | "remediate"
   | "rollback";
 
+export type IncidentStatus = "resolved" | "in_progress" | "unresolved";
+
+export type AnalystVerdict =
+  | "true_positive"
+  | "false_positive"
+  | "suspicious"
+  | "undefined";
+
+export interface ThreatNote {
+  id: string;
+  text: string;
+  createdAt: Date;
+  creatorId?: string;
+  creatorName?: string;
+}
+
+export interface ThreatTimelineEntry {
+  id: string;
+  activityType: string;
+  description: string;
+  timestamp: Date;
+  data?: Record<string, unknown>;
+}
+
+export interface AgentApplication {
+  name: string;
+  version?: string;
+  publisher?: string;
+  size?: number;
+  installedDate?: string;
+}
+
 export interface CreateExclusionInput {
   type: "path" | "hash" | "certificate" | "browser";
   value: string;
@@ -61,6 +93,45 @@ export interface IEdrConnector {
     action: MitigationAction
   ): Promise<void>;
 
+  updateIncidentStatus(
+    threatIds: string[],
+    status: IncidentStatus
+  ): Promise<void>;
+
+  updateAnalystVerdict(
+    threatIds: string[],
+    verdict: AnalystVerdict
+  ): Promise<void>;
+
+  markAsBenign(
+    threatIds: string[],
+    whiteningOption?: string
+  ): Promise<void>;
+
+  markAsThreat(
+    threatIds: string[],
+    whiteningOption?: string
+  ): Promise<void>;
+
+  // --- Threat Notes ---
+  getThreatNotes(
+    threatId: string,
+    cursor?: string,
+    pageSize?: number
+  ): Promise<PaginatedResponse<ThreatNote>>;
+
+  addThreatNote(
+    threatId: string,
+    text: string
+  ): Promise<{ id: string }>;
+
+  // --- Threat Timeline ---
+  getThreatTimeline(
+    threatId: string,
+    cursor?: string,
+    pageSize?: number
+  ): Promise<PaginatedResponse<ThreatTimelineEntry>>;
+
   // --- Agent Actions ---
   isolateDevice(agentId: string): Promise<void>;
 
@@ -76,6 +147,12 @@ export interface IEdrConnector {
   ): Promise<PaginatedResponse<NormalizedDevice>>;
 
   getAgentById(id: string): Promise<NormalizedDevice>;
+
+  getAgentApplications(
+    agentId: string,
+    cursor?: string,
+    pageSize?: number
+  ): Promise<PaginatedResponse<AgentApplication>>;
 
   // --- Sites & Groups ---
   getSites(): Promise<
@@ -94,6 +171,8 @@ export interface IEdrConnector {
   ): Promise<PaginatedResponse<{ id: string; type: string; value: string; description?: string }>>;
 
   createExclusion(input: CreateExclusionInput): Promise<{ id: string }>;
+
+  deleteExclusion(exclusionId: string): Promise<void>;
 
   // --- Deep Visibility (Threat Hunting) ---
   queryDeepVisibility(

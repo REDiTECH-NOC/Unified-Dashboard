@@ -4,6 +4,7 @@ import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { prisma } from "@/lib/prisma";
 import { redis } from "@/lib/redis";
 import { auditLog } from "@/lib/audit";
+import { isAzureEnvironment, getAzureToken, getResourceGroupBaseUrl } from "@/lib/azure";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -107,7 +108,7 @@ async function checkHttpService(
   const start = Date.now();
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 3000);
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
 
@@ -139,7 +140,7 @@ async function checkHttpService(
       status: "down",
       latencyMs: null,
       message: error instanceof Error
-        ? (error.name === "AbortError" ? "Timeout (8s)" : error.message)
+        ? (error.name === "AbortError" ? "Timeout (3s)" : error.message)
         : "Connection failed",
       type,
       version: null,
@@ -247,49 +248,15 @@ async function getContainerVersion(
 
 // ─── Azure Container Apps Helpers ────────────────────────────────────
 
-/** Check if running on Azure Container Apps with managed identity */
-function isAzureContainerApps(): boolean {
-  return !!(
-    process.env.IDENTITY_ENDPOINT &&
-    process.env.IDENTITY_HEADER &&
-    process.env.AZURE_SUBSCRIPTION_ID &&
-    process.env.AZURE_RESOURCE_GROUP
-  );
-}
-
-/** Get an Azure managed identity access token for the Management API */
-async function getAzureManagedIdentityToken(): Promise<string> {
-  const endpoint = process.env.IDENTITY_ENDPOINT;
-  const header = process.env.IDENTITY_HEADER;
-  if (!endpoint || !header) {
-    throw new Error("Managed identity not configured on this container.");
-  }
-
-  const res = await fetch(
-    `${endpoint}?api-version=2019-08-01&resource=https://management.azure.com/`,
-    { headers: { "X-IDENTITY-HEADER": header } }
-  );
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Failed to get managed identity token (${res.status}): ${body}`);
-  }
-  const data = await res.json() as { access_token: string };
-  return data.access_token;
-}
+// isAzureEnvironment and getAzureToken imported from @/lib/azure
 
 /** Update an Azure Container App's image via the Azure Management REST API */
 async function updateAzureContainerApp(
   appName: string,
   image: string
 ): Promise<void> {
-  const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID;
-  const resourceGroup = process.env.AZURE_RESOURCE_GROUP;
-  if (!subscriptionId || !resourceGroup) {
-    throw new Error("AZURE_SUBSCRIPTION_ID and AZURE_RESOURCE_GROUP must be set.");
-  }
-
-  const token = await getAzureManagedIdentityToken();
-  const baseUrl = `https://management.azure.com/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.App/containerApps/${appName}`;
+  const token = await getAzureToken();
+  const baseUrl = `${getResourceGroupBaseUrl()}/providers/Microsoft.App/containerApps/${appName}`;
   const apiVersion = "api-version=2024-03-01";
 
   // GET current container app config to preserve all settings
@@ -339,7 +306,10 @@ async function updateAzureContainerApp(
 // ─── Health Cache ───────────────────────────────────────────────────
 
 const HEALTH_CACHE_KEY = "rcc:system:health";
-const HEALTH_CACHE_TTL = 15; // seconds — all users share one cached result
+const HEALTH_CACHE_TTL = 60; // seconds — all users share one cached result
+
+const UPDATE_INFO_CACHE_KEY = "rcc:system:updateInfo";
+const UPDATE_INFO_CACHE_TTL = 300; // 5 minutes
 
 async function fetchHealthData() {
   const docker = await getDocker();
@@ -377,7 +347,7 @@ async function fetchHealthData() {
   if (n8n.status === "healthy" && !n8n.version) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), 2000);
       const res = await fetch(`${n8nUrl}/`, { signal: controller.signal });
       clearTimeout(timeout);
       if (res.ok) {
@@ -455,16 +425,28 @@ export const systemRouter = router({
 
   /** Separate endpoint for update availability — called infrequently, not on every health poll */
   updateInfo: protectedProcedure.query(async () => {
+    // Check Redis cache first — Docker Hub calls are slow and rarely change
+    try {
+      const cached = await redis.get(UPDATE_INFO_CACHE_KEY);
+      if (cached) return JSON.parse(cached) as { n8n: string | null; grafana: string | null; checkedAt: string };
+    } catch { /* Redis down — fall through */ }
+
     const [latestN8n, latestGrafana] = await Promise.all([
       getLatestDockerTag("n8nio/n8n"),
       getLatestDockerTag("grafana/grafana-oss"),
     ]);
 
-    return {
+    const result = {
       n8n: latestN8n,
       grafana: latestGrafana,
       checkedAt: new Date().toISOString(),
     };
+
+    try {
+      await redis.set(UPDATE_INFO_CACHE_KEY, JSON.stringify(result), "EX", UPDATE_INFO_CACHE_TTL);
+    } catch { /* Redis down — still return result */ }
+
+    return result;
   }),
 
   /** Runtime external URLs for sidebar links — reads from integration config DB */
@@ -484,7 +466,7 @@ export const systemRouter = router({
   containerInfo: adminProcedure.query(async () => {
     const docker = await getDocker();
     const dockerAvailable = !!docker;
-    const azureAvailable = isAzureContainerApps();
+    const azureAvailable = isAzureEnvironment();
 
     // Get running container details if Docker is accessible
     const containers: Array<{
@@ -630,7 +612,7 @@ export const systemRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const docker = await getDocker();
-      const azure = isAzureContainerApps();
+      const azure = isAzureEnvironment();
 
       if (!docker && !azure) {
         throw new TRPCError({

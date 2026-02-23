@@ -79,6 +79,7 @@ model User {
   permissions         UserPermission[]
   permissionRoles     UserPermissionRole[]
   integrationMappings UserIntegrationMapping[]
+  quickLinkAssignments QuickLinkAssignment[]
 
   @@index([role])
   @@index([authMethod])
@@ -392,4 +393,63 @@ model ThreecxInstance {
   @@index([companyId])
   @@index([status])
   @@index([isActive])
+}
+
+// ─── Quick Links ────────────────────────────────────────────────
+
+// A named link group assigned to roles/users (e.g., "All Techs", "Security Team")
+model QuickLinkGroup {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  sortOrder   Int      @default(0)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       QuickLinkItem[]
+  assignments QuickLinkAssignment[]
+
+  @@index([sortOrder])
+}
+
+// A folder or link within a group. Supports 1 level of folder nesting.
+// type = "FOLDER" → url is null, can have children
+// type = "LINK"   → url is set, no children
+model QuickLinkItem {
+  id        String          @id @default(cuid())
+  groupId   String
+  group     QuickLinkGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    QuickLinkItem?  @relation("FolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children  QuickLinkItem[] @relation("FolderChildren")
+  type      String          // "FOLDER" or "LINK"
+  title     String
+  url       String?
+  sortOrder Int             @default(0)
+  createdBy String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([groupId])
+  @@index([parentId])
+  @@index([groupId, parentId, sortOrder])
+}
+
+// Assigns a group's visibility to a Role or a specific User.
+// Either role or userId is set (not both) — validated at the app level.
+model QuickLinkAssignment {
+  id         String          @id @default(cuid())
+  groupId    String
+  group      QuickLinkGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  role       Role?
+  userId     String?
+  user       User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy String?
+  assignedAt DateTime        @default(now())
+
+  @@unique([groupId, role])
+  @@unique([groupId, userId])
+  @@index([role])
+  @@index([userId])
 }

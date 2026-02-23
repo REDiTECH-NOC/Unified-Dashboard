@@ -47,7 +47,7 @@ const STATUS_CONFIG = {
 export function SystemHealthModule() {
   const healthQuery = trpc.system.health.useQuery(undefined, {
     refetchInterval: 30_000,
-    staleTime: 20_000,
+    staleTime: 30_000,
     retry: 1,
     retryDelay: 2_000,
   });

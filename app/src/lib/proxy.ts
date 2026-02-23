@@ -20,10 +20,13 @@ const STRIP_REQUEST_HEADERS = new Set([
   "x-forwarded-for",
   "x-forwarded-host",
   "x-forwarded-proto",
+  "accept-encoding",
 ]);
 
 const STRIP_RESPONSE_HEADERS = new Set([
   "transfer-encoding",
+  "content-encoding",
+  "content-length",
   "connection",
   "keep-alive",
   "x-frame-options",
@@ -134,7 +137,6 @@ export function createProxyHandler(config: ProxyConfig) {
         for (const rule of config.responseRewrite) {
           body = body.replaceAll(rule.from, rule.to);
         }
-        responseHeaders.delete("content-length");
         return new NextResponse(body, {
           status: upstreamRes.status,
           statusText: upstreamRes.statusText,

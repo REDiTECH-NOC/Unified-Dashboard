@@ -103,7 +103,9 @@ services:
 
   # ── Grafana Analytics ────────────────────────────────────────────
   grafana:
-    image: grafana/grafana-oss:latest
+    build:
+      context: ./grafana
+      dockerfile: Dockerfile
     container_name: rcc-grafana
     restart: unless-stopped
     ports:
@@ -120,8 +122,19 @@ services:
       - GF_AUTH_PROXY_AUTO_SIGN_UP=true
       - GF_AUTH_PROXY_HEADERS=Role:X-WEBAUTH-ROLE
       - GF_AUTH_PROXY_SYNC_TTL=5
+      - GF_FEATURE_TOGGLES_ENABLE=publicDashboards
       # ── Root URL for link generation (proxy strips /api/embed/grafana/ prefix) ──
       - GF_SERVER_ROOT_URL=/api/embed/grafana/
+      # ── 3CX Datasource credentials (provisioned automatically) ──
+      - GF_DS_REDITECH_HOST=db:5432
+      - GF_DS_REDITECH_DATABASE=${GF_DS_REDITECH_DATABASE:-reditech3cx_database}
+      - GF_DS_REDITECH_USER=${GF_DS_REDITECH_USER:-tcx_user}
+      - GF_DS_REDITECH_PASSWORD=${GF_DS_REDITECH_PASSWORD:-changeme}
+      - GF_DS_TCC_HOST=db:5432
+      - GF_DS_TCC_DATABASE=${GF_DS_TCC_DATABASE:-tcc3cx_database}
+      - GF_DS_TCC_USER=${GF_DS_TCC_USER:-tcc_tcx}
+      - GF_DS_TCC_PASSWORD=${GF_DS_TCC_PASSWORD:-changeme}
+      - GF_DS_SSL_MODE=disable
     volumes:
       - grafanadata:/var/lib/grafana
     networks:

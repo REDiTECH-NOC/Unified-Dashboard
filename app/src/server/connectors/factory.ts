@@ -18,6 +18,8 @@ import type { IRmmConnector } from "./_interfaces/rmm";
 import type { IEdrConnector } from "./_interfaces/edr";
 import type { IDocumentationConnector } from "./_interfaces/documentation";
 import type { INetworkConnector } from "./_interfaces/network";
+import type { IMdrConnector } from "./_interfaces/mdr";
+import type { CIPPConnector } from "./cipp/connector";
 import { ConnectorNotConfiguredError } from "./_base/errors";
 import type { ConnectorConfig } from "./_base/types";
 import { CONNECTOR_REGISTRY, type ConnectorCategory } from "./registry";
@@ -28,6 +30,8 @@ type ConnectorTypeMap = {
   edr: IEdrConnector;
   documentation: IDocumentationConnector;
   network: INetworkConnector;
+  mdr: IMdrConnector;
+  cipp: CIPPConnector;
 };
 
 /** Cached connector instances keyed by toolId */
