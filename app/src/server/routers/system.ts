@@ -263,6 +263,30 @@ export const systemRouter = router({
       }
     }
 
+    // Fallback: scrape n8n version from HTML root page (works on both Docker and Azure)
+    if (n8n.status === "healthy" && !n8n.version) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`${n8nUrl}/`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (res.ok) {
+          const html = await res.text();
+          const match = html.match(/name="n8n:config:sentry"\s+content="([^"]+)"/);
+          if (match?.[1]) {
+            try {
+              const decoded = JSON.parse(Buffer.from(match[1], "base64").toString());
+              const release = decoded?.release as string | undefined;
+              if (release?.startsWith("n8n@")) {
+                n8n.version = release.slice(4);
+                n8n.message = `Running (v${n8n.version})`;
+              }
+            } catch { /* ignore */ }
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
     const appVersion = process.env.APP_VERSION ?? process.env.npm_package_version ?? "0.1.0";
     const app: ServiceStatus = {
       name: "RCC App",
@@ -315,26 +339,35 @@ export const systemRouter = router({
       canUpdate: boolean;
     }> = [];
 
-    // n8n version — try Docker labels first, then HTTP API
+    // n8n version — try Docker labels first, then HTTP API, then HTML scrape
     let n8nVersion = await getContainerVersion("rcc-n8n", docker);
     let n8nReachable = false;
     const n8nUrl = process.env.N8N_INTERNAL_URL ?? `http://${process.env.N8N_HOST ?? "n8n"}:5678`;
     if (!n8nVersion) {
-      // Try n8n's /rest/settings endpoint (returns version without auth in some configs)
+      // Try n8n's root page — version is in a base64-encoded sentry meta tag
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        const res = await fetch(`${n8nUrl}/rest/settings`, { signal: controller.signal });
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`${n8nUrl}/`, { signal: controller.signal });
         clearTimeout(timeout);
         if (res.ok) {
-          const data = await res.json() as { data?: { n8nVersion?: string; versionCli?: string } };
-          n8nVersion = data.data?.n8nVersion ?? data.data?.versionCli ?? null;
           n8nReachable = true;
+          const html = await res.text();
+          const match = html.match(/name="n8n:config:sentry"\s+content="([^"]+)"/);
+          if (match?.[1]) {
+            try {
+              const decoded = JSON.parse(Buffer.from(match[1], "base64").toString());
+              const release = decoded?.release as string | undefined;
+              if (release?.startsWith("n8n@")) {
+                n8nVersion = release.slice(4); // strip "n8n@" prefix
+              }
+            } catch { /* ignore decode errors */ }
+          }
         }
       } catch { /* ignore */ }
     }
     if (!n8nVersion && !n8nReachable) {
-      // Fallback: just check if n8n is reachable
+      // Fallback: just check if n8n is reachable via healthz
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
