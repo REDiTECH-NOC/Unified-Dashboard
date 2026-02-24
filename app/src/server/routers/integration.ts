@@ -50,14 +50,37 @@ export const integrationRouter = router({
   }),
 
   getConfig: adminProcedure
-    .input(z.object({ toolId: z.string() }))
+    .input(z.object({
+      toolId: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/),
+      secretFields: z.array(z.string()).optional(),
+    }))
     .query(async ({ ctx, input }) => {
       const config = await ctx.prisma.integrationConfig.findUnique({
         where: { toolId: input.toolId },
       });
       if (!config?.config) return null;
 
-      const raw = config.config as Record<string, unknown>;
+      const raw = { ...(config.config as Record<string, unknown>) };
+
+      // Mask secret fields — never return raw API keys/passwords to the browser
+      const secretKeys = new Set(input.secretFields ?? [
+        "apiKey", "apiToken", "clientSecret", "password", "secret",
+        "webhookSecret", "privateKey", "token", "accessToken",
+      ]);
+      for (const key of Object.keys(raw)) {
+        if (secretKeys.has(key) && raw[key]) {
+          raw[key] = "••••••••";
+        }
+      }
+
+      await auditLog({
+        action: "integration.config.viewed",
+        category: "INTEGRATION",
+        actorId: ctx.user.id,
+        resource: "integration:" + input.toolId,
+        detail: { toolId: input.toolId },
+      });
+
       return {
         config: raw,
         status: config.status,
@@ -161,27 +184,47 @@ export const integrationRouter = router({
         if (!instanceUrl) {
           message = "No instance URL configured. Enter the URL first.";
         } else {
+          // SSRF protection: validate URL scheme and block internal/metadata endpoints
+          let urlValid = true;
           try {
-            const start = Date.now();
-            const res = await fetch(`${instanceUrl.replace(/\/$/, "")}/healthz`, {
-              method: "GET",
-              signal: AbortSignal.timeout(10000),
-            });
-            latencyMs = Date.now() - start;
-            success = res.ok;
-            message = res.ok
-              ? `n8n is reachable (${res.status})`
-              : `n8n returned HTTP ${res.status}`;
+            const parsedUrl = new URL(instanceUrl);
+            if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+              message = "Only HTTP/HTTPS URLs are allowed.";
+              urlValid = false;
+            }
+            const blockedHosts = ["169.254.169.254", "metadata.google.internal", "metadata.internal"];
+            if (urlValid && blockedHosts.includes(parsedUrl.hostname)) {
+              message = "URL points to a blocked endpoint.";
+              urlValid = false;
+            }
+          } catch {
+            message = "Invalid URL format.";
+            urlValid = false;
+          }
 
-            await ctx.prisma.integrationConfig.update({
-              where: { toolId: "n8n" },
-              data: {
-                lastHealthCheck: new Date(),
-                status: success ? "connected" : "error",
-              },
-            });
-          } catch (error) {
-            message = error instanceof Error ? `Cannot reach n8n: ${error.message}` : "Connection failed";
+          if (urlValid) {
+            try {
+              const start = Date.now();
+              const res = await fetch(`${instanceUrl.replace(/\/$/, "")}/healthz`, {
+                method: "GET",
+                signal: AbortSignal.timeout(10000),
+              });
+              latencyMs = Date.now() - start;
+              success = res.ok;
+              message = res.ok
+                ? `n8n is reachable (${res.status})`
+                : `n8n returned HTTP ${res.status}`;
+
+              await ctx.prisma.integrationConfig.update({
+                where: { toolId: "n8n" },
+                data: {
+                  lastHealthCheck: new Date(),
+                  status: success ? "connected" : "error",
+                },
+              });
+            } catch (error) {
+              message = error instanceof Error ? `Cannot reach n8n: ${error.message}` : "Connection failed";
+            }
           }
         }
       }

@@ -553,7 +553,6 @@ function buildConfig(form: FormState): Record<string, unknown> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function formFromMonitor(monitor: any): FormState {
-  console.log("[DEBUG formFromMonitor] called with:", { name: monitor.name, type: monitor.type, config: monitor.config });
   const config = (monitor.config || {}) as Record<string, unknown>;
   const base = {
     ...defaultForm,
@@ -618,9 +617,7 @@ function MonitorFormDialog({ open, onClose, onSuccess, editMonitor }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   editMonitor?: any | null;
 }) {
-  console.log("[DEBUG MonitorFormDialog] mounted/rendered with:", { open, editMonitor: editMonitor ? { id: editMonitor.id, name: editMonitor.name, type: editMonitor.type } : null });
   const [form, setForm] = useState<FormState>(() => {
-    console.log("[DEBUG useState init] editMonitor:", editMonitor ? { id: editMonitor.id, name: editMonitor.name, type: editMonitor.type } : null);
     return editMonitor ? formFromMonitor(editMonitor) : { ...defaultForm };
   });
   const [error, setError] = useState<string | null>(null);

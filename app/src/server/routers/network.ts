@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { UnifiNetworkConnector } from "../connectors/unifi/connector";
 import { auditLog } from "@/lib/audit";
@@ -158,7 +158,7 @@ export const networkRouter = router({
           return unifi.getDeviceStats(input.hostId, input.deviceId);
         }),
 
-      action: protectedProcedure
+      action: adminProcedure
         .input(
           hostInput.extend({
             deviceId: z.string(),
@@ -184,7 +184,7 @@ export const networkRouter = router({
           return unifi.listPendingDevices(input.hostId);
         }),
 
-      adopt: protectedProcedure
+      adopt: adminProcedure
         .input(hostInput.extend({ deviceId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -202,7 +202,7 @@ export const networkRouter = router({
           return unifi.getDevicePorts(input.hostId, input.deviceId);
         }),
 
-      portAction: protectedProcedure
+      portAction: adminProcedure
         .input(
           hostInput.extend({
             deviceId: z.string(),
@@ -248,7 +248,7 @@ export const networkRouter = router({
           return unifi.getClient(input.hostId, input.clientId);
         }),
 
-      action: protectedProcedure
+      action: adminProcedure
         .input(
           hostInput.extend({
             clientId: z.string(),
@@ -286,7 +286,7 @@ export const networkRouter = router({
           return unifi.getNetwork(input.hostId, input.networkId);
         }),
 
-      create: protectedProcedure
+      create: adminProcedure
         .input(hostInput.extend({ data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -298,7 +298,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      update: protectedProcedure
+      update: adminProcedure
         .input(hostInput.extend({ networkId: z.string(), data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -313,7 +313,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      delete: protectedProcedure
+      delete: adminProcedure
         .input(hostInput.extend({ networkId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -350,7 +350,7 @@ export const networkRouter = router({
           return unifi.getWifi(input.hostId, input.wifiId);
         }),
 
-      create: protectedProcedure
+      create: adminProcedure
         .input(hostInput.extend({ data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -362,7 +362,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      update: protectedProcedure
+      update: adminProcedure
         .input(hostInput.extend({ wifiId: z.string(), data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -377,7 +377,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      delete: protectedProcedure
+      delete: adminProcedure
         .input(hostInput.extend({ wifiId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -407,7 +407,7 @@ export const networkRouter = router({
           return unifi.getVoucher(input.hostId, input.voucherId);
         }),
 
-      createVoucher: protectedProcedure
+      createVoucher: adminProcedure
         .input(hostInput.extend({ data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -418,7 +418,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      updateVoucher: protectedProcedure
+      updateVoucher: adminProcedure
         .input(hostInput.extend({ voucherId: z.string(), data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -433,7 +433,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      deleteVoucher: protectedProcedure
+      deleteVoucher: adminProcedure
         .input(hostInput.extend({ voucherId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -463,7 +463,7 @@ export const networkRouter = router({
           return unifi.getFirewallZone(input.hostId, input.zoneId);
         }),
 
-      createZone: protectedProcedure
+      createZone: adminProcedure
         .input(hostInput.extend({ data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -475,7 +475,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      updateZone: protectedProcedure
+      updateZone: adminProcedure
         .input(hostInput.extend({ zoneId: z.string(), data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -490,7 +490,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      deleteZone: protectedProcedure
+      deleteZone: adminProcedure
         .input(hostInput.extend({ zoneId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -501,7 +501,7 @@ export const networkRouter = router({
           return { success: true };
         }),
 
-      reorderZones: protectedProcedure
+      reorderZones: adminProcedure
         .input(hostInput.extend({ ids: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -526,7 +526,7 @@ export const networkRouter = router({
           return unifi.getFirewallPolicy(input.hostId, input.policyId);
         }),
 
-      createPolicy: protectedProcedure
+      createPolicy: adminProcedure
         .input(hostInput.extend({ data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -538,7 +538,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      updatePolicy: protectedProcedure
+      updatePolicy: adminProcedure
         .input(hostInput.extend({ policyId: z.string(), data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -553,7 +553,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      deletePolicy: protectedProcedure
+      deletePolicy: adminProcedure
         .input(hostInput.extend({ policyId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -564,7 +564,7 @@ export const networkRouter = router({
           return { success: true };
         }),
 
-      reorderPolicies: protectedProcedure
+      reorderPolicies: adminProcedure
         .input(hostInput.extend({ ids: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -592,7 +592,7 @@ export const networkRouter = router({
           return unifi.getAclRule(input.hostId, input.ruleId);
         }),
 
-      create: protectedProcedure
+      create: adminProcedure
         .input(hostInput.extend({ data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -604,7 +604,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      update: protectedProcedure
+      update: adminProcedure
         .input(hostInput.extend({ ruleId: z.string(), data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -619,7 +619,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      delete: protectedProcedure
+      delete: adminProcedure
         .input(hostInput.extend({ ruleId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -630,7 +630,7 @@ export const networkRouter = router({
           return { success: true };
         }),
 
-      reorder: protectedProcedure
+      reorder: adminProcedure
         .input(hostInput.extend({ ids: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -665,7 +665,7 @@ export const networkRouter = router({
           return unifi.getDnsPolicy(input.hostId, input.policyId);
         }),
 
-      create: protectedProcedure
+      create: adminProcedure
         .input(hostInput.extend({ data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -677,7 +677,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      update: protectedProcedure
+      update: adminProcedure
         .input(hostInput.extend({ policyId: z.string(), data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -692,7 +692,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      delete: protectedProcedure
+      delete: adminProcedure
         .input(hostInput.extend({ policyId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -722,7 +722,7 @@ export const networkRouter = router({
           return unifi.getTrafficMatchingList(input.hostId, input.listId);
         }),
 
-      create: protectedProcedure
+      create: adminProcedure
         .input(hostInput.extend({ data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -734,7 +734,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      update: protectedProcedure
+      update: adminProcedure
         .input(hostInput.extend({ listId: z.string(), data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -749,7 +749,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      delete: protectedProcedure
+      delete: adminProcedure
         .input(hostInput.extend({ listId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -798,7 +798,7 @@ export const networkRouter = router({
           return unifi.listDeviceTags(input.hostId);
         }),
 
-      create: protectedProcedure
+      create: adminProcedure
         .input(hostInput.extend({ data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -810,7 +810,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      update: protectedProcedure
+      update: adminProcedure
         .input(hostInput.extend({ tagId: z.string(), data: dataBody }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -825,7 +825,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      delete: protectedProcedure
+      delete: adminProcedure
         .input(hostInput.extend({ tagId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);

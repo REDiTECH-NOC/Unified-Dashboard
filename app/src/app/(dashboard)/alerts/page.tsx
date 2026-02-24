@@ -745,7 +745,6 @@ export default function AlertsPage() {
                 alert={alert}
                 onSelect={() => {
                   // TODO: Open alert detail panel (threat detail + quick actions)
-                  console.log("Alert selected:", alert);
                 }}
               />
             ))}

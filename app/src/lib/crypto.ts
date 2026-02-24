@@ -11,10 +11,16 @@ import crypto from "crypto";
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
 
+// Cache derived key to avoid re-running scrypt on every call
+let _cachedKey: Buffer | null = null;
+
 function getKey(): Buffer {
+  if (_cachedKey) return _cachedKey;
   const key = process.env.ENCRYPTION_KEY;
   if (!key) throw new Error("ENCRYPTION_KEY environment variable is required");
-  return crypto.scryptSync(key, "reditech-rcc-salt", 32);
+  const salt = process.env.ENCRYPTION_SALT || "reditech-rcc-salt";
+  _cachedKey = crypto.scryptSync(key, salt, 32);
+  return _cachedKey;
 }
 
 /** Encrypt plaintext → hex string (iv:tag:ciphertext) */

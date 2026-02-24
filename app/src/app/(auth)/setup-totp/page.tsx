@@ -34,9 +34,7 @@ export default function SetupTotpPage() {
         if (data.secret) {
           setSecret(data.secret);
           setOtpauthUri(data.otpauthUri);
-          // Generate QR code as data URL using a simple approach
-          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.otpauthUri)}`;
-          setQrDataUrl(qrUrl);
+          setQrDataUrl(data.qrDataUrl);
         }
       })
       .catch(() => setError("Failed to generate setup code."));

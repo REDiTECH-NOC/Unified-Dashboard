@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { auditLog } from "@/lib/audit";
 import { authenticator } from "otplib";
+import QRCode from "qrcode";
 
 // GET: Generate a new TOTP secret + otpauth URI for QR code
 export async function GET() {
@@ -37,7 +38,10 @@ export async function GET() {
     data: { totpSecret: secret },
   });
 
-  return NextResponse.json({ secret, otpauthUri });
+  // Generate QR code locally — NEVER send secrets to third-party services
+  const qrDataUrl = await QRCode.toDataURL(otpauthUri, { width: 200, margin: 1 });
+
+  return NextResponse.json({ secret, otpauthUri, qrDataUrl });
 }
 
 // POST: Verify a TOTP code and finalize setup

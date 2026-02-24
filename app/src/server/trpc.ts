@@ -13,6 +13,10 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.session?.user) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
+  // Block API access for users who haven't completed TOTP setup
+  if ((ctx.session.user as any).mustSetupTotp) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "TOTP setup required before accessing the application" });
+  }
   return next({
     ctx: { ...ctx, user: ctx.session.user },
   });

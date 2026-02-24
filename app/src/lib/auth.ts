@@ -187,13 +187,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           detail: { email: dbUser.email, role: dbUser.role },
         });
       } else {
+        // Sync role from Entra group membership on every login
+        const updateData: Record<string, unknown> = {
+          lastLoginAt: new Date(),
+          name: user.name || dbUser.name,
+          avatar: user.image || dbUser.avatar,
+        };
+        if (dbUser.authMethod === "ENTRA" && dbUser.role !== role) {
+          updateData.role = role;
+          await auditLog({
+            action: "user.role.synced",
+            category: "USER",
+            actorId: dbUser.id,
+            resource: `user:${dbUser.id}`,
+            detail: { previousRole: dbUser.role, newRole: role, source: "entra_group_sync" },
+          });
+        }
         await prisma.user.update({
           where: { id: dbUser.id },
-          data: {
-            lastLoginAt: new Date(),
-            name: user.name || dbUser.name,
-            avatar: user.image || dbUser.avatar,
-          },
+          data: updateData,
         });
       }
 
@@ -209,7 +221,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
     async jwt({ token, trigger, user }) {
       if (trigger === "signIn" || trigger === "update") {
-        const email = user?.email || token.email;
+        // On signIn use user.email; on update always use trusted token.email
+        const email = trigger === "signIn" ? (user?.email || token.email) : token.email;
         if (email) {
           const dbUser = await prisma.user.findUnique({
             where: { email },
