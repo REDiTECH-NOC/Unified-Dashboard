@@ -203,7 +203,10 @@ export async function azurePatch<T>(url: string, body: unknown): Promise<T> {
     const responseBody = await res.text();
     throw new Error(`Azure API PATCH failed (${res.status}): ${responseBody}`);
   }
-  return res.json() as Promise<T>;
+  // Some Azure APIs (e.g. Container Apps) return 202 with empty body
+  const text = await res.text();
+  if (!text) return {} as T;
+  return JSON.parse(text) as T;
 }
 
 /** Make an authenticated DELETE request to the Azure Management API */

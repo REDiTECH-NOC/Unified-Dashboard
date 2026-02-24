@@ -35,6 +35,7 @@ export const BUILT_TOOLS = new Set([
   "n8n",
   "blackpoint",
   "cipp",
+  "huntress",
 ]);
 
 /** 3CX has its own multi-instance dialog */
@@ -250,6 +251,45 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
       "Create an API client in CIPP under Settings → CIPP → API Clients. " +
       "The Application ID, Secret, and Tenant ID come from your MSP tenant's app registration. " +
       "The API URL is your CIPP Function App deployment URL.",
+  },
+
+  huntress: {
+    toolId: "huntress",
+    displayName: "Huntress Security Awareness Training",
+    description:
+      "Huntress SAT (formerly Curricula) — security awareness training, phishing simulations, " +
+      "learner management, and compliance reporting via the Curricula API.",
+    fields: [
+      {
+        key: "clientId",
+        label: "Client ID",
+        type: "text",
+        placeholder: "Enter OAuth2 client ID",
+        required: true,
+        helpText: "OAuth2 Client ID from Huntress SAT Settings → API Clients.",
+      },
+      {
+        key: "clientSecret",
+        label: "Client Secret",
+        type: "password",
+        placeholder: "Enter OAuth2 client secret",
+        required: true,
+      },
+      {
+        key: "baseUrl",
+        label: "API Base URL",
+        type: "url",
+        placeholder: "https://mycurricula.com",
+        required: false,
+        defaultValue: "https://mycurricula.com",
+        helpText: "Production URL. Only change for sandbox (https://dev.curricula.com).",
+      },
+    ],
+    instructions:
+      "In Huntress SAT (Curricula), go to Settings → API Clients and create a new client with " +
+      "Client Credentials type. Copy the Client ID and Client Secret. " +
+      "The API uses OAuth2 tokens — the dashboard handles token exchange automatically. " +
+      "Required scopes: account:read, learners:read, assignments:read, phishing-campaigns:read.",
   },
 
   n8n: {

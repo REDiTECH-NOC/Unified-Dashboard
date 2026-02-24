@@ -5,24 +5,24 @@ datasources:
     uid: reditech-3cx-ds
     type: grafana-postgresql-datasource
     access: proxy
-    url: ${GF_DS_REDITECH_HOST:- db:5432}
-    database: ${GF_DS_REDITECH_DATABASE:- reditech3cx_database}
-    user: ${GF_DS_REDITECH_USER:- tcx_user}
+    url: ${GF_DS_REDITECH_HOST}
+    database: ${GF_DS_REDITECH_DATABASE}
+    user: ${GF_DS_USER}
     jsonData:
-      sslmode: ${GF_DS_SSL_MODE:- disable}
+      sslmode: ${GF_DS_SSL_MODE}
       postgresVersion: 1600
     secureJsonData:
-      password: ${GF_DS_REDITECH_PASSWORD:- changeme}
+      password: ${GF_DS_PASSWORD}
 
   - name: TCC 3CX
     uid: tcc-3cx-ds
     type: grafana-postgresql-datasource
     access: proxy
-    url: ${GF_DS_TCC_HOST:- db:5432}
-    database: ${GF_DS_TCC_DATABASE:- tcc3cx_database}
-    user: ${GF_DS_TCC_USER:- tcc_tcx}
+    url: ${GF_DS_TCC_HOST}
+    database: ${GF_DS_TCC_DATABASE}
+    user: ${GF_DS_USER}
     jsonData:
-      sslmode: ${GF_DS_SSL_MODE:- disable}
+      sslmode: ${GF_DS_SSL_MODE}
       postgresVersion: 1600
     secureJsonData:
-      password: ${GF_DS_TCC_PASSWORD:- changeme}
+      password: ${GF_DS_PASSWORD}
