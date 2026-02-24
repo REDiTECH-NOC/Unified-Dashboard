@@ -60,6 +60,82 @@
             "value": "public.cdroutput"
           }
         ]
+      },
+      {
+        "allValue": "All",
+        "allowCustomValue": false,
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "tcc-3cx-ds"
+        },
+        "definition": "WITH rg AS (\n  SELECT\n    rg.destination_dn_number AS dn_number,\n    COALESCE(rg.destination_dn_name, 'Unknown') AS name,\n    ROW_NUMBER() OVER (PARTITION BY rg.destination_dn_number ORDER BY rg.cdr_started_at DESC) AS row_num\n  FROM ${db_cdroutput_path} AS rg\n  WHERE rg.destination_dn_type IN ('ring_group_ring_all', 'ring_group_hunt')\n  AND rg.destination_dn_number IS NOT NULL\n  AND rg.cdr_started_at >= NOW() - INTERVAL '365 days' -- Changed CURRENT_TIMESTAMP to NOW() and INTERVAL syntax\n)\nSELECT\n  rg.dn_number || ' ' || rg.name AS __text,\n  rg.dn_number AS __value\nFROM rg\nWHERE rg.row_num = 1\nORDER BY __value;",
+        "description": "Ring group",
+        "includeAll": true,
+        "label": "Ring group",
+        "name": "ring_group",
+        "options": [],
+        "query": "WITH rg AS (\n  SELECT\n    rg.destination_dn_number AS dn_number,\n    COALESCE(rg.destination_dn_name, 'Unknown') AS name,\n    ROW_NUMBER() OVER (PARTITION BY rg.destination_dn_number ORDER BY rg.cdr_started_at DESC) AS row_num\n  FROM ${db_cdroutput_path} AS rg\n  WHERE rg.destination_dn_type IN ('ring_group_ring_all', 'ring_group_hunt')\n  AND rg.destination_dn_number IS NOT NULL\n  AND rg.cdr_started_at >= NOW() - INTERVAL '365 days' -- Changed CURRENT_TIMESTAMP to NOW() and INTERVAL syntax\n)\nSELECT\n  rg.dn_number || ' ' || rg.name AS __text,\n  rg.dn_number AS __value\nFROM rg\nWHERE rg.row_num = 1\nORDER BY __value;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "allValue": "All",
+        "allowCustomValue": false,
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "tcc-3cx-ds"
+        },
+        "definition": "WITH q AS (\n  SELECT\n    q.destination_dn_number AS dn_number,\n    COALESCE(q.destination_dn_name, 'Unknown') AS name,\n    ROW_NUMBER() OVER (PARTITION BY q.destination_dn_number ORDER BY q.cdr_started_at DESC) AS row_num\n  FROM ${db_cdroutput_path} AS q\n  WHERE q.destination_dn_type = 'queue'\n  AND q.destination_dn_number IS NOT NULL\n  AND q.cdr_started_at >= NOW() - INTERVAL '365 days'\n)\nSELECT\n  q.dn_number || ' ' || q.name AS __text,\n  q.dn_number AS __value\nFROM q\nWHERE q.row_num = 1\nORDER BY __value;",
+        "includeAll": true,
+        "label": "Queue",
+        "name": "queue",
+        "options": [],
+        "query": "WITH q AS (\n  SELECT\n    q.destination_dn_number AS dn_number,\n    COALESCE(q.destination_dn_name, 'Unknown') AS name,\n    ROW_NUMBER() OVER (PARTITION BY q.destination_dn_number ORDER BY q.cdr_started_at DESC) AS row_num\n  FROM ${db_cdroutput_path} AS q\n  WHERE q.destination_dn_type = 'queue'\n  AND q.destination_dn_number IS NOT NULL\n  AND q.cdr_started_at >= NOW() - INTERVAL '365 days'\n)\nSELECT\n  q.dn_number || ' ' || q.name AS __text,\n  q.dn_number AS __value\nFROM q\nWHERE q.row_num = 1\nORDER BY __value;",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "description": "Enter your PostgreSQL cdrbilling table path (e.g., public.cdrbilling or cdrbilling if in search_path)",
+        "hide": 2,
+        "label": "PostgreSQL cdrbilling table path",
+        "name": "db_cdrbilling_path",
+        "query": "public.cdrbilling",
+        "skipUrlSync": true,
+        "type": "constant",
+        "current": {
+          "selected": false,
+          "text": "public.cdrbilling",
+          "value": "public.cdrbilling"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "public.cdrbilling",
+            "value": "public.cdrbilling"
+          }
+        ]
+      },
+      {
+        "current": {
+          "text": "0.00",
+          "value": "0.00"
+        },
+        "description": "Bill cost treshold",
+        "label": "Call bill cost >=",
+        "name": "bill_cost_treshhold",
+        "options": [
+          {
+            "selected": true,
+            "text": "0.00",
+            "value": "0.00"
+          }
+        ],
+        "query": "0.00",
+        "type": "textbox"
       }
     ]
   },
@@ -6720,8 +6796,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -6770,10 +6846,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 5029,
               "refId": "A"
             }
           ],
@@ -6782,8 +6858,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -6832,10 +6908,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 5029,
               "refId": "A",
               "withTransforms": false
             }
@@ -6845,8 +6921,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -6895,10 +6971,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 5029,
               "refId": "A",
               "withTransforms": false
             }
@@ -6908,8 +6984,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -6958,10 +7034,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 5029,
               "refId": "A",
               "withTransforms": false
             }
@@ -6971,8 +7047,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -7021,10 +7097,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 5029,
               "refId": "A",
               "withTransforms": false
             }
@@ -7034,8 +7110,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -7084,10 +7160,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 5029,
               "refId": "A",
               "withTransforms": false
             }
@@ -7097,8 +7173,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -7147,10 +7223,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 5029,
               "refId": "A",
               "withTransforms": false
             }
@@ -7160,8 +7236,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -7211,10 +7287,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 5029,
               "refId": "A",
               "withTransforms": false
             }
@@ -7474,8 +7550,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -7527,10 +7603,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 3,
+              "panelId": 6021,
               "refId": "A"
             }
           ],
@@ -7553,8 +7629,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -7612,10 +7688,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 3,
+              "panelId": 6021,
               "refId": "A"
             }
           ],
@@ -7638,8 +7714,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -7689,10 +7765,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 3,
+              "panelId": 6021,
               "refId": "A"
             }
           ],
@@ -7714,8 +7790,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -7765,10 +7841,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 3,
+              "panelId": 6021,
               "refId": "A"
             }
           ],
@@ -7791,8 +7867,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -7843,10 +7919,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 3,
+              "panelId": 6021,
               "refId": "A"
             }
           ],
@@ -7869,8 +7945,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -7920,10 +7996,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 3,
+              "panelId": 6021,
               "refId": "A"
             }
           ],
@@ -7946,8 +8022,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -7997,10 +8073,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 3,
+              "panelId": 6021,
               "refId": "A"
             }
           ],
@@ -8719,8 +8795,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -8768,10 +8844,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 7022,
               "refId": "A"
             }
           ],
@@ -8794,8 +8870,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -8849,10 +8925,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 7022,
               "refId": "A"
             }
           ],
@@ -8875,8 +8951,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -8926,10 +9002,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 7022,
               "refId": "A"
             }
           ],
@@ -8951,8 +9027,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -9002,10 +9078,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 7022,
               "refId": "A"
             }
           ],
@@ -9028,8 +9104,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -9080,10 +9156,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 7022,
               "refId": "A"
             }
           ],
@@ -9106,8 +9182,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -9157,10 +9233,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 7022,
               "refId": "A"
             }
           ],
@@ -9183,8 +9259,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -9234,10 +9310,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 4,
+              "panelId": 7022,
               "refId": "A"
             }
           ],
@@ -9878,8 +9954,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -9930,10 +10006,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 2,
+              "panelId": 8023,
               "refId": "A"
             }
           ],
@@ -9955,8 +10031,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -10008,10 +10084,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 2,
+              "panelId": 8023,
               "refId": "A"
             }
           ],
@@ -10034,8 +10110,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -10087,10 +10163,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 2,
+              "panelId": 8023,
               "refId": "A"
             }
           ],
@@ -10113,8 +10189,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -10165,10 +10241,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 2,
+              "panelId": 8023,
               "refId": "A"
             }
           ],
@@ -10191,8 +10267,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -10244,10 +10320,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 2,
+              "panelId": 8023,
               "refId": "A"
             }
           ],
@@ -10270,8 +10346,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -10323,10 +10399,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 2,
+              "panelId": 8023,
               "refId": "A"
             }
           ],
@@ -10349,8 +10425,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -10402,10 +10478,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 2,
+              "panelId": 8023,
               "refId": "A"
             }
           ],
@@ -10428,8 +10504,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -10549,10 +10625,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 2,
+              "panelId": 8023,
               "refId": "A"
             }
           ],
@@ -10830,8 +10906,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "fieldConfig": {
             "defaults": {
@@ -10885,10 +10961,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 13,
+              "panelId": 8033,
               "refId": "A"
             }
           ],
@@ -10927,8 +11003,8 @@
         },
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "tcc-3cx-ds"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
           "description": "",
           "fieldConfig": {
@@ -11050,10 +11126,10 @@
           "targets": [
             {
               "datasource": {
-                "type": "grafana-postgresql-datasource",
-                "uid": "tcc-3cx-ds"
+                "type": "datasource",
+                "uid": "-- Dashboard --"
               },
-              "panelId": 2,
+              "panelId": 8023,
               "refId": "A"
             }
           ],

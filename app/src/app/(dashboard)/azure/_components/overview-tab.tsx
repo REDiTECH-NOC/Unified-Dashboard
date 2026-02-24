@@ -109,16 +109,20 @@ export function OverviewTab() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground">Month to Date</p>
-                <p className="text-2xl font-bold mt-1">
-                  ${costQuery.data?.total.toFixed(2) || "0.00"}
-                </p>
+                {(costQuery.data as { unsupported?: boolean })?.unsupported ? (
+                  <p className="text-sm font-medium text-muted-foreground mt-1">N/A</p>
+                ) : (
+                  <p className="text-2xl font-bold mt-1">
+                    ${costQuery.data?.total.toFixed(2) || "0.00"}
+                  </p>
+                )}
               </div>
               <div className="rounded-lg bg-blue-500/10 p-2.5">
                 <DollarSign className="h-5 w-5 text-blue-400" />
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              {costQuery.data?.costs.length || 0} services
+              {(costQuery.data as { message?: string })?.message || `${costQuery.data?.costs.length || 0} services`}
             </p>
           </CardContent>
         </Card>

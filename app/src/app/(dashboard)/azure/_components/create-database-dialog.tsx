@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Copy, Check, AlertTriangle } from "lucide-react";
+import { Loader2, Copy, Check, AlertTriangle, Zap } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface CreateDatabaseDialogProps {
@@ -190,6 +190,14 @@ export function CreateDatabaseDialog({ open, onOpenChange }: CreateDatabaseDialo
                     </div>
                   </div>
                 ))}
+              </div>
+
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400">
+                <Zap className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                <span>
+                  After 3CX creates its tables, use the database explorer to add indexes
+                  on frequently queried columns for faster performance.
+                </span>
               </div>
 
               <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
