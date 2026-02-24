@@ -97,17 +97,19 @@ export class HttpExecutor implements MonitorExecutor {
         fetchOptions.body = c.body;
       }
 
-      // Disable TLS verification if configured
+      // Disable TLS verification if configured — use try/finally to guarantee cleanup
       if (c.ignoreTls) {
-        (fetchOptions as Record<string, unknown>).dispatcher = undefined;
         process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
       }
 
-      const response = await fetch(c.url, fetchOptions);
-      clearTimeout(timeout);
-
-      if (c.ignoreTls) {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
+      let response: Response;
+      try {
+        response = await fetch(c.url, fetchOptions);
+      } finally {
+        if (c.ignoreTls) {
+          process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
+        }
+        clearTimeout(timeout);
       }
 
       const latencyMs = Math.round(performance.now() - start);
@@ -163,9 +165,7 @@ export class HttpExecutor implements MonitorExecutor {
       };
     } catch (error) {
       const latencyMs = Math.round(performance.now() - start);
-      if (c.ignoreTls) {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
-      }
+      // TLS already restored in inner finally block
 
       const err = error as Error;
       if (err.name === "AbortError") {

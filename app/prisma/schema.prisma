@@ -103,6 +103,9 @@ model AuditEvent {
   @@index([actorId])
   @@index([createdAt])
   @@index([resource])
+  @@index([outcome])
+  @@index([category, createdAt])
+  @@index([actorId, createdAt])
 }
 
 model UserPreference {

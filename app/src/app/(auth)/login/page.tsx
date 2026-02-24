@@ -17,7 +17,9 @@ export default function LoginPage() {
 
 function LoginContent() {
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  // Validate callbackUrl to prevent open redirect attacks
+  const rawCallback = searchParams.get("callbackUrl") || "/dashboard";
+  const callbackUrl = rawCallback.startsWith("/") ? rawCallback : "/dashboard";
   const errorParam = searchParams.get("error");
 
   const [ssoAvailable, setSsoAvailable] = useState<boolean | null>(null);

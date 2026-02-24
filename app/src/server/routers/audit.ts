@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure, adminProcedure } from "../trpc";
 
-const auditCategoryEnum = z.enum(["AUTH", "USER", "SECURITY", "INTEGRATION", "SYSTEM", "API", "DATA"]);
+const auditCategoryEnum = z.enum(["AUTH", "USER", "SECURITY", "INTEGRATION", "NOTIFICATION", "SYSTEM", "API", "DATA"]);
 
 export const auditRouter = router({
   list: adminProcedure

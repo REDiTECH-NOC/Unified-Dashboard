@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
 
@@ -53,7 +53,7 @@ export const edrRouter = router({
 
   // ─── Threat Actions ──────────────────────────────────────
 
-  mitigateThreat: protectedProcedure
+  mitigateThreat: adminProcedure
     .input(
       z.object({
         threatId: z.string(),
@@ -77,7 +77,7 @@ export const edrRouter = router({
 
   // ─── Threat Workflow Actions ─────────────────────────────
 
-  updateIncidentStatus: protectedProcedure
+  updateIncidentStatus: adminProcedure
     .input(
       z.object({
         threatIds: z.array(z.string()).min(1),
@@ -99,7 +99,7 @@ export const edrRouter = router({
       return { success: true };
     }),
 
-  updateAnalystVerdict: protectedProcedure
+  updateAnalystVerdict: adminProcedure
     .input(
       z.object({
         threatIds: z.array(z.string()).min(1),
@@ -121,7 +121,7 @@ export const edrRouter = router({
       return { success: true };
     }),
 
-  markAsBenign: protectedProcedure
+  markAsBenign: adminProcedure
     .input(
       z.object({
         threatIds: z.array(z.string()).min(1),
@@ -143,7 +143,7 @@ export const edrRouter = router({
       return { success: true };
     }),
 
-  markAsThreat: protectedProcedure
+  markAsThreat: adminProcedure
     .input(
       z.object({
         threatIds: z.array(z.string()).min(1),
@@ -180,7 +180,7 @@ export const edrRouter = router({
       return edr.getThreatNotes(input.threatId, input.cursor, input.pageSize);
     }),
 
-  addThreatNote: protectedProcedure
+  addThreatNote: adminProcedure
     .input(
       z.object({
         threatId: z.string(),
@@ -219,7 +219,7 @@ export const edrRouter = router({
 
   // ─── Agent Actions ─────────────────────────────────────────
 
-  isolateDevice: protectedProcedure
+  isolateDevice: adminProcedure
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
@@ -235,7 +235,7 @@ export const edrRouter = router({
       return { success: true };
     }),
 
-  unisolateDevice: protectedProcedure
+  unisolateDevice: adminProcedure
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
@@ -251,7 +251,7 @@ export const edrRouter = router({
       return { success: true };
     }),
 
-  triggerFullScan: protectedProcedure
+  triggerFullScan: adminProcedure
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
@@ -345,7 +345,7 @@ export const edrRouter = router({
       return edr.getExclusions(input.siteId, input.cursor, input.pageSize);
     }),
 
-  createExclusion: protectedProcedure
+  createExclusion: adminProcedure
     .input(
       z.object({
         type: z.enum(["path", "hash", "certificate", "browser"]),
@@ -371,7 +371,7 @@ export const edrRouter = router({
       return result;
     }),
 
-  deleteExclusion: protectedProcedure
+  deleteExclusion: adminProcedure
     .input(z.object({ exclusionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
@@ -389,7 +389,7 @@ export const edrRouter = router({
 
   // ─── Deep Visibility ────────────────────────────────────
 
-  queryDeepVisibility: protectedProcedure
+  queryDeepVisibility: adminProcedure
     .input(
       z.object({
         query: z.string().min(1),

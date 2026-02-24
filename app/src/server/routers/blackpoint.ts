@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import type { BlackpointConnector } from "../connectors/blackpoint/connector";
 import { auditLog } from "@/lib/audit";
@@ -245,7 +245,7 @@ export const blackpointRouter = router({
       return bp.getCollectionById(input.id);
     }),
 
-  createCollection: protectedProcedure
+  createCollection: adminProcedure
     .input(
       z.object({
         context: z.string(),
@@ -266,7 +266,7 @@ export const blackpointRouter = router({
       return result;
     }),
 
-  updateCollection: protectedProcedure
+  updateCollection: adminProcedure
     .input(
       z.object({
         id: z.string(),
@@ -287,7 +287,7 @@ export const blackpointRouter = router({
       return result;
     }),
 
-  deleteCollection: protectedProcedure
+  deleteCollection: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -326,7 +326,7 @@ export const blackpointRouter = router({
       return bp.getMs365ApprovedCountries(input.connectionId);
     }),
 
-  approveMs365Country: protectedProcedure
+  approveMs365Country: adminProcedure
     .input(z.object({ connectionId: z.string(), isoCountryCode: z.string().length(2) }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -341,7 +341,7 @@ export const blackpointRouter = router({
       return { success: true };
     }),
 
-  removeMs365ApprovedCountry: protectedProcedure
+  removeMs365ApprovedCountry: adminProcedure
     .input(z.object({ connectionId: z.string(), isoCountryCode: z.string().length(2) }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -439,7 +439,7 @@ export const blackpointRouter = router({
       return bp.getCiscoDuoOnboardingById(input.onboardingId);
     }),
 
-  createCiscoDuoOnboarding: protectedProcedure
+  createCiscoDuoOnboarding: adminProcedure
     .input(
       z.object({
         host: z.string().optional(),
@@ -459,7 +459,7 @@ export const blackpointRouter = router({
       return result;
     }),
 
-  deleteCiscoDuoOnboarding: protectedProcedure
+  deleteCiscoDuoOnboarding: adminProcedure
     .input(z.object({ onboardingId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -563,7 +563,7 @@ export const blackpointRouter = router({
       return bp.getScanById(input.id);
     }),
 
-  createScan: protectedProcedure
+  createScan: adminProcedure
     .input(
       z.object({
         type: z.enum(["darkweb", "external", "local", "network"]),
@@ -585,7 +585,7 @@ export const blackpointRouter = router({
       return result;
     }),
 
-  cancelScan: protectedProcedure
+  cancelScan: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -599,7 +599,7 @@ export const blackpointRouter = router({
       return { success: true };
     }),
 
-  deleteScan: protectedProcedure
+  deleteScan: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -649,7 +649,7 @@ export const blackpointRouter = router({
       return bp.getScanScheduleById(input.id);
     }),
 
-  createScanSchedule: protectedProcedure
+  createScanSchedule: adminProcedure
     .input(
       z.object({
         type: z.enum(["darkweb", "external", "local", "network"]),
@@ -675,7 +675,7 @@ export const blackpointRouter = router({
       return result;
     }),
 
-  runScanSchedule: protectedProcedure
+  runScanSchedule: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -689,7 +689,7 @@ export const blackpointRouter = router({
       return { success: true };
     }),
 
-  deleteScanSchedule: protectedProcedure
+  deleteScanSchedule: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -775,7 +775,7 @@ export const blackpointRouter = router({
       return bp.getEmailChannels(input.accountId, input.tenantId);
     }),
 
-  createEmailChannel: protectedProcedure
+  createEmailChannel: adminProcedure
     .input(
       z.object({
         name: z.string(),
@@ -805,7 +805,7 @@ export const blackpointRouter = router({
       return bp.getWebhookChannels(input.accountId, input.tenantId);
     }),
 
-  createWebhookChannel: protectedProcedure
+  createWebhookChannel: adminProcedure
     .input(
       z.object({
         name: z.string(),
@@ -830,7 +830,7 @@ export const blackpointRouter = router({
       return result;
     }),
 
-  testEmailChannel: protectedProcedure
+  testEmailChannel: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -838,7 +838,7 @@ export const blackpointRouter = router({
       return { success: true };
     }),
 
-  testWebhookChannel: protectedProcedure
+  testWebhookChannel: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -914,7 +914,7 @@ export const blackpointRouter = router({
       return bp.getContactGroupMembers(input.accountId, input.contactGroupId);
     }),
 
-  createContactGroup: protectedProcedure
+  createContactGroup: adminProcedure
     .input(
       z.object({
         accountId: z.string(),
@@ -938,7 +938,7 @@ export const blackpointRouter = router({
       return result;
     }),
 
-  deleteContactGroup: protectedProcedure
+  deleteContactGroup: adminProcedure
     .input(z.object({ accountId: z.string(), contactGroupId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);

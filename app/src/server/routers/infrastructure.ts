@@ -460,7 +460,7 @@ export const infrastructureRouter = router({
 
   /** Get connection details for a specific database */
   getConnectionDetails: adminProcedure
-    .input(z.object({ databaseName: z.string().min(1) }))
+    .input(z.object({ databaseName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name") }))
     .query(async ({ ctx, input }) => {
       const config = await getInfraConfig();
       if (!config.pgServerName) {
@@ -541,10 +541,10 @@ export const infrastructureRouter = router({
         // Step 2: Create PG user + grants via direct SQL
         const pool = await getAdminPool(config.pgServerName, config.pgAdminPassword);
         try {
-          // Escape password for SQL (replace single quotes)
-          const escapedPassword = password.replace(/'/g, "''");
+          // Use format() for safe identifier quoting + parameterized password
           await pool.query(
-            `CREATE ROLE "${username}" WITH LOGIN PASSWORD '${escapedPassword}'`
+            `CREATE ROLE "${username}" WITH LOGIN PASSWORD $1`,
+            [password]
           );
           await pool.query(`GRANT CONNECT ON DATABASE "${dbName}" TO "${username}"`);
         } finally {
@@ -1171,7 +1171,7 @@ export const infrastructureRouter = router({
 
   /** List tables in a database with row counts, sizes, and index counts */
   getDatabaseTables: adminProcedure
-    .input(z.object({ databaseName: z.string().min(1) }))
+    .input(z.object({ databaseName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name") }))
     .query(async ({ ctx, input }) => {
       if (!isAzureEnvironment()) {
         return { tables: [], source: "unavailable" as const };
@@ -1235,9 +1235,9 @@ export const infrastructureRouter = router({
   getTableSchema: adminProcedure
     .input(
       z.object({
-        databaseName: z.string().min(1),
+        databaseName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name"),
         tableName: z.string().min(1),
-        schemaName: z.string().default("public"),
+        schemaName: z.string().max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid schema name").default("public"),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -1314,9 +1314,9 @@ export const infrastructureRouter = router({
   getTableIndexes: adminProcedure
     .input(
       z.object({
-        databaseName: z.string().min(1),
+        databaseName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name"),
         tableName: z.string().min(1),
-        schemaName: z.string().default("public"),
+        schemaName: z.string().max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid schema name").default("public"),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -1385,11 +1385,11 @@ export const infrastructureRouter = router({
   createIndex: adminProcedure
     .input(
       z.object({
-        databaseName: z.string().min(1),
-        tableName: z.string().min(1),
-        schemaName: z.string().default("public"),
-        columns: z.array(z.string().min(1)).min(1).max(10),
-        indexName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Must start with letter/underscore, then letters/numbers/underscores").optional(),
+        databaseName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name").max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name"),
+        tableName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid table name"),
+        schemaName: z.string().max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid schema name").default("public"),
+        columns: z.array(z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid column name")).min(1).max(10),
+        indexName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid index name").optional(),
         unique: z.boolean().default(false),
         method: z.enum(["btree", "hash", "gin", "gist"]).default("btree"),
         concurrent: z.boolean().default(true),
@@ -1466,9 +1466,9 @@ export const infrastructureRouter = router({
   dropIndex: adminProcedure
     .input(
       z.object({
-        databaseName: z.string().min(1),
-        indexName: z.string().min(1).max(128),
-        schemaName: z.string().default("public"),
+        databaseName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name").max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name"),
+        indexName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid index name"),
+        schemaName: z.string().max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid schema name").default("public"),
         concurrent: z.boolean().default(true),
       })
     )
@@ -1544,9 +1544,9 @@ export const infrastructureRouter = router({
   applyRecommendedIndexes: adminProcedure
     .input(
       z.object({
-        databaseName: z.string().min(1),
-        tableName: z.string().min(1).optional(), // If provided, only index this table. Otherwise, index all known tables.
-        schemaName: z.string().default("public"),
+        databaseName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name").max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid database name"),
+        tableName: z.string().min(1).max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid table name").optional(),
+        schemaName: z.string().max(128).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid schema name").default("public"),
       })
     )
     .mutation(async ({ ctx, input }) => {

@@ -5,11 +5,27 @@ import { getUserEffectivePermissions, PERMISSIONS } from "@/lib/permissions";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
+// Fields to NEVER return in API responses — security-critical
+const SAFE_USER_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  avatar: true,
+  role: true,
+  authMethod: true,
+  totpEnabled: true,
+  mustSetupTotp: true,
+  lastLoginAt: true,
+  createdAt: true,
+  updatedAt: true,
+  // Explicitly EXCLUDE: passwordHash, totpSecret, inviteToken, inviteExpiry
+} as const;
+
 export const userRouter = router({
   me: protectedProcedure.query(async ({ ctx }) => {
     return ctx.prisma.user.findUnique({
       where: { id: ctx.user.id },
-      include: { featureFlags: true },
+      select: { ...SAFE_USER_SELECT, featureFlags: true },
     });
   }),
 
@@ -99,7 +115,7 @@ export const userRouter = router({
   list: adminProcedure.query(async ({ ctx }) => {
     return ctx.prisma.user.findMany({
       orderBy: { createdAt: "desc" },
-      include: { featureFlags: true, permissions: true },
+      select: { ...SAFE_USER_SELECT, featureFlags: true, permissions: true },
     });
   }),
 
@@ -109,7 +125,8 @@ export const userRouter = router({
     .query(async ({ ctx, input }) => {
       const user = await ctx.prisma.user.findUnique({
         where: { id: input.userId },
-        include: {
+        select: {
+          ...SAFE_USER_SELECT,
           featureFlags: true,
           permissions: true,
           permissionRoles: {
@@ -184,6 +201,7 @@ export const userRouter = router({
       const updated = await ctx.prisma.user.update({
         where: { id: input.userId },
         data: { role: input.role },
+        select: SAFE_USER_SELECT,
       });
       await auditLog({
         action: "user.role.changed",
@@ -200,7 +218,7 @@ export const userRouter = router({
       userId: z.string(),
       flag: z.string(),
       enabled: z.boolean(),
-      value: z.any().optional(),
+      value: z.union([z.string(), z.number(), z.boolean(), z.record(z.string(), z.unknown())]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const result = await ctx.prisma.userFeatureFlag.upsert({
@@ -278,6 +296,7 @@ export const userRouter = router({
           passwordHash,
           mustSetupTotp: true, // Force TOTP setup on first login
         },
+        select: SAFE_USER_SELECT,
       });
 
       await auditLog({
