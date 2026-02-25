@@ -204,6 +204,58 @@ model NotificationConfig {
   updatedAt       DateTime @updatedAt
 }
 
+// ─── In-App Notifications ──────────────────────────────────────
+
+model InAppNotification {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String   // "ticket_assigned", "ticket_reply", "ticket_status_changed", "ticket_created"
+  title      String
+  body       String?
+  read       Boolean  @default(false)
+  linkUrl    String?
+  sourceType String?  // "connectwise_ticket"
+  sourceId   String?
+  metadata   Json?
+  expiresAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, read, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([expiresAt])
+}
+
+// ─── Notification Delivery Channels (admin-managed) ─────────────
+
+model NotificationChannel {
+  id        String   @id @default(cuid())
+  type      String   // "push" | "email" | "teams" | "sms"
+  name      String   // "Browser Push", "Email", "NOC Alerts Channel"
+  config    Json     @default("{}")
+  isBuiltIn Boolean  @default(false) // push + email are built-in, can't be deleted
+  enabled   Boolean  @default(true)
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type, name])
+}
+
+// ─── User Notification Preferences (per-source, per-user) ──────
+
+model UserNotificationPref {
+  id         String   @id @default(cuid())
+  userId     String
+  source     String   // "sentinelone", "blackpoint", "ninjaone", "uptime", "cove"
+  enabled    Boolean  @default(true)
+  severities String[] // multi-select: ["critical", "high"]
+  channels   String[] // delivery channels: ["push", "email", "teams:<channel-id>"]
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, source])
+  @@index([userId])
+}
+
 // ─── Uptime Monitoring ──────────────────────────────────────────
 
 model Monitor {
@@ -294,30 +346,133 @@ model MonitorTagAssignment {
 // Local company record — PSA (ConnectWise) is the source of truth.
 // All other tools map to these records via CompanyIntegrationMapping.
 model Company {
-  id           String    @id @default(cuid())
-  name         String
-  psaSourceId  String    @unique // ConnectWise company ID — authoritative link
-  identifier   String?           // CW short code (e.g., "JBDAW")
-  status       String    @default("Active")
-  phone        String?
-  website      String?
-  addressLine1 String?
-  addressLine2 String?
-  city         String?
-  state        String?
-  zip          String?
-  country      String?
-  lastSyncedAt DateTime?
-  syncEnabled  Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  name           String
+  psaSourceId    String    @unique // ConnectWise company ID — authoritative link
+  identifier     String?           // CW short code (e.g., "JBDAW")
+  status         String    @default("Active")
+  type           String?           // CW company type name (e.g. "Client", "Prospect")
+  phone          String?
+  website        String?
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  state          String?
+  zip            String?
+  country        String?
+  lastSyncedAt   DateTime?
+  syncEnabled    Boolean   @default(true)
+  syncSource     String    @default("manual") // "auto" | "manual"
+  unmatchedSince DateTime?                    // when auto-sync detected no longer matches (null = matches)
+
+  // ── In-App Custom Fields (admin-editable, NOT synced from CW) ──
+  afterHoursAlertProcedure String?  // Free text: what to do for after-hours alerts
+  notes                    String?  // General admin notes about this company
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   integrationMappings CompanyIntegrationMapping[]
   threecxInstances    ThreecxInstance[]
   monitors            Monitor[]
+  contacts            CompanyContact[]
+  sites               CompanySite[]
+  configurations      CompanyConfiguration[]
+  agreements          CompanyAgreement[]
 
   @@index([name])
   @@index([status])
+  @@index([syncSource])
+}
+
+// Contacts synced from ConnectWise — needed for 3CX caller intelligence, ticket creation
+model CompanyContact {
+  id                 String    @id @default(cuid())
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  psaSourceId        String    @unique // CW contact ID
+  firstName          String
+  lastName           String
+  title              String?
+  email              String?
+  phone              String?
+  mobilePhone        String?
+  defaultFlag        Boolean   @default(false)
+  inactiveFlag       Boolean   @default(false)
+  communicationItems Json?     // full CW communicationItems array for extended lookups
+  lastSyncedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([email])
+  @@index([phone])
+  @@index([mobilePhone])
+}
+
+// Sites/locations synced from ConnectWise — company office addresses
+model CompanySite {
+  id           String    @id @default(cuid())
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  psaSourceId  String    @unique // CW site ID
+  name         String
+  addressLine1 String?
+  city         String?
+  state        String?
+  zip          String?
+  country      String?
+  phone        String?
+  primaryFlag  Boolean   @default(false)
+  inactiveFlag Boolean   @default(false)
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([companyId])
+}
+
+// Device/asset configurations synced from ConnectWise — needed for contract reconciliation
+model CompanyConfiguration {
+  id           String    @id @default(cuid())
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  psaSourceId  String    @unique // CW configuration ID
+  name         String
+  type         String?
+  status       String?
+  serialNumber String?
+  modelNumber  String?
+  osType       String?
+  osInfo       String?
+  ipAddress    String?
+  macAddress   String?
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([companyId])
+}
+
+// Agreements/contracts synced from ConnectWise — needed for billing reconciliation
+model CompanyAgreement {
+  id               String    @id @default(cuid())
+  companyId        String
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  psaSourceId      String    @unique // CW agreement ID
+  name             String
+  type             String?
+  startDate        DateTime?
+  endDate          DateTime?
+  cancelledFlag    Boolean   @default(false)
+  noEndingDateFlag Boolean   @default(false)
+  billAmount       Float?
+  billCycle        String?
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([companyId])
 }
 
 // Maps a Company to its org/site ID in each non-PSA tool.
@@ -359,6 +514,18 @@ model UserIntegrationMapping {
   @@unique([toolId, externalId])
   @@unique([userId, toolId])
   @@index([userId])
+}
+
+// Per-customer backup notes (stored locally, not in Cove).
+model BackupCustomerNote {
+  id            String   @id @default(cuid())
+  covePartnerId String   @unique // Cove partner/customer ID
+  note          String
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@index([covePartnerId])
 }
 
 // ─── 3CX PBX Management ─────────────────────────────────────────
@@ -455,4 +622,80 @@ model QuickLinkAssignment {
   @@unique([groupId, userId])
   @@index([role])
   @@index([userId])
+}
+
+// ─── AI Provider & Cost Management ──────────────────────────────
+
+enum AiProviderType {
+  AZURE_OPENAI
+  OPENAI
+  CUSTOM // OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, etc.)
+}
+
+// AI provider connection — singleton-ish (one active provider at a time)
+model AiProviderConfig {
+  id             String         @id @default(cuid())
+  providerType   AiProviderType
+  endpointUrl    String         // e.g., https://myresource.openai.azure.com/ or http://10.0.1.50:11434/v1
+  apiKey         String         // Encrypted (AES-256-GCM via crypto.ts)
+  apiVersion     String?        // Azure OpenAI API version (e.g., "2024-12-01-preview")
+  complexModel   String         @default("gpt-4o")
+  simpleModel    String         @default("gpt-4o-mini")
+  embeddingModel String         @default("text-embedding-3-small")
+  isActive       Boolean        @default(true)
+  updatedBy      String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+// Per-function model tier assignment (admin-configurable)
+model AiModelConfig {
+  id           String   @id @default(cuid())
+  functionName String   @unique // "create_ticket", "search_knowledge", etc.
+  modelTier    String   // "complex" | "simple" — resolves to provider's complexModel/simpleModel
+  customModel  String?  // Optional override: specific model name (bypasses tier)
+  updatedBy    String?
+  updatedAt    DateTime @updatedAt
+
+  @@index([functionName])
+}
+
+// Per-user or per-role budget and rate limit configuration
+model AiBudgetConfig {
+  id                String   @id @default(cuid())
+  entityType        String   // "user" | "role"
+  entityId          String   // userId or role name (e.g., "ADMIN", "USER")
+  dailyTokenLimit   Int?     // null = unlimited
+  monthlyTokenLimit Int?     // null = unlimited
+  rateLimitPerHour  Int?     // max AI requests/hour, null = unlimited
+  maxConcurrent     Int      @default(1)
+  isActive          Boolean  @default(true)
+  updatedBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([entityType, entityId])
+  @@index([entityType])
+}
+
+// Per-request AI usage tracking (append-only)
+model AiUsageLog {
+  id           String   @id @default(cuid())
+  userId       String
+  functionName String
+  model        String   // Actual model name used
+  provider     String   // "azure_openai" | "openai" | "custom"
+  inputTokens  Int
+  outputTokens Int
+  totalTokens  Int
+  cached       Boolean  @default(false)
+  latencyMs    Int
+  success      Boolean  @default(true)
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([functionName])
+  @@index([createdAt])
+  @@index([userId, createdAt])
 }

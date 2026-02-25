@@ -94,6 +94,7 @@ export const psaRouter = router({
         status: z.string().optional(),
         priority: z.string().optional(),
         assignTo: z.string().optional(),
+        boardId: z.string().optional(),
         note: z.string().optional(),
       })
     )
@@ -103,6 +104,7 @@ export const psaRouter = router({
         status: input.status,
         priority: input.priority,
         assignTo: input.assignTo,
+        boardId: input.boardId,
         note: input.note,
       });
 
@@ -132,6 +134,10 @@ export const psaRouter = router({
         ticketId: z.string(),
         text: z.string().min(1),
         internal: z.boolean().default(true),
+        emailContact: z.boolean().optional(),
+        emailResources: z.boolean().optional(),
+        emailCc: z.string().optional(),
+        timeHours: z.number().min(0.01).max(24).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -139,7 +145,13 @@ export const psaRouter = router({
       const note = await psa.addTicketNote(
         input.ticketId,
         input.text,
-        input.internal
+        input.internal,
+        {
+          emailContact: input.emailContact,
+          emailResources: input.emailResources,
+          emailCc: input.emailCc,
+          timeHours: input.timeHours,
+        }
       );
 
       await auditLog({
@@ -147,7 +159,7 @@ export const psaRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `ticket:${input.ticketId}`,
-        detail: { internal: input.internal },
+        detail: { internal: input.internal, emailedContact: !!input.emailContact, emailedResources: !!input.emailResources, timeHours: input.timeHours },
       });
 
       return note;
@@ -161,6 +173,9 @@ export const psaRouter = router({
         notes: z.string().optional(),
         workType: z.string().optional(),
         memberId: z.string().optional(),
+        timeStart: z.string().optional(),
+        timeEnd: z.string().optional(),
+        billableOption: z.enum(["Billable", "DoNotBill", "NoCharge", "NoDefault"]).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -172,10 +187,46 @@ export const psaRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `ticket:${input.ticketId}`,
-        detail: { hours: input.hoursWorked },
+        detail: { hours: input.hoursWorked, billable: input.billableOption },
       });
 
       return entry;
+    }),
+
+  getWorkTypes: protectedProcedure.query(async ({ ctx }) => {
+    const psa = await ConnectorFactory.get("psa", ctx.prisma);
+    if ("getWorkTypes" in psa && typeof (psa as any).getWorkTypes === "function") {
+      return (psa as any).getWorkTypes() as Promise<Array<{ id: string; name: string }>>;
+    }
+    return [] as Array<{ id: string; name: string }>;
+  }),
+
+  getTimeEntries: protectedProcedure
+    .input(z.object({ ticketId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const psa = await ConnectorFactory.get("psa", ctx.prisma);
+      if ("getTimeEntries" in psa && typeof (psa as any).getTimeEntries === "function") {
+        return (psa as any).getTimeEntries(input.ticketId) as Promise<Array<{
+          id: string;
+          member?: string;
+          actualHours: number;
+          notes?: string;
+          workType?: string;
+          timeStart?: string;
+          timeEnd?: string;
+          dateEntered?: string;
+        }>>;
+      }
+      return [] as Array<{
+        id: string;
+        member?: string;
+        actualHours: number;
+        notes?: string;
+        workType?: string;
+        timeStart?: string;
+        timeEnd?: string;
+        dateEntered?: string;
+      }>;
     }),
 
   // ─── Companies ───────────────────────────────────────────
@@ -184,13 +235,41 @@ export const psaRouter = router({
     .input(
       z.object({
         searchTerm: z.string().optional(),
+        statuses: z.array(z.string()).optional(),
+        types: z.array(z.string()).optional(),
         page: z.number().min(1).default(1),
         pageSize: z.number().min(1).max(100).default(25),
       })
     )
     .query(async ({ ctx, input }) => {
       const psa = await ConnectorFactory.get("psa", ctx.prisma);
-      return psa.getCompanies(input.searchTerm, input.page, input.pageSize);
+      const result = await psa.getCompanies(
+        {
+          searchTerm: input.searchTerm,
+          statuses: input.statuses,
+          types: input.types,
+        },
+        input.page,
+        input.pageSize
+      );
+      // Extract CW-specific display fields from _raw
+      return {
+        ...result,
+        data: result.data.map((org) => {
+          const raw = org._raw as Record<string, unknown> | undefined;
+          return {
+            sourceToolId: org.sourceToolId,
+            sourceId: org.sourceId,
+            name: org.name,
+            phone: org.phone,
+            website: org.website,
+            address: org.address,
+            status: org.status,
+            identifier: (raw?.identifier as string) ?? undefined,
+            typeName: (raw?.types as Array<{ name: string }> | undefined)?.[0]?.name,
+          };
+        }),
+      };
     }),
 
   getCompanyById: protectedProcedure
@@ -199,6 +278,24 @@ export const psaRouter = router({
       const psa = await ConnectorFactory.get("psa", ctx.prisma);
       return psa.getCompanyById(input.id);
     }),
+
+  getCompanyStatuses: protectedProcedure.query(async ({ ctx }) => {
+    const psa = await ConnectorFactory.get("psa", ctx.prisma);
+    const connector = psa as { getCompanyStatuses?: () => Promise<Array<{ id: number; name: string }>> };
+    if (typeof connector.getCompanyStatuses === "function") {
+      return connector.getCompanyStatuses();
+    }
+    return [];
+  }),
+
+  getCompanyTypes: protectedProcedure.query(async ({ ctx }) => {
+    const psa = await ConnectorFactory.get("psa", ctx.prisma);
+    const connector = psa as { getCompanyTypes?: () => Promise<Array<{ id: number; name: string }>> };
+    if (typeof connector.getCompanyTypes === "function") {
+      return connector.getCompanyTypes();
+    }
+    return [];
+  }),
 
   // ─── Contacts ────────────────────────────────────────────
 
@@ -246,4 +343,139 @@ export const psaRouter = router({
     const psa = await ConnectorFactory.get("psa", ctx.prisma);
     return psa.getMembers();
   }),
+
+  // ─── Multi-Board Data (dashboard module) ────────────────────
+
+  getMultiBoardData: protectedProcedure
+    .input(
+      z.object({
+        boardIds: z.array(z.string()).min(1).max(10),
+        assignedTo: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const psa = await ConnectorFactory.get("psa", ctx.prisma);
+
+      // Fetch statuses and tickets for each board in parallel
+      const results = await Promise.all(
+        input.boardIds.map(async (boardId) => {
+          const [statuses, tickets] = await Promise.all([
+            psa.getBoardStatuses(boardId),
+            psa.getTickets(
+              { boardId, assignedTo: input.assignedTo },
+              1,
+              100
+            ),
+          ]);
+          return { boardId, statuses, tickets: tickets.data };
+        })
+      );
+
+      // Merge statuses (deduplicated by name, keep first occurrence)
+      const seenStatuses = new Map<string, { name: string; boardId: string }>();
+      for (const r of results) {
+        for (const s of r.statuses) {
+          if (!seenStatuses.has(s.name)) {
+            seenStatuses.set(s.name, { name: s.name, boardId: r.boardId });
+          }
+        }
+      }
+
+      // Merge all tickets
+      const allTickets = results.flatMap((r) => r.tickets);
+
+      return {
+        statuses: Array.from(seenStatuses.values()),
+        tickets: allTickets,
+        totalTickets: allTickets.length,
+      };
+    }),
+
+  // ─── Current User's CW Member ID ──────────────────────────
+
+  getMyMemberId: protectedProcedure.query(async ({ ctx }) => {
+    const mapping = await ctx.prisma.userIntegrationMapping.findUnique({
+      where: {
+        userId_toolId: { userId: ctx.user.id, toolId: "connectwise" },
+      },
+    });
+    return mapping?.externalId ?? null;
+  }),
+
+  // ─── Member Time Entries (Calendar) ───────────────────────
+
+  getMemberTimeEntries: protectedProcedure
+    .input(
+      z.object({
+        memberIdentifier: z.string(),
+        dateStart: z.date(),
+        dateEnd: z.date(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const psa = await ConnectorFactory.get("psa", ctx.prisma);
+      const connector = psa as {
+        getMemberTimeEntries?: (
+          memberIdentifier: string,
+          dateStart: Date,
+          dateEnd: Date
+        ) => Promise<Array<{
+          id: string;
+          ticketId?: string;
+          companyName?: string;
+          member?: string;
+          actualHours: number;
+          notes?: string;
+          timeStart?: string;
+          timeEnd?: string;
+          dateEntered?: string;
+        }>>;
+      };
+      if (typeof connector.getMemberTimeEntries !== "function") {
+        return [];
+      }
+      return connector.getMemberTimeEntries(
+        input.memberIdentifier,
+        input.dateStart,
+        input.dateEnd
+      );
+    }),
+
+  // ─── Schedule Entries (Calendar) ──────────────────────────
+
+  getScheduleEntries: protectedProcedure
+    .input(
+      z.object({
+        memberIdentifier: z.string().optional(),
+        dateStart: z.date(),
+        dateEnd: z.date(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const psa = await ConnectorFactory.get("psa", ctx.prisma);
+      const connector = psa as {
+        getScheduleEntries?: (params: {
+          memberIdentifier?: string;
+          dateStart: Date;
+          dateEnd: Date;
+        }) => Promise<Array<{
+          id: string;
+          objectId?: string;
+          memberName?: string;
+          type?: string;
+          dateStart: Date;
+          dateEnd: Date;
+          hours?: number;
+          status?: string;
+        }>>;
+      };
+      if (typeof connector.getScheduleEntries !== "function") {
+        return [];
+      }
+      return connector.getScheduleEntries({
+        memberIdentifier: input.memberIdentifier,
+        dateStart: input.dateStart,
+        dateEnd: input.dateEnd,
+      });
+    }),
 });

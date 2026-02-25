@@ -18,6 +18,12 @@ import { blackpointRouter } from "./blackpoint";
 import { infrastructureRouter } from "./infrastructure";
 import { quicklinksRouter } from "./quicklinks";
 import { cippRouter } from "./cipp";
+import { emailSecurityRouter } from "./email-security";
+import { backupRouter } from "./backup";
+import { aiRouter } from "./ai";
+import { notificationInboxRouter } from "./notification-inbox";
+import { notificationPreferencesRouter } from "./notification-preferences";
+import { notificationChannelRouter } from "./notification-channel";
 
 export const appRouter = router({
   user: userRouter,
@@ -39,6 +45,12 @@ export const appRouter = router({
   infrastructure: infrastructureRouter,
   quicklinks: quicklinksRouter,
   cipp: cippRouter,
+  emailSecurity: emailSecurityRouter,
+  backup: backupRouter,
+  ai: aiRouter,
+  notificationInbox: notificationInboxRouter,
+  notificationPreferences: notificationPreferencesRouter,
+  notificationChannel: notificationChannelRouter,
 });
 
 export type AppRouter = typeof appRouter;

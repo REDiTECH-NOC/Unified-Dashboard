@@ -36,6 +36,9 @@ export const PERMISSIONS: PermissionDef[] = [
   // ── Clients ──
   { key: "clients.view",         label: "View Clients",             description: "View client list and details",                 module: "Clients",       defaultRoles: ["ADMIN", "MANAGER", "USER"] },
 
+  // ── Backups ──
+  { key: "backups.view",         label: "View Backups",             description: "View backup status, devices, and alerts",       module: "Backups",       defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+
   // ── AI Agents ──
   { key: "ai.chat",              label: "Use AI Chat",              description: "Access the AI operations assistant",           module: "AI",            defaultRoles: ["ADMIN", "MANAGER", "USER"] },
   { key: "ai.kb.read",           label: "Read Knowledge Base",      description: "Query the knowledge base via AI",              module: "AI",            defaultRoles: ["ADMIN", "MANAGER", "USER"] },
@@ -57,7 +60,14 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "settings.integrations",label: "Manage Integrations",      description: "Configure API credentials and connections",    module: "Settings",      defaultRoles: ["ADMIN"] },
   { key: "settings.branding",    label: "Manage Branding",          description: "Change logo and company name",                 module: "Settings",      defaultRoles: ["ADMIN"] },
   { key: "settings.ai",             label: "Manage AI Settings",       description: "Configure models, budgets, rate limits",       module: "Settings",      defaultRoles: ["ADMIN"] },
-  { key: "settings.notifications", label: "Manage Notifications",     description: "Configure notification channels and rules",    module: "Settings",      defaultRoles: ["ADMIN"] },
+  { key: "settings.notifications", label: "Notification Settings",    description: "Access notification preferences and admin config", module: "Settings",   defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+
+  // ── Notification Sources (admin assigns via permission roles) ──
+  { key: "notifications.sentinelone", label: "SentinelOne Alerts",   description: "Receive alert notifications from SentinelOne",       module: "Notifications", defaultRoles: ["ADMIN"] },
+  { key: "notifications.blackpoint",  label: "Blackpoint Alerts",    description: "Receive alert notifications from Blackpoint Cyber",  module: "Notifications", defaultRoles: ["ADMIN"] },
+  { key: "notifications.ninjaone",    label: "NinjaRMM Alerts",      description: "Receive alert notifications from NinjaRMM",          module: "Notifications", defaultRoles: ["ADMIN"] },
+  { key: "notifications.uptime",      label: "Uptime Alerts",        description: "Receive alert notifications from Uptime Monitor",    module: "Notifications", defaultRoles: ["ADMIN"] },
+  { key: "notifications.cove",        label: "Cove Backup Alerts",   description: "Receive alert notifications from Cove Backup",       module: "Notifications", defaultRoles: ["ADMIN"] },
 
   // ── 3CX / Phone ──
   { key: "phone.view",           label: "View Phone Dashboard",     description: "View 3CX call logs and PBX status",           module: "Phone",         defaultRoles: ["ADMIN", "MANAGER", "USER"] },

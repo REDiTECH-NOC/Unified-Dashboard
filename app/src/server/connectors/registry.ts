@@ -17,8 +17,10 @@ import { ItGlueDocumentationConnector } from "./itglue/connector";
 import { UnifiNetworkConnector } from "./unifi/connector";
 import { BlackpointConnector } from "./blackpoint/connector";
 import { CIPPConnector } from "./cipp/connector";
+import { AvananEmailSecurityConnector } from "./avanan/connector";
+import { CoveBackupConnector } from "./cove/connector";
 
-export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network" | "mdr" | "cipp";
+export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network" | "mdr" | "cipp" | "email_security" | "backup";
 
 export interface ConnectorRegistration {
   category: ConnectorCategory;
@@ -40,6 +42,8 @@ export const CONNECTOR_REGISTRY: Record<string, ConnectorRegistration> = {
   ninjaone: {
     category: "rmm",
     defaultBaseUrl: "https://app.ninjarmm.com/api/v2",
+    rateLimitMax: 10,
+    rateLimitWindowMs: 10 * 60_000, // 10 requests per 10 minutes on query endpoints
     factory: (config) => new NinjaOneRmmConnector(config),
   },
 
@@ -77,5 +81,21 @@ export const CONNECTOR_REGISTRY: Record<string, ConnectorRegistration> = {
     category: "cipp",
     defaultBaseUrl: "", // Always from config — instance-specific CIPP deployment URL
     factory: (config) => new CIPPConnector(config),
+  },
+
+  avanan: {
+    category: "email_security",
+    defaultBaseUrl: "", // Resolved from region selection (US, EU, CA, AU, UK, UAE, IN)
+    rateLimitMax: 60,
+    rateLimitWindowMs: 60_000,
+    factory: (config) => new AvananEmailSecurityConnector(config),
+  },
+
+  cove: {
+    category: "backup",
+    defaultBaseUrl: "https://api.backup.management/jsonapi",
+    rateLimitMax: 30,
+    rateLimitWindowMs: 60_000,
+    factory: (config) => new CoveBackupConnector(config),
   },
 };

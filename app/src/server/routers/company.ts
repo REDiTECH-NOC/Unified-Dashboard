@@ -1,8 +1,13 @@
 /**
- * Company Router — manages local Company records imported from the PSA.
+ * Company Router — manages local Company records synced from the PSA.
  *
- * PSA (ConnectWise) is the source of truth. Companies are imported into
+ * PSA (ConnectWise) is the source of truth. Companies are synced into
  * a local table so all other integrations can map their orgs/sites to them.
+ * Sub-entities (contacts, sites, configurations, agreements) are also synced.
+ *
+ * Two sync modes:
+ *   Auto  — filter by CW status/type, syncs all matching. Handles removal policy.
+ *   Manual — user selects specific companies via the explorer.
  */
 
 import { z } from "zod";
@@ -10,6 +15,239 @@ import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
 import type { NormalizedOrganization } from "../connectors/_interfaces/common";
+import type { ConnectWisePsaConnector } from "../connectors/connectwise/connector";
+import type { PrismaClient } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+
+// ─── Sub-Entity Sync Helper ─────────────────────────────────
+// Syncs contacts, sites, configurations, and agreements for a single company.
+// Called by both runAutoSync and syncSelected.
+
+interface SubEntityCounts {
+  contacts: { synced: number; created: number };
+  sites: { synced: number; created: number };
+  configurations: { synced: number; created: number; skipped: boolean };
+  agreements: { synced: number; created: number; skipped: boolean };
+}
+
+async function syncCompanySubEntities(
+  prisma: PrismaClient,
+  connector: ConnectWisePsaConnector,
+  localCompanyId: string,
+  psaSourceId: string
+): Promise<SubEntityCounts> {
+  const counts: SubEntityCounts = {
+    contacts: { synced: 0, created: 0 },
+    sites: { synced: 0, created: 0 },
+    configurations: { synced: 0, created: 0, skipped: false },
+    agreements: { synced: 0, created: 0, skipped: false },
+  };
+
+  // ── Contacts ──
+  try {
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      const result = await connector.getContacts(psaSourceId, undefined, page, 100);
+      for (const contact of result.data) {
+        const raw = contact._raw as Record<string, unknown> | undefined;
+        const commItems = raw?.communicationItems;
+        // Extract email/phone from communicationItems
+        let email: string | undefined;
+        let phone: string | undefined;
+        let mobilePhone: string | undefined;
+        if (Array.isArray(commItems)) {
+          for (const item of commItems as Array<{ communicationType?: string; type?: { name?: string }; value?: string; defaultFlag?: boolean }>) {
+            if (item.communicationType === "Email" && item.defaultFlag) {
+              email = item.value;
+            } else if (item.communicationType === "Phone") {
+              if (item.type?.name === "Direct" || item.type?.name === "Work") {
+                phone = phone || item.value;
+              } else if (item.type?.name === "Cell") {
+                mobilePhone = item.value;
+              }
+            }
+          }
+        }
+        // Fallback to normalized fields
+        email = email || contact.email || undefined;
+        phone = phone || contact.phone || undefined;
+
+        const existing = await prisma.companyContact.findUnique({
+          where: { psaSourceId: contact.sourceId },
+        });
+
+        const data = {
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          title: contact.title || null,
+          email: email || null,
+          phone: phone || null,
+          mobilePhone: mobilePhone || null,
+          defaultFlag: (raw?.defaultFlag as boolean) ?? false,
+          inactiveFlag: (raw?.inactiveFlag as boolean) ?? false,
+          communicationItems: commItems as Prisma.InputJsonValue ?? undefined,
+          lastSyncedAt: new Date(),
+        };
+
+        if (existing) {
+          await prisma.companyContact.update({ where: { id: existing.id }, data });
+          counts.contacts.synced++;
+        } else {
+          await prisma.companyContact.create({
+            data: { ...data, companyId: localCompanyId, psaSourceId: contact.sourceId },
+          });
+          counts.contacts.created++;
+        }
+      }
+      hasMore = result.hasMore;
+      page++;
+    }
+  } catch {
+    // Contact sync failure is not fatal
+  }
+
+  // ── Sites ──
+  try {
+    const sites = await connector.getCompanySites(psaSourceId);
+    for (const site of sites) {
+      const existing = await prisma.companySite.findUnique({
+        where: { psaSourceId: String(site.id) },
+      });
+
+      const data = {
+        name: site.name,
+        addressLine1: site.addressLine1 || null,
+        city: site.city || null,
+        state: site.state || null,
+        zip: site.zip || null,
+        country: site.country?.name || null,
+        phone: site.phoneNumber || null,
+        primaryFlag: site.primaryAddressFlag ?? false,
+        inactiveFlag: site.inactiveFlag ?? false,
+        lastSyncedAt: new Date(),
+      };
+
+      if (existing) {
+        await prisma.companySite.update({ where: { id: existing.id }, data });
+        counts.sites.synced++;
+      } else {
+        await prisma.companySite.create({
+          data: { ...data, companyId: localCompanyId, psaSourceId: String(site.id) },
+        });
+        counts.sites.created++;
+      }
+    }
+  } catch {
+    // Site sync failure is not fatal
+  }
+
+  // ── Configurations (may be permission-blocked) ──
+  try {
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      const result = await connector.getCompanyConfigurations(psaSourceId, page, 100);
+      for (const config of result.data) {
+        const existing = await prisma.companyConfiguration.findUnique({
+          where: { psaSourceId: String(config.id) },
+        });
+
+        const data = {
+          name: config.name,
+          type: config.type?.name || null,
+          status: config.status?.name || null,
+          serialNumber: config.serialNumber || null,
+          modelNumber: config.modelNumber || null,
+          osType: config.osType || null,
+          osInfo: config.osInfo || null,
+          ipAddress: config.ipAddress || null,
+          macAddress: config.macAddress || null,
+          lastSyncedAt: new Date(),
+        };
+
+        if (existing) {
+          await prisma.companyConfiguration.update({ where: { id: existing.id }, data });
+          counts.configurations.synced++;
+        } else {
+          await prisma.companyConfiguration.create({
+            data: { ...data, companyId: localCompanyId, psaSourceId: String(config.id) },
+          });
+          counts.configurations.created++;
+        }
+      }
+      hasMore = result.hasMore;
+      page++;
+    }
+  } catch {
+    counts.configurations.skipped = true;
+  }
+
+  // ── Agreements (may be permission-blocked) ──
+  try {
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      const result = await connector.getCompanyAgreements(psaSourceId, page, 100);
+      for (const agr of result.data) {
+        const existing = await prisma.companyAgreement.findUnique({
+          where: { psaSourceId: String(agr.id) },
+        });
+
+        const data = {
+          name: agr.name,
+          type: agr.type?.name || null,
+          startDate: agr.startDate ? new Date(agr.startDate) : null,
+          endDate: agr.endDate ? new Date(agr.endDate) : null,
+          cancelledFlag: agr.cancelledFlag ?? false,
+          noEndingDateFlag: agr.noEndingDateFlag ?? false,
+          billAmount: agr.billAmount ?? null,
+          billCycle: agr.billCycle?.name || null,
+          lastSyncedAt: new Date(),
+        };
+
+        if (existing) {
+          await prisma.companyAgreement.update({ where: { id: existing.id }, data });
+          counts.agreements.synced++;
+        } else {
+          await prisma.companyAgreement.create({
+            data: { ...data, companyId: localCompanyId, psaSourceId: String(agr.id) },
+          });
+          counts.agreements.created++;
+        }
+      }
+      hasMore = result.hasMore;
+      page++;
+    }
+  } catch {
+    counts.agreements.skipped = true;
+  }
+
+  return counts;
+}
+
+// Extract company fields from a NormalizedOrganization
+function extractCompanyFields(org: NormalizedOrganization) {
+  const raw = org._raw as Record<string, unknown> | undefined;
+  const identifier =
+    raw && typeof raw.identifier === "string" ? raw.identifier : undefined;
+  const typeName = (raw?.types as Array<{ name?: string }> | undefined)?.[0]?.name ?? null;
+
+  return {
+    name: org.name,
+    identifier,
+    type: typeName,
+    status: org.status ?? "Active",
+    phone: org.phone,
+    website: org.website,
+    addressLine1: org.address?.street,
+    city: org.address?.city,
+    state: org.address?.state,
+    zip: org.address?.zip,
+    country: org.address?.country,
+    lastSyncedAt: new Date(),
+  };
+}
 
 export const companyRouter = router({
   // ─── List & Read ───────────────────────────────────────────
@@ -41,7 +279,7 @@ export const companyRouter = router({
           take: input.pageSize,
           include: {
             integrationMappings: true,
-            _count: { select: { threecxInstances: true } },
+            _count: { select: { threecxInstances: true, contacts: true, sites: true } },
           },
         }),
         ctx.prisma.company.count({ where }),
@@ -78,6 +316,40 @@ export const companyRouter = router({
               trunksTotal: true,
             },
           },
+          contacts: {
+            where: { inactiveFlag: false },
+            orderBy: [{ defaultFlag: "desc" }, { firstName: "asc" }],
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              title: true,
+              email: true,
+              phone: true,
+              mobilePhone: true,
+              defaultFlag: true,
+            },
+          },
+          sites: {
+            orderBy: [{ primaryFlag: "desc" }, { name: "asc" }],
+            select: {
+              id: true,
+              name: true,
+              addressLine1: true,
+              city: true,
+              state: true,
+              zip: true,
+              phone: true,
+              primaryFlag: true,
+              inactiveFlag: true,
+            },
+          },
+          _count: {
+            select: {
+              configurations: true,
+              agreements: true,
+            },
+          },
         },
       });
 
@@ -88,163 +360,373 @@ export const companyRouter = router({
       return company;
     }),
 
-  // ─── Import from PSA ───────────────────────────────────────
+  // ─── Update Custom Fields ──────────────────────────────────
 
-  importFromPsa: adminProcedure
+  updateCustomFields: adminProcedure
     .input(
       z.object({
-        statusFilter: z.string().default("Active"),
+        id: z.string(),
+        afterHoursAlertProcedure: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const psa = await ConnectorFactory.get("psa", ctx.prisma);
+      const data: Record<string, unknown> = {};
+      if (input.afterHoursAlertProcedure !== undefined)
+        data.afterHoursAlertProcedure = input.afterHoursAlertProcedure;
+      if (input.notes !== undefined) data.notes = input.notes;
 
-      let imported = 0;
-      let updated = 0;
-      let skipped = 0;
-      let page = 1;
-      const pageSize = 100;
-      let hasMore = true;
-
-      while (hasMore) {
-        const result = await psa.getCompanies(undefined, page, pageSize);
-        const companies = result.data;
-
-        for (const org of companies) {
-          // Filter by status
-          if (
-            input.statusFilter &&
-            org.status &&
-            !org.status.toLowerCase().includes(input.statusFilter.toLowerCase())
-          ) {
-            skipped++;
-            continue;
-          }
-
-          const raw = org._raw as Record<string, unknown> | undefined;
-          const identifier =
-            raw && typeof raw.identifier === "string"
-              ? raw.identifier
-              : undefined;
-
-          const existing = await ctx.prisma.company.findUnique({
-            where: { psaSourceId: org.sourceId },
-          });
-
-          if (existing) {
-            await ctx.prisma.company.update({
-              where: { id: existing.id },
-              data: {
-                name: org.name,
-                identifier,
-                status: org.status ?? "Active",
-                phone: org.phone,
-                website: org.website,
-                addressLine1: org.address?.street,
-                city: org.address?.city,
-                state: org.address?.state,
-                zip: org.address?.zip,
-                country: org.address?.country,
-                lastSyncedAt: new Date(),
-              },
-            });
-            updated++;
-          } else {
-            await ctx.prisma.company.create({
-              data: {
-                name: org.name,
-                psaSourceId: org.sourceId,
-                identifier,
-                status: org.status ?? "Active",
-                phone: org.phone,
-                website: org.website,
-                addressLine1: org.address?.street,
-                city: org.address?.city,
-                state: org.address?.state,
-                zip: org.address?.zip,
-                country: org.address?.country,
-                lastSyncedAt: new Date(),
-              },
-            });
-            imported++;
-          }
-        }
-
-        hasMore = result.hasMore;
-        page++;
-      }
-
-      await auditLog({
-        action: "company.import.batch",
-        category: "DATA",
-        actorId: ctx.user.id,
-        detail: {
-          statusFilter: input.statusFilter,
-          imported,
-          updated,
-          skipped,
-        },
-      });
-
-      return { imported, updated, skipped };
-    }),
-
-  importSingle: adminProcedure
-    .input(z.object({ psaCompanyId: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const psa = await ConnectorFactory.get("psa", ctx.prisma);
-      const org: NormalizedOrganization = await psa.getCompanyById(
-        input.psaCompanyId
-      );
-
-      const raw = org._raw as Record<string, unknown> | undefined;
-      const identifier =
-        raw && typeof raw.identifier === "string" ? raw.identifier : undefined;
-
-      const company = await ctx.prisma.company.upsert({
-        where: { psaSourceId: org.sourceId },
-        update: {
-          name: org.name,
-          identifier,
-          status: org.status ?? "Active",
-          phone: org.phone,
-          website: org.website,
-          addressLine1: org.address?.street,
-          city: org.address?.city,
-          state: org.address?.state,
-          zip: org.address?.zip,
-          country: org.address?.country,
-          lastSyncedAt: new Date(),
-        },
-        create: {
-          name: org.name,
-          psaSourceId: org.sourceId,
-          identifier,
-          status: org.status ?? "Active",
-          phone: org.phone,
-          website: org.website,
-          addressLine1: org.address?.street,
-          city: org.address?.city,
-          state: org.address?.state,
-          zip: org.address?.zip,
-          country: org.address?.country,
-          lastSyncedAt: new Date(),
-        },
+      const company = await ctx.prisma.company.update({
+        where: { id: input.id },
+        data,
       });
 
       await auditLog({
-        action: "company.import.single",
+        action: "company.custom_fields.updated",
         category: "DATA",
         actorId: ctx.user.id,
-        resource: `company:${company.id}`,
-        detail: { psaSourceId: org.sourceId, name: org.name },
+        resource: `company:${input.id}`,
+        detail: { fields: Object.keys(data) },
       });
 
       return company;
     }),
 
+  // ─── Link / Unlink 3CX Instance ───────────────────────────
+
+  linkThreecx: adminProcedure
+    .input(
+      z.object({
+        companyId: z.string(),
+        threecxInstanceId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const instance = await ctx.prisma.threecxInstance.update({
+        where: { id: input.threecxInstanceId },
+        data: { companyId: input.companyId },
+      });
+
+      await auditLog({
+        action: "company.threecx.linked",
+        category: "INTEGRATION",
+        actorId: ctx.user.id,
+        resource: `company:${input.companyId}`,
+        detail: {
+          threecxInstanceId: input.threecxInstanceId,
+          name: instance.name,
+        },
+      });
+
+      return { success: true };
+    }),
+
+  unlinkThreecx: adminProcedure
+    .input(z.object({ threecxInstanceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const instance = await ctx.prisma.threecxInstance.update({
+        where: { id: input.threecxInstanceId },
+        data: { companyId: null },
+      });
+
+      await auditLog({
+        action: "company.threecx.unlinked",
+        category: "INTEGRATION",
+        actorId: ctx.user.id,
+        detail: {
+          threecxInstanceId: input.threecxInstanceId,
+          name: instance.name,
+        },
+      });
+
+      return { success: true };
+    }),
+
+  // ─── Sync Status ────────────────────────────────────────────
+
+  getSyncedSourceIds: protectedProcedure.query(async ({ ctx }) => {
+    const companies = await ctx.prisma.company.findMany({
+      select: { psaSourceId: true, syncEnabled: true, syncSource: true },
+    });
+    const map: Record<string, { syncEnabled: boolean; syncSource: string }> = {};
+    for (const c of companies) {
+      map[c.psaSourceId] = { syncEnabled: c.syncEnabled, syncSource: c.syncSource };
+    }
+    return map;
+  }),
+
+  // ─── Auto Sync ──────────────────────────────────────────────
+
+  runAutoSync: adminProcedure.mutation(async ({ ctx }) => {
+    // 1. Load sync config
+    const configRow = await ctx.prisma.integrationConfig.findUnique({
+      where: { toolId: "connectwise" },
+    });
+    const raw = (configRow?.config as Record<string, unknown>) ?? {};
+    const statuses = (raw.syncStatuses as string[]) ?? [];
+    const types = (raw.syncTypes as string[]) ?? [];
+    const removalPolicy = (raw.removalPolicy as string) ?? "keep";
+    const removalDays = (raw.removalDays as number) ?? 30;
+
+    const psa = await ConnectorFactory.get("psa", ctx.prisma);
+    const connector = psa as ConnectWisePsaConnector;
+
+    // 2. Fetch ALL matching CW companies (paginated)
+    const allCwCompanies: NormalizedOrganization[] = [];
+    let page = 1;
+    const pageSize = 100;
+    let hasMore = true;
+
+    while (hasMore) {
+      const result = await psa.getCompanies(
+        {
+          statuses: statuses.length > 0 ? statuses : undefined,
+          types: types.length > 0 ? types : undefined,
+        },
+        page,
+        pageSize
+      );
+      allCwCompanies.push(...result.data);
+      hasMore = result.hasMore;
+      page++;
+    }
+
+    // 3. Build set of CW source IDs
+    const cwSourceIds = new Set(allCwCompanies.map((c) => c.sourceId));
+
+    // 4. Upsert each CW company + sub-entities
+    const counts = {
+      companies: { synced: 0, created: 0, unmatched: 0, removed: 0 },
+      contacts: { synced: 0, created: 0 },
+      sites: { synced: 0, created: 0 },
+      configurations: { synced: 0, created: 0, skipped: false },
+      agreements: { synced: 0, created: 0, skipped: false },
+    };
+
+    for (const org of allCwCompanies) {
+      const fields = extractCompanyFields(org);
+      const existing = await ctx.prisma.company.findUnique({
+        where: { psaSourceId: org.sourceId },
+      });
+
+      let localId: string;
+
+      if (existing) {
+        await ctx.prisma.company.update({
+          where: { id: existing.id },
+          data: {
+            ...fields,
+            syncEnabled: true,
+            syncSource: "auto",
+            unmatchedSince: null,
+          },
+        });
+        localId = existing.id;
+        counts.companies.synced++;
+      } else {
+        const created = await ctx.prisma.company.create({
+          data: {
+            ...fields,
+            psaSourceId: org.sourceId,
+            syncEnabled: true,
+            syncSource: "auto",
+            unmatchedSince: null,
+          },
+        });
+        localId = created.id;
+        counts.companies.created++;
+      }
+
+      // Sync sub-entities
+      const sub = await syncCompanySubEntities(
+        ctx.prisma as unknown as PrismaClient,
+        connector,
+        localId,
+        org.sourceId
+      );
+      counts.contacts.synced += sub.contacts.synced;
+      counts.contacts.created += sub.contacts.created;
+      counts.sites.synced += sub.sites.synced;
+      counts.sites.created += sub.sites.created;
+      counts.configurations.synced += sub.configurations.synced;
+      counts.configurations.created += sub.configurations.created;
+      if (sub.configurations.skipped) counts.configurations.skipped = true;
+      counts.agreements.synced += sub.agreements.synced;
+      counts.agreements.created += sub.agreements.created;
+      if (sub.agreements.skipped) counts.agreements.skipped = true;
+    }
+
+    // 5. Handle unmatched auto-synced companies
+    const autoCompanies = await ctx.prisma.company.findMany({
+      where: { syncSource: "auto" },
+      select: { id: true, psaSourceId: true, unmatchedSince: true },
+    });
+
+    const now = new Date();
+
+    for (const local of autoCompanies) {
+      if (!cwSourceIds.has(local.psaSourceId)) {
+        if (!local.unmatchedSince) {
+          // First time unmatched — mark timestamp + disable sync
+          await ctx.prisma.company.update({
+            where: { id: local.id },
+            data: { unmatchedSince: now, syncEnabled: false },
+          });
+          counts.companies.unmatched++;
+        } else if (removalPolicy === "remove_after_days") {
+          const daysSince = Math.floor(
+            (now.getTime() - local.unmatchedSince.getTime()) / (86400000)
+          );
+          if (daysSince >= removalDays) {
+            await ctx.prisma.company.delete({ where: { id: local.id } });
+            counts.companies.removed++;
+          } else {
+            await ctx.prisma.company.update({
+              where: { id: local.id },
+              data: { syncEnabled: false },
+            });
+            counts.companies.unmatched++;
+          }
+        } else {
+          // "keep" policy — just disable sync
+          await ctx.prisma.company.update({
+            where: { id: local.id },
+            data: { syncEnabled: false },
+          });
+          counts.companies.unmatched++;
+        }
+      }
+    }
+
+    // 6. Update lastSync
+    await ctx.prisma.integrationConfig.update({
+      where: { toolId: "connectwise" },
+      data: { lastSync: new Date() },
+    });
+
+    await auditLog({
+      action: "company.sync.auto",
+      category: "DATA",
+      actorId: ctx.user.id,
+      detail: { ...counts, totalFromCW: allCwCompanies.length },
+    });
+
+    return counts;
+  }),
+
+  // ─── Manual Sync (selected companies) ───────────────────────
+
+  syncSelected: adminProcedure
+    .input(
+      z.object({
+        psaCompanyIds: z.array(z.string()).min(1).max(200),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const psa = await ConnectorFactory.get("psa", ctx.prisma);
+      const connector = psa as ConnectWisePsaConnector;
+
+      const counts = {
+        companies: { synced: 0, created: 0, failed: 0 },
+        contacts: { synced: 0, created: 0 },
+        sites: { synced: 0, created: 0 },
+        configurations: { synced: 0, created: 0, skipped: false },
+        agreements: { synced: 0, created: 0, skipped: false },
+      };
+
+      for (const psaId of input.psaCompanyIds) {
+        try {
+          const org = await psa.getCompanyById(psaId);
+          const fields = extractCompanyFields(org);
+          const existing = await ctx.prisma.company.findUnique({
+            where: { psaSourceId: org.sourceId },
+          });
+
+          let localId: string;
+
+          if (existing) {
+            await ctx.prisma.company.update({
+              where: { id: existing.id },
+              data: { ...fields, syncEnabled: true, syncSource: "manual" },
+            });
+            localId = existing.id;
+            counts.companies.synced++;
+          } else {
+            const created = await ctx.prisma.company.create({
+              data: {
+                ...fields,
+                psaSourceId: org.sourceId,
+                syncEnabled: true,
+                syncSource: "manual",
+              },
+            });
+            localId = created.id;
+            counts.companies.created++;
+          }
+
+          // Sync sub-entities
+          const sub = await syncCompanySubEntities(
+            ctx.prisma as unknown as PrismaClient,
+            connector,
+            localId,
+            psaId
+          );
+          counts.contacts.synced += sub.contacts.synced;
+          counts.contacts.created += sub.contacts.created;
+          counts.sites.synced += sub.sites.synced;
+          counts.sites.created += sub.sites.created;
+          counts.configurations.synced += sub.configurations.synced;
+          counts.configurations.created += sub.configurations.created;
+          if (sub.configurations.skipped) counts.configurations.skipped = true;
+          counts.agreements.synced += sub.agreements.synced;
+          counts.agreements.created += sub.agreements.created;
+          if (sub.agreements.skipped) counts.agreements.skipped = true;
+        } catch {
+          counts.companies.failed++;
+        }
+      }
+
+      await auditLog({
+        action: "company.sync.manual",
+        category: "DATA",
+        actorId: ctx.user.id,
+        detail: { ...counts, requested: input.psaCompanyIds.length },
+      });
+
+      return counts;
+    }),
+
+  // ─── Unsync (disable sync for a company) ────────────────────
+
+  unsyncCompany: adminProcedure
+    .input(z.object({ psaSourceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const company = await ctx.prisma.company.findUnique({
+        where: { psaSourceId: input.psaSourceId },
+      });
+      if (!company) throw new Error("Company not found in local database");
+
+      await ctx.prisma.company.update({
+        where: { id: company.id },
+        data: { syncEnabled: false },
+      });
+
+      await auditLog({
+        action: "company.sync.disabled",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `company:${company.id}`,
+        detail: { psaSourceId: input.psaSourceId, name: company.name },
+      });
+
+      return { success: true };
+    }),
+
+  // ─── Refresh all synced companies ───────────────────────────
+
   syncAll: adminProcedure.mutation(async ({ ctx }) => {
     const psa = await ConnectorFactory.get("psa", ctx.prisma);
+    const connector = psa as ConnectWisePsaConnector;
 
     const companies = await ctx.prisma.company.findMany({
       where: { syncEnabled: true },
@@ -257,28 +739,20 @@ export const companyRouter = router({
     for (const local of companies) {
       try {
         const org = await psa.getCompanyById(local.psaSourceId);
-        const raw = org._raw as Record<string, unknown> | undefined;
-        const identifier =
-          raw && typeof raw.identifier === "string"
-            ? raw.identifier
-            : undefined;
+        const fields = extractCompanyFields(org);
 
         await ctx.prisma.company.update({
           where: { id: local.id },
-          data: {
-            name: org.name,
-            identifier,
-            status: org.status ?? "Active",
-            phone: org.phone,
-            website: org.website,
-            addressLine1: org.address?.street,
-            city: org.address?.city,
-            state: org.address?.state,
-            zip: org.address?.zip,
-            country: org.address?.country,
-            lastSyncedAt: new Date(),
-          },
+          data: fields,
         });
+
+        // Also refresh sub-entities
+        await syncCompanySubEntities(
+          ctx.prisma as unknown as PrismaClient,
+          connector,
+          local.id,
+          local.psaSourceId
+        );
         synced++;
       } catch {
         failed++;
@@ -295,7 +769,60 @@ export const companyRouter = router({
     return { synced, failed, total: companies.length };
   }),
 
+  // ─── Single Import (used by explorer per-row action) ────────
+
+  importSingle: adminProcedure
+    .input(z.object({ psaCompanyId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const psa = await ConnectorFactory.get("psa", ctx.prisma);
+      const connector = psa as ConnectWisePsaConnector;
+      const org: NormalizedOrganization = await psa.getCompanyById(
+        input.psaCompanyId
+      );
+
+      const fields = extractCompanyFields(org);
+
+      const company = await ctx.prisma.company.upsert({
+        where: { psaSourceId: org.sourceId },
+        update: { ...fields, syncEnabled: true, syncSource: "manual" },
+        create: {
+          ...fields,
+          psaSourceId: org.sourceId,
+          syncEnabled: true,
+          syncSource: "manual",
+        },
+      });
+
+      // Sync sub-entities for this company
+      await syncCompanySubEntities(
+        ctx.prisma as unknown as PrismaClient,
+        connector,
+        company.id,
+        org.sourceId
+      );
+
+      await auditLog({
+        action: "company.import.single",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `company:${company.id}`,
+        detail: { psaSourceId: org.sourceId, name: org.name },
+      });
+
+      return company;
+    }),
+
   // ─── Integration Mappings ──────────────────────────────────
+
+  getMappingsByTool: protectedProcedure
+    .input(z.object({ toolId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.prisma.companyIntegrationMapping.findMany({
+        where: { toolId: input.toolId },
+        include: { company: { select: { id: true, name: true, status: true } } },
+        orderBy: { externalName: "asc" },
+      });
+    }),
 
   getMappings: protectedProcedure
     .input(z.object({ companyId: z.string() }))

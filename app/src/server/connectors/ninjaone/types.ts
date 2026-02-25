@@ -165,3 +165,160 @@ export interface NinjaActivitiesResponse {
   activities?: NinjaActivity[];
   lastActivityId?: number;
 }
+
+// ─── Fleet Query Response Types (GET /queries/*) ──────────────────
+
+export interface NinjaQueryResponse<T> {
+  results?: T[];
+  cursor?: string;
+}
+
+export interface NinjaDeviceHealth {
+  deviceId: number;
+  systemName?: string;
+  displayName?: string;
+  organizationId?: number;
+  organizationName?: string;
+  locationId?: number;
+  nodeClass?: string;
+  offline?: boolean;
+  approvalStatus?: string;
+  healthStatus?: string;
+  lastContact?: string;
+  references?: {
+    organization?: { id: number; name: string };
+    location?: { id: number; name: string };
+  };
+}
+
+export interface NinjaProcessor {
+  deviceId: number;
+  systemName?: string;
+  organizationId?: number;
+  name?: string;
+  architecture?: string;
+  maxClockSpeed?: number;
+  cores?: number;
+  logicalProcessors?: number;
+  references?: {
+    organization?: { id: number; name: string };
+  };
+}
+
+export interface NinjaVolume {
+  deviceId: number;
+  systemName?: string;
+  organizationId?: number;
+  name?: string;
+  label?: string;
+  capacity?: number;
+  freeSpace?: number;
+  fileSystem?: string;
+  bitLockerStatus?: string;
+  references?: {
+    organization?: { id: number; name: string };
+  };
+}
+
+export interface NinjaOperatingSystem {
+  deviceId: number;
+  systemName?: string;
+  organizationId?: number;
+  name?: string;
+  manufacturer?: string;
+  architecture?: string;
+  buildNumber?: string;
+  servicePackMajorVersion?: number;
+  releaseId?: string;
+  lastBootTime?: string;
+  needsReboot?: boolean;
+  references?: {
+    organization?: { id: number; name: string };
+  };
+}
+
+export interface NinjaComputerSystem {
+  deviceId: number;
+  systemName?: string;
+  organizationId?: number;
+  name?: string;
+  manufacturer?: string;
+  model?: string;
+  serialNumber?: string;
+  biosSerialNumber?: string;
+  domain?: string;
+  chassisType?: string;
+  totalPhysicalMemory?: number;
+  references?: {
+    organization?: { id: number; name: string };
+  };
+}
+
+export interface NinjaSoftwareQuery {
+  deviceId: number;
+  systemName?: string;
+  organizationId?: number;
+  name: string;
+  version?: string;
+  publisher?: string;
+  installDate?: string;
+  size?: number;
+  references?: {
+    organization?: { id: number; name: string };
+  };
+}
+
+export interface NinjaAntivirusStatus {
+  deviceId: number;
+  systemName?: string;
+  organizationId?: number;
+  productName?: string;
+  productState?: string;
+  definitionsUpToDate?: boolean;
+  realTimeProtectionEnabled?: boolean;
+  references?: {
+    organization?: { id: number; name: string };
+  };
+}
+
+export interface NinjaAntivirusThreat {
+  deviceId: number;
+  systemName?: string;
+  organizationId?: number;
+  threatName?: string;
+  severity?: string;
+  status?: string;
+  detectedAt?: string;
+  references?: {
+    organization?: { id: number; name: string };
+  };
+}
+
+export interface NinjaPatchInstall {
+  deviceId: number;
+  systemName?: string;
+  organizationId?: number;
+  name?: string;
+  kbNumber?: string;
+  status?: string;
+  type?: string;
+  severity?: string;
+  installedAt?: string;
+  references?: {
+    organization?: { id: number; name: string };
+  };
+}
+
+export interface NinjaBackupJob {
+  deviceId: number;
+  systemName?: string;
+  organizationId?: number;
+  backupProductName?: string;
+  jobName?: string;
+  jobStatus?: string;
+  lastRunTime?: string;
+  nextRunTime?: string;
+  references?: {
+    organization?: { id: number; name: string };
+  };
+}

@@ -48,13 +48,18 @@ async function fetchToolOrgs(
       const sites = await edr.getSites();
       return sites.map((s) => ({ id: s.id, name: s.name }));
     }
+    case "cove": {
+      const backup = await ConnectorFactory.get("backup", prisma);
+      const customers = await backup.getCustomers();
+      return customers.map((c) => ({ id: c.sourceId, name: c.name }));
+    }
     default:
       throw new Error(`Unsupported tool for org matching: ${toolId}`);
   }
 }
 
 /** Tools that support org matching */
-const MATCHABLE_TOOLS = ["ninjaone", "sentinelone", "itglue"] as const;
+const MATCHABLE_TOOLS = ["ninjaone", "sentinelone", "itglue", "cove"] as const;
 
 export const companyMatchingRouter = router({
   // ─── Organization Matching ─────────────────────────────────
@@ -244,7 +249,9 @@ export const companyMatchingRouter = router({
               ? "SentinelOne"
               : toolId === "itglue"
                 ? "IT Glue"
-                : toolId,
+                : toolId === "cove"
+                  ? "Cove Data Protection"
+                  : toolId,
         totalMapped: mappings.length,
         autoMapped: mappings.filter((m) => m.matchMethod === "auto").length,
         manualMapped: mappings.filter((m) => m.matchMethod === "manual").length,

@@ -1,6 +1,10 @@
 import * as tls from "tls";
+import * as https from "https";
 import type { MonitorExecutor } from "./base";
 import type { ExecutorResult, HttpConfig, TlsInfo } from "../types";
+
+/** Per-request HTTPS agent that skips TLS verification (scoped, not process-global) */
+const insecureAgent = new https.Agent({ rejectUnauthorized: false });
 
 function parseStatusRange(expected: string): (code: number) => boolean {
   const ranges = expected.split(",").map((s) => s.trim());
@@ -97,18 +101,15 @@ export class HttpExecutor implements MonitorExecutor {
         fetchOptions.body = c.body;
       }
 
-      // Disable TLS verification if configured — use try/finally to guarantee cleanup
+      // Use per-request agent for TLS bypass (scoped — does NOT affect other requests)
       if (c.ignoreTls) {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+        (fetchOptions as any).agent = insecureAgent;
       }
 
       let response: Response;
       try {
         response = await fetch(c.url, fetchOptions);
       } finally {
-        if (c.ignoreTls) {
-          process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
-        }
         clearTimeout(timeout);
       }
 
@@ -165,8 +166,6 @@ export class HttpExecutor implements MonitorExecutor {
       };
     } catch (error) {
       const latencyMs = Math.round(performance.now() - start);
-      // TLS already restored in inner finally block
-
       const err = error as Error;
       if (err.name === "AbortError") {
         return {

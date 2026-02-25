@@ -12,7 +12,13 @@ import type { S1Response } from "./types";
 
 export class SentinelOneClient extends BaseHttpClient {
   constructor(config: ConnectorConfig) {
-    super(config);
+    // Auto-append /web/api/v2.1 if user provided just the console URL
+    const normalized = { ...config };
+    const base = normalized.baseUrl.replace(/\/+$/, "");
+    if (!base.endsWith("/web/api/v2.1")) {
+      normalized.baseUrl = base.replace(/\/web\/api\/v2\.1.*$/, "") + "/web/api/v2.1";
+    }
+    super(normalized);
   }
 
   protected async getAuthHeaders(): Promise<Record<string, string>> {

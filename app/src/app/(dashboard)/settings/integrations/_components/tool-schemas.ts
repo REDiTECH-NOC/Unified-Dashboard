@@ -36,10 +36,16 @@ export const BUILT_TOOLS = new Set([
   "blackpoint",
   "cipp",
   "huntress",
+  "avanan",
+  "cove",
+  "ai-provider",
 ]);
 
 /** 3CX has its own multi-instance dialog */
 export const THREECX_TOOL_ID = "threecx";
+
+/** AI has its own dedicated sub-page */
+export const AI_TOOL_ID = "ai-provider";
 
 /** SSO has its own dedicated card + dialog */
 export const SSO_TOOL_ID = "entra-id";
@@ -129,9 +135,9 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
         key: "baseUrl",
         label: "Console URL",
         type: "url",
-        placeholder: "https://your-tenant.sentinelone.net/web/api/v2.1",
+        placeholder: "https://your-tenant.sentinelone.net",
         required: true,
-        helpText: "Your full SentinelOne API base URL including /web/api/v2.1",
+        helpText: "Your SentinelOne console URL (e.g. https://usea1.sentinelone.net). The API path is added automatically.",
       },
       {
         key: "apiToken",
@@ -290,6 +296,94 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
       "Client Credentials type. Copy the Client ID and Client Secret. " +
       "The API uses OAuth2 tokens — the dashboard handles token exchange automatically. " +
       "Required scopes: account:read, learners:read, assignments:read, phishing-campaigns:read.",
+  },
+
+  avanan: {
+    toolId: "avanan",
+    displayName: "Avanan Email Security",
+    description:
+      "Check Point Harmony Email & Collaboration (Avanan) — email threat protection across " +
+      "Office 365, Gmail, Teams, Slack, OneDrive, SharePoint, and more. " +
+      "MSP mode: one API key manages all client tenants.",
+    fields: [
+      {
+        key: "clientId",
+        label: "Client ID",
+        type: "text",
+        placeholder: "Enter Infinity Portal Client ID",
+        required: true,
+        helpText: "Generated in Infinity Portal → Global Settings → API Keys (select 'Email & Collaboration').",
+      },
+      {
+        key: "accessKey",
+        label: "Client Secret (Access Key)",
+        type: "password",
+        placeholder: "Enter client secret",
+        required: true,
+      },
+      {
+        key: "region",
+        label: "Region",
+        type: "text",
+        placeholder: "us",
+        required: true,
+        defaultValue: "us",
+        helpText: "API region: us, eu, ca, au, uk, uae, or in. Credentials are region-specific.",
+      },
+      {
+        key: "mspName",
+        label: "MSP Name",
+        type: "text",
+        placeholder: "Your MSP account name",
+        required: false,
+        helpText: "Required for MSP management endpoints (tenants, users, licenses). Your MSP account name from Check Point.",
+      },
+    ],
+    instructions:
+      "In Check Point Infinity Portal, go to Global Settings → API Keys and create a new key " +
+      "with the 'Email & Collaboration' service selected. Copy the Client ID and Secret Key. " +
+      "For MSP mode, use the MSP API key from Check Point support — one key manages all client tenants. " +
+      "Region must match where your Avanan instance is hosted (credentials are NOT cross-region). " +
+      "MSP Name is needed for tenant/user/license management via the SmartAPI.",
+  },
+
+  cove: {
+    toolId: "cove",
+    displayName: "N-able Cove Data Protection",
+    description:
+      "N-able Cove Data Protection (cloud backup) — device monitoring, backup status reporting, " +
+      "and alerting across all managed backup devices via JSON-RPC API.",
+    fields: [
+      {
+        key: "partner",
+        label: "Partner Name",
+        type: "text",
+        placeholder: "REDiTECH",
+        required: true,
+        helpText: "Your Cove customer/partner name — shown as 'Customer' when creating API users in the portal.",
+      },
+      {
+        key: "username",
+        label: "API User Login Name",
+        type: "text",
+        placeholder: "RCC-Dashboard",
+        required: true,
+        helpText: "The login name of your API user (e.g. 'RCC-Dashboard'). Create one in Security → API Users.",
+      },
+      {
+        key: "password",
+        label: "API Token",
+        type: "password",
+        placeholder: "Paste API user token",
+        required: true,
+        helpText: "The token generated when creating the API user. This is only shown once — save it securely.",
+      },
+    ],
+    instructions:
+      "In the Cove management portal (backup.management), go to Security → API Users and create a new API user " +
+      "with Administrator role. Copy the generated token immediately (it's only shown once). " +
+      "The Partner Name is your company/customer name as shown in the portal. " +
+      "The token is used as the password when authenticating with the Cove API.",
   },
 
   n8n: {

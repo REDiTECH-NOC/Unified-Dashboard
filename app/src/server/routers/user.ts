@@ -255,10 +255,10 @@ export const userRouter = router({
       version: z.number(),
       items: z.array(z.object({
         i: z.string(),
-        x: z.number().int().min(0),
+        x: z.number().int().min(0).max(47),
         y: z.number().int().min(0),
-        w: z.number().int().min(1).max(12),
-        h: z.number().int().min(1).max(20),
+        w: z.number().int().min(1).max(48),
+        h: z.number().int().min(1).max(50),
         config: z.record(z.unknown()).optional(),
       })),
     }))

@@ -39,6 +39,7 @@ export interface CWTicket {
   dateResolved?: string;
   closedDate?: string;
   closedBy?: string;
+  automaticEmailCc?: string;
   _info?: { lastUpdated: string; updatedBy: string };
 }
 
@@ -50,6 +51,7 @@ export interface CWTicketNote {
   internalAnalysisFlag: boolean;
   resolutionFlag: boolean;
   member?: { id: number; identifier: string; name: string };
+  contact?: { id: number; name: string };
   dateCreated?: string;
   _info?: Record<string, unknown>;
 }
@@ -59,7 +61,7 @@ export interface CWCompany {
   identifier: string;
   name: string;
   status?: { id: number; name: string };
-  type?: { id: number; name: string };
+  types?: Array<{ id: number; name: string; _info?: Record<string, unknown> }>;
   phoneNumber?: string;
   faxNumber?: string;
   website?: string;
@@ -157,6 +159,40 @@ export interface CWMember {
   title?: string;
   officePhone?: string;
   inactiveFlag: boolean;
+  _info?: Record<string, unknown>;
+}
+
+export interface CWSite {
+  id: number;
+  name: string;
+  addressLine1?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: { id: number; identifier?: string; name: string };
+  phoneNumber?: string;
+  faxNumber?: string;
+  primaryAddressFlag?: boolean;
+  inactiveFlag?: boolean;
+  company?: { id: number; identifier: string; name: string };
+  territory?: { id: number; name: string };
+  timeZone?: { id: number; name: string };
+  _info?: Record<string, unknown>;
+}
+
+export interface CWAgreement {
+  id: number;
+  name: string;
+  type?: { id: number; name: string };
+  company?: { id: number; identifier: string; name: string };
+  startDate?: string;
+  endDate?: string;
+  cancelledFlag?: boolean;
+  noEndingDateFlag?: boolean;
+  billAmount?: number;
+  billCycleId?: number;
+  billCycle?: { id: number; name: string };
+  agreementStatus?: string;
   _info?: Record<string, unknown>;
 }
 

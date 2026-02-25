@@ -10,7 +10,11 @@ export async function register() {
       if (ssoConfig?.config && typeof ssoConfig.config === "object") {
         const c = ssoConfig.config as Record<string, string>;
         if (c.clientId) process.env.AZURE_AD_CLIENT_ID = c.clientId;
-        if (c.clientSecret) process.env.AZURE_AD_CLIENT_SECRET = c.clientSecret;
+        if (c.clientSecret) {
+          // Decrypt clientSecret if it was encrypted at rest
+          const { safeDecrypt } = await import("./lib/crypto");
+          process.env.AZURE_AD_CLIENT_SECRET = safeDecrypt(c.clientSecret);
+        }
         if (c.tenantId) process.env.AZURE_AD_TENANT_ID = c.tenantId;
         if (c.adminGroupId) process.env.ENTRA_GROUP_ADMINS = c.adminGroupId;
         if (c.userGroupId) process.env.ENTRA_GROUP_USERS = c.userGroupId;

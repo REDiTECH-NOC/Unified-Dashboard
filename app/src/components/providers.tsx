@@ -6,6 +6,7 @@ import { SessionProvider } from "next-auth/react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import superjson from "superjson";
+import { NotificationToaster } from "@/components/notification-toast";
 
 // Queries that hit external services and can be slow (8s+ timeouts).
 // These must NOT block fast queries like permissions and dashboard layout.
@@ -52,7 +53,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+          <NotificationToaster />
+        </QueryClientProvider>
       </trpc.Provider>
     </SessionProvider>
   );

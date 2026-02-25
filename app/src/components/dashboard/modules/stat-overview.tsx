@@ -11,6 +11,9 @@ import type { ModuleComponentProps } from "../dashboard-grid";
 // Metric IDs that come from the uptime monitor integration
 const UPTIME_METRICS = new Set(["monitors-down", "monitors-up", "avg-response"]);
 
+// Metric IDs that come from the PSA (ConnectWise tickets)
+const TICKET_METRICS = new Set(["open-tickets", "unassigned-tickets", "my-open-tickets", "tickets-today"]);
+
 function StatCard({
   metricId,
   liveValue,
@@ -171,18 +174,49 @@ export function StatOverviewModule({ config, onConfigChange, isConfigOpen, onCon
     setDragOverIndex(null);
   }, [dragIndex, selectedMetrics, config, onConfigChange]);
 
-  // Only fetch uptime data if any monitoring metrics are selected
+  // Only fetch data if relevant metrics are selected
   const needsUptime = selectedMetrics.some((id) => UPTIME_METRICS.has(id));
+  const needsTickets = selectedMetrics.some((id) => TICKET_METRICS.has(id));
 
   const { data: uptimeMonitors } = trpc.uptime.list.useQuery(undefined, {
     refetchInterval: 30_000,
     enabled: needsUptime,
   });
 
+  // Fetch all tickets (open) for stat metrics
+  const { data: allTickets } = trpc.psa.getTickets.useQuery(
+    { pageSize: 1 },
+    { refetchInterval: 60_000, staleTime: 25_000, enabled: needsTickets, retry: 1 }
+  );
+
+  // Fetch my member info for "my open tickets" metric
+  const needsMyTickets = selectedMetrics.includes("my-open-tickets");
+  const { data: myMemberId } = trpc.psa.getMyMemberId.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+    enabled: needsMyTickets,
+    retry: 1,
+  });
+  const { data: membersList } = trpc.psa.getMembers.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+    enabled: needsMyTickets && !!myMemberId,
+    retry: 1,
+  });
+
+  const myIdentifier = useMemo(() => {
+    if (!myMemberId || !membersList) return null;
+    return membersList.find((m) => m.id === myMemberId)?.identifier ?? null;
+  }, [myMemberId, membersList]);
+
+  const { data: myTickets } = trpc.psa.getTickets.useQuery(
+    { assignedTo: myIdentifier!, pageSize: 1 },
+    { refetchInterval: 60_000, staleTime: 25_000, enabled: !!myIdentifier, retry: 1 }
+  );
+
   // Compute live values from fetched data
   const liveValues = useMemo(() => {
     const values = new Map<string, string>();
 
+    // Uptime metrics
     if (uptimeMonitors) {
       const active = uptimeMonitors.filter((m) => m.active);
       const upCount = active.filter((m) => m.status === "UP").length;
@@ -201,8 +235,16 @@ export function StatOverviewModule({ config, onConfigChange, isConfigOpen, onCon
       }
     }
 
+    // Ticket metrics
+    if (allTickets) {
+      values.set("open-tickets", String(allTickets.totalCount ?? allTickets.data.length));
+    }
+    if (myTickets) {
+      values.set("my-open-tickets", String(myTickets.totalCount ?? myTickets.data.length));
+    }
+
     return values;
-  }, [uptimeMonitors]);
+  }, [uptimeMonitors, allTickets, myTickets]);
 
   const colsClass: Record<number, string> = {
     2: "grid-cols-2",

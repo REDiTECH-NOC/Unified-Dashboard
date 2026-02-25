@@ -84,14 +84,9 @@ export function ConfigureDialog({ toolId, onClose, onSaved }: ConfigureDialogPro
   function handleSave() {
     if (!schema || !toolId) return;
 
-    const secretFields = schema.fields
-      .filter((f) => f.type === "password")
-      .map((f) => f.key);
-
     updateConfig.mutate({
       toolId,
       config: formValues,
-      secretFields,
     });
   }
 
