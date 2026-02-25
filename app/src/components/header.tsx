@@ -5,7 +5,6 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  Bell,
   Search,
   Menu,
   LogOut,
@@ -15,6 +14,7 @@ import {
   Moon,
 } from "lucide-react";
 import { QuickLinksDropdown } from "@/components/quick-links-dropdown";
+import { NotificationBell } from "@/components/notification-bell";
 
 export function Header() {
   const { data: session } = useSession();
@@ -88,10 +88,7 @@ export function Header() {
 
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Notification bell */}
-        <button className="relative flex items-center justify-center w-9 h-9 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
-          <Bell className="h-[18px] w-[18px]" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />
-        </button>
+        <NotificationBell />
 
         {/* Quick Links */}
         <QuickLinksDropdown />

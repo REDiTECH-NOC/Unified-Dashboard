@@ -9,7 +9,14 @@ import type { ConnectorConfig, PaginatedResponse } from "../_base/types";
 import type { IRmmConnector, DeviceFilter, AlertFilter, DeviceSoftware, DevicePatch, DeviceWindowsService } from "../_interfaces/rmm";
 import type { NormalizedDevice, NormalizedAlert, NormalizedOrganization } from "../_interfaces/common";
 import { NinjaOneClient } from "./client";
-import type { NinjaDevice, NinjaDevicesResponse, NinjaAlert, NinjaAlertsResponse, NinjaOrganization, NinjaSoftware, NinjaPatch, NinjaWindowsService, NinjaActivity, NinjaActivitiesResponse } from "./types";
+import type {
+  NinjaDevice, NinjaDevicesResponse, NinjaAlert, NinjaAlertsResponse,
+  NinjaOrganization, NinjaSoftware, NinjaPatch, NinjaWindowsService,
+  NinjaActivity, NinjaActivitiesResponse, NinjaQueryResponse,
+  NinjaDeviceHealth, NinjaProcessor, NinjaVolume, NinjaOperatingSystem,
+  NinjaComputerSystem, NinjaSoftwareQuery, NinjaAntivirusStatus,
+  NinjaAntivirusThreat, NinjaPatchInstall, NinjaBackupJob,
+} from "./types";
 import { mapDevice, mapAlert, mapOrganization } from "./mappers";
 
 export class NinjaOneRmmConnector implements IRmmConnector {
@@ -221,6 +228,121 @@ export class NinjaOneRmmConnector implements IRmmConnector {
       })),
       hasMore: activities.length === pageSize,
     };
+  }
+
+  // ─── Fleet Queries (GET /queries/*) ──────────────────────────
+  // NinjaOne-specific bulk endpoints — not part of IRmmConnector.
+  // Used by FleetRefreshService to populate Redis cache.
+
+  private async fleetQuery<T>(
+    endpoint: string,
+    df?: string,
+    cursor?: string,
+    pageSize = 1000
+  ): Promise<{ data: T[]; nextCursor?: string }> {
+    const params: Record<string, string | number | boolean | undefined> = {
+      pageSize,
+    };
+    if (df) params.df = df;
+    if (cursor) params.after = cursor;
+
+    const response = await this.client["request"]<T[] | NinjaQueryResponse<T>>({
+      path: `/queries/${endpoint}`,
+      params,
+    });
+
+    if (Array.isArray(response)) {
+      return { data: response };
+    }
+    return {
+      data: response.results ?? [],
+      nextCursor: response.cursor,
+    };
+  }
+
+  /**
+   * Fetch ALL pages of a fleet query endpoint.
+   * Collects all pages into a single array. Use with care (rate limits!).
+   */
+  private async fleetQueryAll<T>(
+    endpoint: string,
+    df?: string
+  ): Promise<T[]> {
+    const allData: T[] = [];
+    let cursor: string | undefined;
+
+    do {
+      const page = await this.fleetQuery<T>(endpoint, df, cursor);
+      allData.push(...page.data);
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    return allData;
+  }
+
+  async queryDeviceHealth(df?: string): Promise<NinjaDeviceHealth[]> {
+    return this.fleetQueryAll<NinjaDeviceHealth>("device-health", df);
+  }
+
+  async queryProcessors(df?: string): Promise<NinjaProcessor[]> {
+    return this.fleetQueryAll<NinjaProcessor>("processors", df);
+  }
+
+  async queryVolumes(df?: string): Promise<NinjaVolume[]> {
+    return this.fleetQueryAll<NinjaVolume>("volumes", df);
+  }
+
+  async queryOperatingSystems(df?: string): Promise<NinjaOperatingSystem[]> {
+    return this.fleetQueryAll<NinjaOperatingSystem>("operating-systems", df);
+  }
+
+  async queryComputerSystems(df?: string): Promise<NinjaComputerSystem[]> {
+    return this.fleetQueryAll<NinjaComputerSystem>("computer-systems", df);
+  }
+
+  async querySoftware(df?: string): Promise<NinjaSoftwareQuery[]> {
+    return this.fleetQueryAll<NinjaSoftwareQuery>("software", df);
+  }
+
+  async queryAntivirusStatus(df?: string): Promise<NinjaAntivirusStatus[]> {
+    return this.fleetQueryAll<NinjaAntivirusStatus>("antivirus-status", df);
+  }
+
+  async queryAntivirusThreats(df?: string): Promise<NinjaAntivirusThreat[]> {
+    return this.fleetQueryAll<NinjaAntivirusThreat>("antivirus-threats", df);
+  }
+
+  async queryOsPatchInstalls(df?: string): Promise<NinjaPatchInstall[]> {
+    return this.fleetQueryAll<NinjaPatchInstall>("os-patch-installs", df);
+  }
+
+  async queryBackupJobs(df?: string): Promise<NinjaBackupJob[]> {
+    return this.fleetQueryAll<NinjaBackupJob>("backup-jobs", df);
+  }
+
+  // ─── Webhook Management ─────────────────────────────────────
+
+  async configureWebhook(
+    url: string,
+    activityTypes: string[]
+  ): Promise<void> {
+    const activityFilter: Record<string, string[]> = {};
+    for (const type of activityTypes) {
+      activityFilter[type] = ["*"];
+    }
+
+    await this.client["request"]<void>({
+      method: "PUT",
+      path: "/webhook",
+      body: { url, activityFilter },
+    });
+  }
+
+  async deleteWebhook(): Promise<void> {
+    await this.client["request"]<void>({
+      method: "DELETE",
+      path: "/webhook",
+    });
   }
 
   // ─── Health Check ──────────────────────────────────────────

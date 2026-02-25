@@ -13,19 +13,26 @@ import {
   Loader2,
   ExternalLink,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   RefreshCw,
   Search,
   Unplug,
+  ArrowLeft,
+  Calendar,
+  HardDrive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTimezone } from "@/hooks/use-timezone";
+import { AlertExpanded } from "./_components/alert-expanded";
+import { ThreatDetailPanel } from "./_components/threat-detail-panel";
+import { S1ManagementView } from "./_components/s1-management";
 
 /* ─── TYPES ──────────────────────────────────────────────── */
 
 interface UnifiedAlert {
   id: string;
-  source: "sentinelone" | "blackpoint" | "ninjaone" | "avanan" | "uptime";
+  source: "sentinelone" | "blackpoint" | "ninjaone" | "avanan" | "uptime" | "cove";
   sourceLabel: string;
   title: string;
   description?: string;
@@ -43,6 +50,43 @@ interface UnifiedAlert {
   mitigationStatus?: string;
   /** Raw source ID for drill-down */
   sourceId: string;
+}
+
+interface AlertGroup {
+  key: string;
+  alerts: UnifiedAlert[];
+  count: number;
+  /** Highest-severity alert used for display */
+  representative: UnifiedAlert;
+  /** Unique hostnames across all alerts in the group */
+  hostnames: string[];
+  /** Earliest detection time */
+  firstSeen: Date;
+  /** Latest detection time */
+  lastSeen: Date;
+}
+
+/* ─── TIME RANGE ────────────────────────────────────────── */
+
+type TimeRange = "24h" | "7d" | "30d" | "90d" | "all";
+
+const TIME_RANGE_OPTIONS: { id: TimeRange; label: string; shortLabel: string }[] = [
+  { id: "24h", label: "Last 24 Hours", shortLabel: "24h" },
+  { id: "7d", label: "Last 7 Days", shortLabel: "7d" },
+  { id: "30d", label: "Last 30 Days", shortLabel: "30d" },
+  { id: "90d", label: "Last 90 Days", shortLabel: "90d" },
+  { id: "all", label: "All Time", shortLabel: "All" },
+];
+
+function getTimeRangeDate(range: TimeRange): Date | undefined {
+  if (range === "all") return undefined;
+  const now = new Date();
+  switch (range) {
+    case "24h": return new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    case "7d": return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    case "30d": return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    case "90d": return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  }
 }
 
 /* ─── SEVERITY HELPERS ───────────────────────────────────── */
@@ -208,16 +252,21 @@ const sourceColors: Record<string, string> = {
   ninjaone: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
   avanan: "text-amber-400 bg-amber-500/10 border-amber-500/20",
   uptime: "text-rose-400 bg-rose-500/10 border-rose-500/20",
+  cove: "text-teal-400 bg-teal-500/10 border-teal-500/20",
 };
 
-function AlertRow({ alert, onSelect }: { alert: UnifiedAlert; onSelect: () => void }) {
+function AlertRow({ group, expanded, onToggle }: { group: AlertGroup; expanded: boolean; onToggle: () => void }) {
   const { dateTime } = useTimezone();
+  const alert = group.representative;
   const cfg = severityConfig[alert.severity];
 
   return (
     <button
-      onClick={onSelect}
-      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent/50 transition-colors text-left group"
+      onClick={onToggle}
+      className={cn(
+        "w-full flex items-center gap-3 px-4 py-3 transition-colors text-left group",
+        expanded ? "bg-accent/40" : "hover:bg-accent/50"
+      )}
     >
       {/* Severity dot */}
       <span className={cn("w-2 h-2 rounded-full shrink-0", cfg.dot)} />
@@ -226,6 +275,12 @@ function AlertRow({ alert, onSelect }: { alert: UnifiedAlert; onSelect: () => vo
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium text-foreground truncate">{alert.title}</span>
+          {/* Group count badge */}
+          {group.count > 1 && (
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold border border-red-500/30">
+              {group.count}
+            </span>
+          )}
           <SeverityBadge severity={alert.severity} />
           <span className={cn("text-[10px] px-1.5 py-0.5 rounded border", sourceColors[alert.source])}>
             {alert.sourceLabel}
@@ -242,13 +297,23 @@ function AlertRow({ alert, onSelect }: { alert: UnifiedAlert; onSelect: () => vo
           )}
         </div>
         <div className="flex items-center gap-3 mt-0.5">
-          {alert.deviceHostname && (
-            <span className="text-xs text-muted-foreground truncate">{alert.deviceHostname}</span>
+          {/* Show unique hostnames for groups, single hostname otherwise */}
+          {group.count > 1 ? (
+            group.hostnames.length > 0 && (
+              <span className="text-xs text-muted-foreground truncate">
+                {group.hostnames.slice(0, 3).join(", ")}
+                {group.hostnames.length > 3 && ` +${group.hostnames.length - 3} more`}
+              </span>
+            )
+          ) : (
+            alert.deviceHostname && (
+              <span className="text-xs text-muted-foreground truncate">{alert.deviceHostname}</span>
+            )
           )}
           {alert.organizationName && (
             <span className="text-[10px] text-muted-foreground">{alert.organizationName}</span>
           )}
-          {alert.description && (
+          {group.count === 1 && alert.description && (
             <span className="text-[10px] text-muted-foreground truncate hidden lg:inline">{alert.description}</span>
           )}
         </div>
@@ -271,18 +336,22 @@ function AlertRow({ alert, onSelect }: { alert: UnifiedAlert; onSelect: () => vo
 
       {/* Timestamp */}
       <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">
-        {dateTime(alert.detectedAt)}
+        {dateTime(group.lastSeen)}
       </span>
 
-      {/* Drill-in arrow */}
-      <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+      {/* Expand/collapse indicator */}
+      {expanded ? (
+        <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+      ) : (
+        <ChevronDown className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+      )}
     </button>
   );
 }
 
 /* ─── MAIN PAGE ──────────────────────────────────────────── */
 
-type SourceFilter = "all" | "sentinelone" | "blackpoint" | "ninjaone" | "uptime";
+type SourceFilter = "all" | "sentinelone" | "blackpoint" | "ninjaone" | "uptime" | "cove";
 type SeverityFilter = "all" | SeverityKey;
 
 export default function AlertsPage() {
@@ -291,29 +360,44 @@ export default function AlertsPage() {
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [timeRange, setTimeRange] = useState<TimeRange>("30d");
+
+  // ─── S1 Integration State ───────────────────────────────
+  const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
+  const [detailThreatId, setDetailThreatId] = useState<string | null>(null);
+  const [showS1Management, setShowS1Management] = useState(false);
+
+  // ─── Time Range Computation ──────────────────────────────
+  const createdAfter = useMemo(() => getTimeRangeDate(timeRange), [timeRange]);
+  const timeRangeLabel = TIME_RANGE_OPTIONS.find((t) => t.id === timeRange)?.label ?? "Last 30 Days";
 
   // ─── Data Fetching ─────────────────────────────────────
   // Fetch active threats/alerts from each platform
   // Errors are expected when connectors aren't configured
 
   const s1Threats = trpc.edr.getThreats.useQuery(
-    { pageSize: 100 },
+    { pageSize: 100, createdAfter },
     { retry: false, refetchInterval: 60000 }
   );
 
   const bpDetections = trpc.blackpoint.getDetections.useQuery(
-    { take: 100 },
+    { take: 100, since: createdAfter },
     { retry: false, refetchInterval: 60000 }
   );
 
   const ninjaAlerts = trpc.rmm.getAlerts.useQuery(
-    { pageSize: 100 },
+    { pageSize: 100, createdAfter },
     { retry: false, refetchInterval: 60000 }
   );
 
   const uptimeMonitors = trpc.uptime.list.useQuery(
     {},
     { retry: false, refetchInterval: 60000 }
+  );
+
+  const backupAlerts = trpc.backup.getAlerts.useQuery(
+    undefined,
+    { retry: false, refetchInterval: 120000 }
   );
 
   const utils = trpc.useUtils();
@@ -398,6 +482,20 @@ export default function AlertsPage() {
     }
     return { total: down + pending, down, pending, up, monitorCount: monitors.length };
   }, [uptimeMonitors.data]);
+
+  const backupSummary = useMemo(() => {
+    if (!backupAlerts.data) return null;
+    const alerts = backupAlerts.data as { severity: string }[];
+    let critical = 0, high = 0, medium = 0;
+    for (const a of alerts) {
+      switch (a.severity) {
+        case "critical": critical++; break;
+        case "high": high++; break;
+        case "medium": medium++; break;
+      }
+    }
+    return { total: alerts.length, critical, high, medium };
+  }, [backupAlerts.data]);
 
   // ─── Build Unified Alert List ──────────────────────────
 
@@ -490,6 +588,31 @@ export default function AlertsPage() {
       }
     }
 
+    // Cove backup alerts (failed, overdue, warning)
+    if (backupAlerts.data) {
+      for (const a of backupAlerts.data as {
+        sourceId: string; title: string; message?: string; severity: string;
+        severityScore: number; status: string; deviceHostname?: string;
+        organizationName?: string; createdAt: string | Date;
+      }[]) {
+        const sevMap: Record<string, SeverityKey> = { critical: "critical", high: "high", medium: "medium", low: "low" };
+        alerts.push({
+          id: `cove-${a.sourceId}`,
+          source: "cove",
+          sourceLabel: "Cove Backup",
+          title: a.title,
+          description: a.message,
+          severity: sevMap[a.severity] ?? "medium",
+          severityScore: (a.severityScore ?? 5) * 10,
+          status: a.status,
+          deviceHostname: a.deviceHostname,
+          organizationName: a.organizationName,
+          detectedAt: new Date(a.createdAt),
+          sourceId: a.sourceId,
+        });
+      }
+    }
+
     // Sort by severity score descending, then by date descending
     alerts.sort((a, b) => {
       if (b.severityScore !== a.severityScore) return b.severityScore - a.severityScore;
@@ -497,7 +620,7 @@ export default function AlertsPage() {
     });
 
     return alerts;
-  }, [s1Threats.data, bpDetections.data, ninjaAlerts.data, uptimeMonitors.data]);
+  }, [s1Threats.data, bpDetections.data, ninjaAlerts.data, uptimeMonitors.data, backupAlerts.data]);
 
   // ─── Filter Alerts ─────────────────────────────────────
 
@@ -524,16 +647,62 @@ export default function AlertsPage() {
     return result;
   }, [unifiedAlerts, sourceFilter, severityFilter, searchQuery]);
 
+  // ─── Group Alerts ───────────────────────────────────────
+
+  const groupedAlerts = useMemo(() => {
+    const groupMap: Record<string, UnifiedAlert[]> = {};
+    for (const alert of filteredAlerts) {
+      // Group by source + title (e.g., all "updater.exe" S1 alerts become one row)
+      const key = `${alert.source}::${alert.title}`;
+      if (groupMap[key]) {
+        groupMap[key].push(alert);
+      } else {
+        groupMap[key] = [alert];
+      }
+    }
+
+    const groups: AlertGroup[] = [];
+    for (const key of Object.keys(groupMap)) {
+      const groupAlerts = groupMap[key];
+      // Sort within group: newest first
+      groupAlerts.sort((a: UnifiedAlert, b: UnifiedAlert) => b.detectedAt.getTime() - a.detectedAt.getTime());
+      const hostnameSet: Record<string, true> = {};
+      for (const a of groupAlerts) {
+        if (a.deviceHostname) hostnameSet[a.deviceHostname] = true;
+      }
+      const hostnames = Object.keys(hostnameSet);
+      groups.push({
+        key,
+        alerts: groupAlerts,
+        count: groupAlerts.length,
+        representative: groupAlerts[0],
+        hostnames,
+        firstSeen: groupAlerts[groupAlerts.length - 1].detectedAt,
+        lastSeen: groupAlerts[0].detectedAt,
+      });
+    }
+
+    // Sort groups by highest severity score desc, then most recent alert desc
+    groups.sort((a, b) => {
+      if (b.representative.severityScore !== a.representative.severityScore)
+        return b.representative.severityScore - a.representative.severityScore;
+      return b.lastSeen.getTime() - a.lastSeen.getTime();
+    });
+
+    return groups;
+  }, [filteredAlerts]);
+
   // ─── Loading / Connected States ────────────────────────
 
-  const anyLoading = s1Threats.isLoading || bpDetections.isLoading || ninjaAlerts.isLoading || uptimeMonitors.isLoading;
-  const totalAlerts = (s1Summary?.total ?? 0) + (bpSummary?.total ?? 0) + (ninjaSummary?.total ?? 0) + (uptimeSummary?.total ?? 0);
+  const anyLoading = s1Threats.isLoading || bpDetections.isLoading || ninjaAlerts.isLoading || uptimeMonitors.isLoading || backupAlerts.isLoading;
+  const totalAlerts = (s1Summary?.total ?? 0) + (bpSummary?.total ?? 0) + (ninjaSummary?.total ?? 0) + (uptimeSummary?.total ?? 0) + (backupSummary?.total ?? 0);
 
   function refreshAll() {
     utils.edr.getThreats.invalidate();
     utils.blackpoint.getDetections.invalidate();
     utils.rmm.getAlerts.invalidate();
     utils.uptime.list.invalidate();
+    utils.backup.getAlerts.invalidate();
   }
 
   return (
@@ -542,22 +711,44 @@ export default function AlertsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Alert Triage</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Unified alert queue from all security and monitoring tools
-            {!anyLoading && <span className="ml-2 text-foreground font-medium">{totalAlerts} active</span>}
-          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-sm text-muted-foreground">
+              Unified alert queue from all security and monitoring tools
+              {!anyLoading && <span className="ml-2 text-foreground font-medium">{totalAlerts} active</span>}
+            </p>
+          </div>
         </div>
-        <button
-          onClick={refreshAll}
-          className="flex items-center gap-2 h-9 px-4 rounded-lg bg-accent hover:bg-accent/80 text-foreground text-sm font-medium transition-colors border border-border"
-        >
-          <RefreshCw className={cn("h-4 w-4", anyLoading && "animate-spin")} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Time Range Selector */}
+          <div className="flex items-center gap-1 bg-accent rounded-lg border border-border p-0.5">
+            <Calendar className="h-3.5 w-3.5 text-muted-foreground ml-2 mr-0.5" />
+            {TIME_RANGE_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => setTimeRange(opt.id)}
+                className={cn(
+                  "h-7 px-2.5 rounded-md text-xs font-medium transition-colors",
+                  timeRange === opt.id
+                    ? "bg-card text-foreground shadow-sm border border-border"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {opt.shortLabel}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={refreshAll}
+            className="flex items-center gap-2 h-9 px-4 rounded-lg bg-accent hover:bg-accent/80 text-foreground text-sm font-medium transition-colors border border-border"
+          >
+            <RefreshCw className={cn("h-4 w-4", anyLoading && "animate-spin")} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Platform Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {/* SentinelOne */}
         <PlatformCard
           name="SentinelOne"
@@ -573,8 +764,16 @@ export default function AlertsPage() {
           loading={s1Threats.isLoading}
           error={s1Threats.isError && !s1Threats.data}
           notConnected={s1Threats.isError && s1Threats.error?.message?.includes("No active")}
-          onClick={() => setSourceFilter(sourceFilter === "sentinelone" ? "all" : "sentinelone")}
-          active={sourceFilter === "sentinelone"}
+          onClick={() => {
+            if (showS1Management) {
+              setShowS1Management(false);
+            } else {
+              setShowS1Management(true);
+              setExpandedGroupKey(null);
+              setDetailThreatId(null);
+            }
+          }}
+          active={showS1Management || sourceFilter === "sentinelone"}
         />
 
         {/* Blackpoint */}
@@ -630,7 +829,25 @@ export default function AlertsPage() {
           onClick={() => router.push("/monitoring")}
         />
 
-        {/* Avanan — placeholder, no connector yet */}
+        {/* Cove Backups */}
+        <PlatformCard
+          name="Backups"
+          icon={HardDrive}
+          iconColor="bg-teal-500/10 text-teal-500"
+          total={backupSummary?.total ?? 0}
+          breakdowns={backupSummary ? [
+            { label: "Failed", count: backupSummary.critical, severity: "critical" },
+            { label: "Overdue", count: backupSummary.high, severity: "high" },
+            { label: "Warning", count: backupSummary.medium, severity: "medium" },
+          ] : []}
+          loading={backupAlerts.isLoading}
+          error={backupAlerts.isError && !backupAlerts.data && !backupAlerts.error?.message?.includes("not configured") && !backupAlerts.error?.message?.includes("No active")}
+          notConnected={backupAlerts.isError && (backupAlerts.error?.message?.includes("not configured") || backupAlerts.error?.message?.includes("No active"))}
+          onClick={() => setSourceFilter(sourceFilter === "cove" ? "all" : "cove")}
+          active={sourceFilter === "cove"}
+        />
+
+        {/* Avanan — placeholder */}
         <PlatformCard
           name="Avanan"
           icon={Mail}
@@ -641,116 +858,154 @@ export default function AlertsPage() {
         />
       </div>
 
-      {/* Unified Alert Feed */}
-      <div className="rounded-xl border border-border bg-card">
-        {/* Feed Header */}
-        <div className="px-4 py-3 border-b border-border space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-foreground">
-              All Alerts
-              {filteredAlerts.length !== unifiedAlerts.length && (
-                <span className="ml-2 text-muted-foreground font-normal">
-                  ({filteredAlerts.length} of {unifiedAlerts.length})
-                </span>
-              )}
-            </h2>
+      {/* S1 Management View — shown when S1 card is clicked */}
+      {showS1Management ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setShowS1Management(false)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showFilters && "rotate-180")} />
-              Filters
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to All Alerts
             </button>
           </div>
-
-          {/* Filter row */}
-          {showFilters && (
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* Search */}
-              <div className="relative flex-1 max-w-xs">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <input
-                  className="w-full h-8 pl-8 pr-3 rounded-lg bg-accent border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-red-500/50"
-                  placeholder="Search alerts..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-
-              {/* Severity filter */}
-              <div className="flex gap-1">
-                {(["all", "critical", "high", "medium", "low"] as const).map((s) => {
-                  const cfg = s === "all" ? null : severityConfig[s];
-                  const isActive = severityFilter === s;
-                  return (
-                    <button
-                      key={s}
-                      onClick={() => setSeverityFilter(s)}
-                      className={cn(
-                        "px-2 py-1 text-[10px] font-medium rounded-lg border transition-colors",
-                        isActive && cfg ? `${cfg.border} ${cfg.bgLight} ${cfg.color}` :
-                          isActive ? "border-red-500/50 bg-red-500/10 text-foreground" :
-                            "border-border bg-transparent text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {s === "all" ? "All" : severityConfig[s].label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Clear filters */}
-              {(sourceFilter !== "all" || severityFilter !== "all" || searchQuery) && (
+          <S1ManagementView />
+        </div>
+      ) : (
+        <>
+          {/* Unified Alert Feed */}
+          <div className="rounded-xl border border-border bg-card">
+            {/* Feed Header */}
+            <div className="px-4 py-3 border-b border-border space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium text-foreground">
+                  All Alerts
+                  <span className="ml-2 text-muted-foreground font-normal">
+                    {filteredAlerts.length} alert{filteredAlerts.length !== 1 ? "s" : ""} in {groupedAlerts.length} group{groupedAlerts.length !== 1 ? "s" : ""}
+                    {" "}&middot; {timeRangeLabel}
+                  </span>
+                </h2>
                 <button
-                  onClick={() => { setSourceFilter("all"); setSeverityFilter("all"); setSearchQuery(""); }}
-                  className="text-[10px] text-red-500 hover:text-red-400 transition-colors"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  Clear all
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showFilters && "rotate-180")} />
+                  Filters
                 </button>
+              </div>
+
+              {/* Filter row */}
+              {showFilters && (
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* Search */}
+                  <div className="relative flex-1 max-w-xs">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <input
+                      className="w-full h-8 pl-8 pr-3 rounded-lg bg-accent border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-red-500/50"
+                      placeholder="Search alerts..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Severity filter */}
+                  <div className="flex gap-1">
+                    {(["all", "critical", "high", "medium", "low"] as const).map((s) => {
+                      const cfg = s === "all" ? null : severityConfig[s];
+                      const isActive = severityFilter === s;
+                      return (
+                        <button
+                          key={s}
+                          onClick={() => setSeverityFilter(s)}
+                          className={cn(
+                            "px-2 py-1 text-[10px] font-medium rounded-lg border transition-colors",
+                            isActive && cfg ? `${cfg.border} ${cfg.bgLight} ${cfg.color}` :
+                              isActive ? "border-red-500/50 bg-red-500/10 text-foreground" :
+                                "border-border bg-transparent text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {s === "all" ? "All" : severityConfig[s].label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Clear filters */}
+                  {(sourceFilter !== "all" || severityFilter !== "all" || searchQuery) && (
+                    <button
+                      onClick={() => { setSourceFilter("all"); setSeverityFilter("all"); setSearchQuery(""); }}
+                      className="text-[10px] text-red-500 hover:text-red-400 transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* Alert List */}
-        {anyLoading && unifiedAlerts.length === 0 ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : filteredAlerts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <AlertTriangle className="mb-3 h-10 w-10 opacity-30" />
-            {unifiedAlerts.length === 0 ? (
-              <>
-                <p className="text-sm font-medium">No alerts</p>
-                <p className="text-xs mt-1">Connect security tools in Settings to start receiving alerts</p>
-              </>
+            {/* Alert List */}
+            {anyLoading && unifiedAlerts.length === 0 ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredAlerts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <AlertTriangle className="mb-3 h-10 w-10 opacity-30" />
+                {unifiedAlerts.length === 0 ? (
+                  <>
+                    <p className="text-sm font-medium">No alerts</p>
+                    <p className="text-xs mt-1">Connect security tools in Settings to start receiving alerts</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium">No alerts match your filters</p>
+                    <button
+                      onClick={() => { setSourceFilter("all"); setSeverityFilter("all"); setSearchQuery(""); }}
+                      className="text-xs mt-2 text-red-500 hover:underline"
+                    >
+                      Clear filters
+                    </button>
+                  </>
+                )}
+              </div>
             ) : (
-              <>
-                <p className="text-sm font-medium">No alerts match your filters</p>
-                <button
-                  onClick={() => { setSourceFilter("all"); setSeverityFilter("all"); setSearchQuery(""); }}
-                  className="text-xs mt-2 text-red-500 hover:underline"
-                >
-                  Clear filters
-                </button>
-              </>
+              <div className="divide-y divide-border/50">
+                {groupedAlerts.map((group) => (
+                  <div key={group.key}>
+                    <AlertRow
+                      group={group}
+                      expanded={expandedGroupKey === group.key}
+                      onToggle={() => setExpandedGroupKey(expandedGroupKey === group.key ? null : group.key)}
+                    />
+                    {/* Inline expansion */}
+                    {expandedGroupKey === group.key && (
+                      <AlertExpanded
+                        source={group.representative.source}
+                        alerts={group.alerts}
+                        onOpenDetail={(sourceId) => {
+                          if (group.representative.source === "sentinelone") {
+                            setDetailThreatId(sourceId);
+                          }
+                        }}
+                        onClose={() => setExpandedGroupKey(null)}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        ) : (
-          <div className="divide-y divide-border/50">
-            {filteredAlerts.map((alert) => (
-              <AlertRow
-                key={alert.id}
-                alert={alert}
-                onSelect={() => {
-                  // TODO: Open alert detail panel (threat detail + quick actions)
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {/* Threat Detail Side Panel */}
+      {detailThreatId && (
+        <ThreatDetailPanel
+          threatId={detailThreatId}
+          onClose={() => setDetailThreatId(null)}
+        />
+      )}
     </div>
   );
 }

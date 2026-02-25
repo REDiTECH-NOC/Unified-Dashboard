@@ -2,6 +2,13 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { router, adminProcedure, protectedProcedure } from "../trpc";
 import { auditLog } from "@/lib/audit";
+import {
+  encrypt,
+  isEncryptionConfigured,
+  encryptConfigSecrets,
+  INTEGRATION_SECRET_FIELDS,
+  SECRET_MASK,
+} from "@/lib/crypto";
 import { ConnectorFactory } from "../connectors/factory";
 import { CONNECTOR_REGISTRY } from "../connectors/registry";
 import { ConnectorNotConfiguredError } from "../connectors/_base/errors";
@@ -23,12 +30,13 @@ const TOOL_REGISTRY = [
   { toolId: "sharepoint", displayName: "SharePoint & OneNote", category: "documentation" },
   { toolId: "keeper", displayName: "Keeper", category: "documentation" },
   { toolId: "cove", displayName: "Cove Backups", category: "backup" },
-  { toolId: "dropsuite", displayName: "Dropsuite", category: "backup" },
+  { toolId: "dropsuite", displayName: "DropSuite (NinjaOne SaaS Backup)", category: "backup" },
   { toolId: "unifi", displayName: "Unifi", category: "network" },
   { toolId: "watchguard", displayName: "WatchGuard", category: "network" },
   { toolId: "threecx", displayName: "3CX", category: "phone" },
   { toolId: "pax8", displayName: "PAX8", category: "licensing" },
   { toolId: "n8n", displayName: "n8n Automation", category: "automation" },
+  { toolId: "ai-provider", displayName: "AI Provider", category: "ai" },
 ];
 
 export const integrationRouter = router({
@@ -52,7 +60,6 @@ export const integrationRouter = router({
   getConfig: adminProcedure
     .input(z.object({
       toolId: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/),
-      secretFields: z.array(z.string()).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const config = await ctx.prisma.integrationConfig.findUnique({
@@ -62,14 +69,10 @@ export const integrationRouter = router({
 
       const raw = { ...(config.config as Record<string, unknown>) };
 
-      // Mask secret fields — never return raw API keys/passwords to the browser
-      const secretKeys = new Set(input.secretFields ?? [
-        "apiKey", "apiToken", "clientSecret", "password", "secret",
-        "webhookSecret", "privateKey", "token", "accessToken",
-      ]);
+      // Mask secret fields server-side — authoritative list, NOT client-controlled
       for (const key of Object.keys(raw)) {
-        if (secretKeys.has(key) && raw[key]) {
-          raw[key] = "••••••••";
+        if (INTEGRATION_SECRET_FIELDS.has(key) && raw[key]) {
+          raw[key] = SECRET_MASK;
         }
       }
 
@@ -92,7 +95,6 @@ export const integrationRouter = router({
       toolId: z.string(),
       config: z.record(z.unknown()).optional(),
       credentialRef: z.string().optional(),
-      secretFields: z.array(z.string()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const tool = TOOL_REGISTRY.find((t) => t.toolId === input.toolId);
@@ -100,18 +102,32 @@ export const integrationRouter = router({
 
       let configToSave = { ...(input.config ?? {}) };
 
-      // Preserve existing values for blank secret fields
-      if (input.secretFields?.length) {
-        const existing = await ctx.prisma.integrationConfig.findUnique({
-          where: { toolId: input.toolId },
-        });
-        const existingConfig = (existing?.config as Record<string, unknown>) ?? {};
-        for (const secretKey of input.secretFields) {
-          if (!configToSave[secretKey]) {
-            configToSave[secretKey] = existingConfig[secretKey];
+      // Load existing config to preserve encrypted secrets
+      const existing = await ctx.prisma.integrationConfig.findUnique({
+        where: { toolId: input.toolId },
+      });
+      const existingConfig = (existing?.config as Record<string, unknown>) ?? {};
+
+      // Process secret fields server-side: preserve existing or accept new values
+      for (const key of Object.keys(configToSave)) {
+        if (INTEGRATION_SECRET_FIELDS.has(key)) {
+          const val = configToSave[key];
+          if (!val || val === SECRET_MASK) {
+            // Blank or masked — preserve existing (already encrypted) value
+            configToSave[key] = existingConfig[key];
           }
         }
       }
+
+      // Preserve encrypted secrets from DB that weren't in the update payload
+      for (const key of Object.keys(existingConfig)) {
+        if (INTEGRATION_SECRET_FIELDS.has(key) && !(key in configToSave)) {
+          configToSave[key] = existingConfig[key];
+        }
+      }
+
+      // Encrypt any new plaintext secret values
+      configToSave = encryptConfigSecrets(configToSave) as Record<string, unknown>;
 
       const result = await ctx.prisma.integrationConfig.upsert({
         where: { toolId: input.toolId },
@@ -141,7 +157,14 @@ export const integrationRouter = router({
         resource: "integration:" + input.toolId,
         detail: { toolId: input.toolId },
       });
-      return result;
+
+      // Return safe subset — never send config JSONB (contains encrypted secrets) to client
+      return {
+        id: result.id,
+        toolId: result.toolId,
+        status: result.status,
+        updatedAt: result.updatedAt,
+      };
     }),
 
   testConnection: adminProcedure
@@ -268,7 +291,7 @@ export const integrationRouter = router({
       userGroupId: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
-      // If secret is blank, preserve the existing one from DB
+      // If secret is blank, preserve the existing one from DB (already encrypted)
       let clientSecret = input.clientSecret;
       if (!clientSecret) {
         const existing = await ctx.prisma.integrationConfig.findUnique({
@@ -277,6 +300,9 @@ export const integrationRouter = router({
         const c = (existing?.config as Record<string, string>) || {};
         clientSecret = c.clientSecret || "";
         if (!clientSecret) throw new Error("Client secret is required");
+      } else if (isEncryptionConfigured()) {
+        // New plaintext secret — encrypt before storing
+        clientSecret = encrypt(clientSecret);
       }
 
       const configData = {
@@ -287,7 +313,7 @@ export const integrationRouter = router({
         userGroupId: input.userGroupId,
       };
 
-      const result = await ctx.prisma.integrationConfig.upsert({
+      await ctx.prisma.integrationConfig.upsert({
         where: { toolId: "entra-id" },
         update: {
           config: configData,
@@ -312,6 +338,92 @@ export const integrationRouter = router({
         detail: { tenantId: input.tenantId },
       });
 
-      return result;
+      // Return safe response — never send config JSONB to client
+      return { success: true };
+    }),
+
+  // ─── Sync Config (per-tool sync preferences) ───────────
+
+  getSyncConfig: adminProcedure
+    .input(z.object({ toolId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const config = await ctx.prisma.integrationConfig.findUnique({
+        where: { toolId: input.toolId },
+      });
+      if (!config?.config) return null;
+      const raw = config.config as Record<string, unknown>;
+      return {
+        syncEnabled: (raw.syncEnabled as boolean) ?? false,
+        syncMode: (raw.syncMode as string) ?? "auto",
+        syncStatuses: (raw.syncStatuses as string[]) ?? [],
+        syncTypes: (raw.syncTypes as string[]) ?? [],
+        autoSyncSchedule: (raw.autoSyncSchedule as string) ?? "on_demand",
+        removalPolicy: (raw.removalPolicy as string) ?? "keep",
+        removalDays: (raw.removalDays as number) ?? 30,
+      };
+    }),
+
+  updateSyncConfig: adminProcedure
+    .input(
+      z.object({
+        toolId: z.string(),
+        syncEnabled: z.boolean(),
+        syncMode: z.enum(["auto", "manual"]),
+        syncStatuses: z.array(z.string()),
+        syncTypes: z.array(z.string()),
+        autoSyncSchedule: z.enum([
+          "on_demand",
+          "hourly",
+          "every6h",
+          "every12h",
+          "daily",
+        ]),
+        removalPolicy: z.enum(["keep", "remove_after_days"]),
+        removalDays: z.number().min(1).max(365).default(30),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.integrationConfig.findUnique({
+        where: { toolId: input.toolId },
+      });
+      const existingConfig =
+        (existing?.config as Record<string, unknown>) ?? {};
+
+      const newConfig = {
+        ...existingConfig,
+        syncEnabled: input.syncEnabled,
+        syncMode: input.syncMode,
+        syncStatuses: input.syncStatuses,
+        syncTypes: input.syncTypes,
+        autoSyncSchedule: input.autoSyncSchedule,
+        removalPolicy: input.removalPolicy,
+        removalDays: input.removalDays,
+      };
+
+      await ctx.prisma.integrationConfig.update({
+        where: { toolId: input.toolId },
+        data: {
+          config: newConfig as Prisma.InputJsonValue,
+          updatedBy: ctx.user.id,
+        },
+      });
+
+      await auditLog({
+        action: "integration.syncconfig.updated",
+        category: "INTEGRATION",
+        actorId: ctx.user.id,
+        resource: `integration:${input.toolId}`,
+        detail: {
+          syncEnabled: input.syncEnabled,
+          syncMode: input.syncMode,
+          syncStatuses: input.syncStatuses,
+          syncTypes: input.syncTypes,
+          autoSyncSchedule: input.autoSyncSchedule,
+          removalPolicy: input.removalPolicy,
+          removalDays: input.removalDays,
+        },
+      });
+
+      return { success: true };
     }),
 });

@@ -56,12 +56,18 @@ export function mapTicket(ticket: CWTicket): NormalizedTicket {
 }
 
 export function mapTicketNote(note: CWTicketNote): TicketNote {
+  let noteType: string = "discussion";
+  if (note.detailDescriptionFlag) noteType = "detail";
+  else if (note.internalAnalysisFlag) noteType = "internalAnalysis";
+  else if (note.resolutionFlag) noteType = "resolution";
+
   return {
     id: String(note.id),
     text: note.text,
-    createdBy: note.member?.name,
+    createdBy: note.member?.name ?? note.contact?.name,
     createdAt: note.dateCreated ? new Date(note.dateCreated) : new Date(),
     internal: note.internalAnalysisFlag,
+    noteType,
   };
 }
 

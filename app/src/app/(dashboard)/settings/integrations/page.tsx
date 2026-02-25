@@ -1,22 +1,36 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
 import { SsoCard } from "./_components/sso-card";
 import { SsoDialog } from "./_components/sso-dialog";
 import { IntegrationCategory } from "./_components/integration-category";
 import { ConfigureDialog } from "./_components/configure-dialog";
-import { SSO_TOOL_ID, THREECX_TOOL_ID } from "./_components/tool-schemas";
+import { SSO_TOOL_ID, THREECX_TOOL_ID, AI_TOOL_ID } from "./_components/tool-schemas";
 
 export default function IntegrationsPage() {
   const { data: integrations, isLoading, refetch } = trpc.integration.list.useQuery();
   const { data: ssoConfig, refetch: refetchSso } = trpc.integration.getSsoConfig.useQuery();
 
+  const router = useRouter();
   const [ssoDialogOpen, setSsoDialogOpen] = useState(false);
   const [configToolId, setConfigToolId] = useState<string | null>(null);
 
   function handleConfigure(toolId: string) {
+    if (toolId === "connectwise") {
+      router.push("/settings/integrations/connectwise");
+      return;
+    }
+    if (toolId === "cove") {
+      router.push("/settings/integrations/cove");
+      return;
+    }
+    if (toolId === AI_TOOL_ID) {
+      router.push("/settings/integrations/ai");
+      return;
+    }
     if (toolId === THREECX_TOOL_ID) {
       // TODO: Re-enable ThreecxDialog when threecx router is available
       return;

@@ -3,7 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { BUILT_TOOLS, THREECX_TOOL_ID, SSO_TOOL_ID } from "./tool-schemas";
+import { BUILT_TOOLS, THREECX_TOOL_ID, SSO_TOOL_ID, AI_TOOL_ID } from "./tool-schemas";
 import { Clock } from "lucide-react";
 
 interface ToolInfo {
@@ -55,7 +55,7 @@ export function IntegrationCard({ tool, onConfigure }: IntegrationCardProps) {
             size="sm"
             onClick={() => onConfigure(tool.toolId)}
           >
-            Configure
+            {tool.toolId === "connectwise" || tool.toolId === AI_TOOL_ID ? "Manage" : "Configure"}
           </Button>
         ) : (
           <Badge variant="secondary" className="gap-1 text-[10px]">

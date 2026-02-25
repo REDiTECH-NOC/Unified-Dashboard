@@ -20,9 +20,12 @@ import type { IDocumentationConnector } from "./_interfaces/documentation";
 import type { INetworkConnector } from "./_interfaces/network";
 import type { IMdrConnector } from "./_interfaces/mdr";
 import type { CIPPConnector } from "./cipp/connector";
+import type { IEmailSecurityConnector } from "./_interfaces/email-security";
+import type { IBackupConnector } from "./_interfaces/backup";
 import { ConnectorNotConfiguredError } from "./_base/errors";
 import type { ConnectorConfig } from "./_base/types";
 import { CONNECTOR_REGISTRY, type ConnectorCategory } from "./registry";
+import { decryptConfigSecrets } from "@/lib/crypto";
 
 type ConnectorTypeMap = {
   psa: IPsaConnector;
@@ -32,6 +35,8 @@ type ConnectorTypeMap = {
   network: INetworkConnector;
   mdr: IMdrConnector;
   cipp: CIPPConnector;
+  email_security: IEmailSecurityConnector;
+  backup: IBackupConnector;
 };
 
 /** Cached connector instances keyed by toolId */
@@ -113,8 +118,10 @@ export class ConnectorFactory {
       return cached.instance as ConnectorTypeMap[C];
     }
 
-    // Parse credentials from JSONB config
-    const parsedConfig = (configJson ?? {}) as Record<string, string>;
+    // Decrypt secret fields and parse credentials from JSONB config
+    const parsedConfig = decryptConfigSecrets(
+      (configJson ?? {}) as Record<string, unknown>
+    ) as Record<string, string>;
     const connectorConfig: ConnectorConfig = {
       toolId,
       baseUrl: parsedConfig.baseUrl ?? registration.defaultBaseUrl,

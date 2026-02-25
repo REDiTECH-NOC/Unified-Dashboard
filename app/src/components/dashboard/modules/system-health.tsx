@@ -56,7 +56,7 @@ export function SystemHealthModule() {
   const updateQuery = trpc.system.updateInfo.useQuery(undefined, {
     staleTime: 5 * 60_000,
     refetchInterval: 5 * 60_000,
-    retry: false,
+    retry: 1,
   });
 
   const { data, isLoading, isRefetching } = healthQuery;

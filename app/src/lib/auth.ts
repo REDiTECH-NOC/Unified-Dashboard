@@ -5,6 +5,7 @@ import Credentials from "next-auth/providers/credentials";
 import { authConfig } from "./auth.config";
 import { prisma } from "./prisma";
 import { auditLog } from "./audit";
+import { authRateLimit, totpRateLimit, getClientIp } from "./rate-limit";
 import bcrypt from "bcryptjs";
 
 // SSO config — read from env vars (populated by instrumentation.ts from DB, or directly from Docker env)
@@ -37,12 +38,25 @@ const providers: Provider[] = [
       password: { type: "password" },
       totpCode: { type: "text" },
     },
-    async authorize(credentials) {
+    async authorize(credentials, req) {
       const email = credentials?.email as string;
       const password = credentials?.password as string;
       const totpCode = credentials?.totpCode as string | undefined;
 
       if (!email || !password) return null;
+
+      // IP-based rate limiting to prevent credential stuffing (5 attempts / 15 min)
+      const ip = getClientIp((req as any)?.headers ?? new Headers());
+      const ipLimit = await authRateLimit(ip);
+      if (!ipLimit.allowed) {
+        await auditLog({
+          action: "auth.local.ratelimited",
+          category: "SECURITY",
+          detail: { email, ip, retryAfter: ipLimit.retryAfter },
+          outcome: "denied",
+        });
+        throw new Error("AUTH_RATE_LIMITED");
+      }
 
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user || user.authMethod !== "LOCAL" || !user.passwordHash) {
@@ -67,11 +81,25 @@ const providers: Provider[] = [
         return null;
       }
 
-      // If TOTP is enabled, verify the code
+      // If TOTP is enabled, verify the code with rate limiting
       if (user.totpEnabled && user.totpSecret) {
         if (!totpCode) {
           throw new Error("TOTP_REQUIRED");
         }
+
+        // Rate limit TOTP verification to prevent brute-force (6-digit = 1M possibilities)
+        const limit = await totpRateLimit(user.id);
+        if (!limit.allowed) {
+          await auditLog({
+            action: "auth.local.totp.ratelimited",
+            category: "SECURITY",
+            actorId: user.id,
+            detail: { email, retryAfter: limit.retryAfter },
+            outcome: "denied",
+          });
+          throw new Error("TOTP_RATE_LIMITED");
+        }
+
         const { authenticator } = await import("otplib");
         const valid = authenticator.verify({
           token: totpCode,

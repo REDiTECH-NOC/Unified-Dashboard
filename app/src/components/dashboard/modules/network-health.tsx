@@ -15,13 +15,13 @@ export function NetworkHealthModule() {
   const summaryQuery = trpc.network.getSummary.useQuery(undefined, {
     refetchInterval: 60_000,
     staleTime: 30_000,
-    retry: false,
+    retry: 1,
   });
 
   const devicesQuery = trpc.network.getDevices.useQuery(undefined, {
     refetchInterval: 60_000,
     staleTime: 30_000,
-    retry: false,
+    retry: 1,
   });
 
   const { data: summary, isLoading, error, isRefetching } = summaryQuery;

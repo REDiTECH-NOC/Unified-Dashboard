@@ -46,7 +46,7 @@ export class NinjaOneClient extends BaseHttpClient {
         grant_type: "client_credentials",
         client_id: clientId,
         client_secret: clientSecret,
-        scope: "monitoring management control",
+        scope: "monitoring management",
       }),
     });
 

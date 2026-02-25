@@ -15,6 +15,12 @@ import type {
   NormalizedContact,
 } from "./common";
 
+export interface CompanyFilter {
+  searchTerm?: string;
+  statuses?: string[];
+  types?: string[];
+}
+
 export interface TicketFilter {
   companyId?: string;
   status?: string;
@@ -41,6 +47,7 @@ export interface UpdateTicketInput {
   status?: string;
   priority?: string;
   assignTo?: string;
+  boardId?: string;
   /** Add a note/comment to the ticket */
   note?: string;
 }
@@ -51,6 +58,20 @@ export interface TicketNote {
   createdBy?: string;
   createdAt: Date;
   internal: boolean;
+  /** "internalAnalysis" | "discussion" | "resolution" */
+  noteType?: string;
+}
+
+export interface AddNoteInput {
+  ticketId: string;
+  text: string;
+  internal?: boolean;
+  /** Send note as email to ticket contact */
+  emailContact?: boolean;
+  /** Send note as email to CC contacts on ticket */
+  emailCc?: boolean;
+  /** Log time alongside this note (hours) */
+  timeHours?: number;
 }
 
 export interface TimeEntryInput {
@@ -59,6 +80,9 @@ export interface TimeEntryInput {
   notes?: string;
   workType?: string;
   memberId?: string;
+  timeStart?: string;
+  timeEnd?: string;
+  billableOption?: "Billable" | "DoNotBill" | "NoCharge" | "NoDefault";
 }
 
 export interface BoardStatus {
@@ -87,12 +111,15 @@ export interface IPsaConnector {
   addTicketNote(
     ticketId: string,
     text: string,
-    internal?: boolean
+    internal?: boolean,
+    options?: { emailContact?: boolean; emailResources?: boolean; emailCc?: string; timeHours?: number }
   ): Promise<TicketNote>;
+
+  getWorkTypes?(): Promise<Array<{ id: string; name: string }>>;
 
   // --- Companies ---
   getCompanies(
-    searchTerm?: string,
+    filter?: CompanyFilter,
     page?: number,
     pageSize?: number
   ): Promise<PaginatedResponse<NormalizedOrganization>>;
@@ -119,7 +146,7 @@ export interface IPsaConnector {
 
   // --- Members ---
   getMembers(): Promise<
-    Array<{ id: string; name: string; email: string }>
+    Array<{ id: string; identifier: string; name: string; email: string }>
   >;
 
   // --- Health Check ---
