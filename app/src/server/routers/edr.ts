@@ -11,9 +11,6 @@ import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
 import { cachedQuery } from "@/lib/query-cache";
 
-// ── In-memory stale-while-revalidate cache for threat queries ──
-const _threatCache: import("@/lib/query-cache").QueryCacheMap = new Map();
-const _threatBg = new Set<string>();
 const THREAT_STALE = 10 * 60_000; // 10 min
 
 export const edrRouter = router({
@@ -37,7 +34,7 @@ export const edrRouter = router({
       const dateKey = input.createdAfter?.toISOString().substring(0, 10) ?? "all";
       const key = `threats:${dateKey}:${input.pageSize}:${input.status ?? ""}:${input.severity ?? ""}`;
 
-      return cachedQuery(_threatCache, _threatBg, THREAT_STALE, key, async () => {
+      return cachedQuery("edr", THREAT_STALE, key, async () => {
         const edr = await ConnectorFactory.get("edr", ctx.prisma);
         return edr.getThreats(
           {

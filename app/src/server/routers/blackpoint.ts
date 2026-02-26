@@ -20,9 +20,6 @@ async function getBP(prisma: Parameters<typeof ConnectorFactory.getByToolId>[1])
   return ConnectorFactory.getByToolId("blackpoint", prisma) as Promise<BlackpointConnector>;
 }
 
-// ── In-memory stale-while-revalidate cache for detection queries ──
-const _bpCache: import("@/lib/query-cache").QueryCacheMap = new Map();
-const _bpBg = new Set<string>();
 const BP_STALE = 10 * 60_000; // 10 min
 
 export const blackpointRouter = router({
@@ -47,7 +44,7 @@ export const blackpointRouter = router({
       const dateKey = input.since?.toISOString().substring(0, 10) ?? "all";
       const key = `bp:${dateKey}:${input.take}:${input.detectionType ?? ""}`;
 
-      return cachedQuery(_bpCache, _bpBg, BP_STALE, key, async () => {
+      return cachedQuery("bp", BP_STALE, key, async () => {
         const bp = await getBP(ctx.prisma);
         return bp.getDetections(
           {

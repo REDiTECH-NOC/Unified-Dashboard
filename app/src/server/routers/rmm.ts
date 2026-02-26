@@ -50,9 +50,6 @@ function filterByOrg<T extends { organizationId?: number; references?: { organiz
   );
 }
 
-// ── In-memory stale-while-revalidate cache for alert queries ──
-const _rmmCache: import("@/lib/query-cache").QueryCacheMap = new Map();
-const _rmmBg = new Set<string>();
 const RMM_STALE = 10 * 60_000; // 10 min
 
 export const rmmRouter = router({
@@ -137,7 +134,7 @@ export const rmmRouter = router({
       const dateKey = input.createdAfter?.toISOString().substring(0, 10) ?? "all";
       const key = `rmm:${dateKey}:${input.pageSize}:${input.severity ?? ""}:${input.status ?? ""}`;
 
-      return cachedQuery(_rmmCache, _rmmBg, RMM_STALE, key, async () => {
+      return cachedQuery("rmm", RMM_STALE, key, async () => {
         const rmm = await ConnectorFactory.get("rmm", ctx.prisma);
         return rmm.getAlerts(
           {

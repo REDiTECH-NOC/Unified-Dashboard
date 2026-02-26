@@ -11,9 +11,6 @@ import { ConnectorFactory } from "../connectors/factory";
 import { redis } from "@/lib/redis";
 import { cachedQuery } from "@/lib/query-cache";
 
-// ── In-memory stale-while-revalidate cache for backup alert queries ──
-const _backupCache: import("@/lib/query-cache").QueryCacheMap = new Map();
-const _backupBg = new Set<string>();
 const BACKUP_STALE = 10 * 60_000; // 10 min
 
 export const backupRouter = router({
@@ -98,7 +95,7 @@ export const backupRouter = router({
   // ─── Alerts ───────────────────────────────────────────────────
 
   getAlerts: protectedProcedure.query(async ({ ctx }) => {
-    return cachedQuery(_backupCache, _backupBg, BACKUP_STALE, "backup:alerts", async () => {
+    return cachedQuery("backup", BACKUP_STALE, "alerts", async () => {
       try {
         const backup = await ConnectorFactory.get("backup", ctx.prisma);
         return await backup.getActiveAlerts();
