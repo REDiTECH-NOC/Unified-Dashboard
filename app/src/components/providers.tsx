@@ -9,11 +9,19 @@ import superjson from "superjson";
 import { NotificationToaster } from "@/components/notification-toast";
 
 // Queries that hit external services and can be slow (8s+ timeouts).
-// These must NOT block fast queries like permissions and dashboard layout.
+// Sent via individual httpLink so they resolve independently —
+// a 60s Avanan call won't block a 2s SentinelOne call.
 const SLOW_QUERIES = new Set([
   "system.health",
   "system.updateInfo",
   "system.containerInfo",
+  // Alert page: each source should render as soon as its API responds
+  "edr.getThreats",
+  "blackpoint.getDetections",
+  "rmm.getAlerts",
+  "backup.getAlerts",
+  "emailSecurity.listTenants",
+  "emailSecurity.getEventStats",
 ]);
 
 export function Providers({ children }: { children: React.ReactNode }) {
