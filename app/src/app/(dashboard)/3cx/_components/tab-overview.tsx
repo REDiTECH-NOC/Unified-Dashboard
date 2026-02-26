@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
@@ -17,9 +18,8 @@ import {
   RotateCcw,
   Power,
   Settings,
-  MemoryStick,
-  HardDrive,
   BarChart3,
+  RefreshCw,
 } from "lucide-react";
 
 interface TabOverviewProps {
@@ -137,76 +137,55 @@ function QuickStat({
   );
 }
 
-/* ─── Telemetry Gauge (CSS-only, no Recharts) ─── */
-function TelemetryGauge({
-  label,
-  value,
-  icon: Icon,
-  color,
-  isLoading,
-}: {
-  label: string;
-  value: number | null;
-  icon: React.ElementType;
-  color: string;
-  isLoading: boolean;
-}) {
-  const pct = value ?? 0;
-  const barColor = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-yellow-500" : color;
-  const textColor = pct >= 90 ? "text-red-500" : pct >= 70 ? "text-yellow-500" : "text-foreground";
+/* ─── Lazy-loaded Recharts historical charts (deferred mount, 90s refetch) ─── */
+const LazyTelemetryCharts = dynamic(
+  () => import("./tab-telemetry").then((m) => ({ default: m.TelemetryCharts })),
+  { ssr: false, loading: () => null }
+);
 
-  return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Icon className="h-4 w-4" />
-          <span className="text-xs font-medium text-foreground">{label}</span>
-        </div>
-        {isLoading ? (
-          <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
-        ) : (
-          <span className={cn("text-sm font-mono font-semibold", textColor)}>
-            {value !== null ? `${value}%` : "—"}
-          </span>
-        )}
-      </div>
-      <div className="h-2 rounded-full bg-accent overflow-hidden">
-        <div
-          className={cn("h-full rounded-full transition-all duration-500", barColor)}
-          style={{ width: `${Math.min(pct, 100)}%` }}
-        />
-      </div>
-    </div>
-  );
-}
+/* ─── Telemetry Section: Deferred Recharts historical charts ─── */
+function TelemetrySection({ instanceId }: { instanceId: string }) {
+  const [showCharts, setShowCharts] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const utils = trpc.useUtils();
 
-/* ─── Telemetry Gauges Section (fetches own data, no Recharts) ─── */
-function TelemetryGauges({ instanceId }: { instanceId: string }) {
-  const { data: telemetry, isLoading } = trpc.threecx.getSystemTelemetry.useQuery(
-    { instanceId },
-    { refetchInterval: 60000, staleTime: 55000 }
-  );
+  // Defer chart mount — let the page finish rendering first, then load Recharts
+  useEffect(() => {
+    const timer = setTimeout(() => setShowCharts(true), 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
-  const latest = telemetry?.[telemetry.length - 1];
-  const cpuPct = latest ? Math.round(latest.cpuUsage * 10) / 10 : null;
-  const memPct = latest && latest.totalPhysicalMemory > 0
-    ? Math.round(((latest.totalPhysicalMemory - latest.freePhysicalMemory) / latest.totalPhysicalMemory) * 1000) / 10
-    : null;
-  const diskPct = latest && latest.totalDiskSpace > 0
-    ? Math.round(((latest.totalDiskSpace - latest.freeDiskSpace) / latest.totalDiskSpace) * 1000) / 10
-    : null;
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await utils.threecx.getSystemTelemetry.invalidate({ instanceId });
+    setTimeout(() => setRefreshing(false), 1000);
+  };
 
   return (
     <div className="lg:col-span-3">
       <div className="flex items-center gap-2 mb-3">
         <BarChart3 className="h-4 w-4 text-blue-500" />
         <h3 className="text-sm font-medium text-foreground">System Telemetry</h3>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="ml-1 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+          title="Refresh telemetry"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+        </button>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <TelemetryGauge label="CPU Usage" value={cpuPct} icon={Cpu} color="bg-blue-500" isLoading={isLoading} />
-        <TelemetryGauge label="Memory Usage" value={memPct} icon={MemoryStick} color="bg-purple-500" isLoading={isLoading} />
-        <TelemetryGauge label="Disk Usage" value={diskPct} icon={HardDrive} color="bg-orange-500" isLoading={isLoading} />
-      </div>
+      {showCharts ? (
+        <LazyTelemetryCharts instanceId={instanceId} />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-xl border border-border bg-card p-5 h-[220px] flex items-center justify-center">
+              <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -424,11 +403,11 @@ export function TabOverview({ instanceId }: TabOverviewProps) {
         </div>
       </div>
 
-      {/* ─── Resource Usage (full width) ─── */}
+      {/* ─── PBX Capacity (full width) ─── */}
       <div className="lg:col-span-3 rounded-xl border border-border bg-card p-5">
         <div className="flex items-center gap-2 mb-4">
           <Cpu className="h-4 w-4 text-orange-500" />
-          <h3 className="text-sm font-medium text-foreground">Resource Usage</h3>
+          <h3 className="text-sm font-medium text-foreground">PBX Capacity</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-8">
           <UsageBar label="User Extensions" used={status.userExtensions} total={status.maxUserExtensions} />
@@ -457,8 +436,8 @@ export function TabOverview({ instanceId }: TabOverviewProps) {
         </div>
       </div>
 
-      {/* ─── System Telemetry (CSS gauges — no Recharts in overview) ─── */}
-      <TelemetryGauges instanceId={instanceId} />
+      {/* ─── System Telemetry (deferred Recharts charts) ─── */}
+      <TelemetrySection instanceId={instanceId} />
 
       {/* ─── Admin Actions ─── */}
       <div className="lg:col-span-3 rounded-xl border border-border bg-card p-5">

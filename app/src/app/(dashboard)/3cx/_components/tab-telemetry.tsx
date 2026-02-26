@@ -122,14 +122,15 @@ function TelemetryChart({
   );
 }
 
-/* ─── Compact Telemetry Section (embedded in Overview via dynamic import) ─── */
-export function TelemetrySection({ instanceId }: { instanceId: string }) {
+/* ─── Compact Telemetry Charts (embedded in Overview via dynamic import) ─── */
+/* Uses 90s refetch to avoid blocking UI — the CSS gauges handle real-time display */
+export function TelemetryCharts({ instanceId }: { instanceId: string }) {
   const { data: telemetry, isLoading } = trpc.threecx.getSystemTelemetry.useQuery(
     { instanceId },
-    { refetchInterval: 60000, staleTime: 55000 }
+    { refetchInterval: 90000, staleTime: 85000 }
   );
 
-  const chartData = (telemetry ?? []).map((point) => ({
+  const chartData = (telemetry ?? []).slice(-30).map((point) => ({
     time: point.time,
     cpuUsage: Math.round(point.cpuUsage * 10) / 10,
     memoryUsedPct: point.totalPhysicalMemory > 0
@@ -140,27 +141,25 @@ export function TelemetrySection({ instanceId }: { instanceId: string }) {
       : 0,
   }));
 
-  return (
-    <div className="lg:col-span-3">
-      <div className="flex items-center gap-2 mb-3">
-        <BarChart3 className="h-4 w-4 text-blue-500" />
-        <h3 className="text-sm font-medium text-foreground">System Telemetry</h3>
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-xl border border-border bg-card p-5 h-[220px] flex items-center justify-center">
+            <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+          </div>
+        ))}
       </div>
-      {isLoading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="rounded-xl border border-border bg-card p-5 h-[220px] flex items-center justify-center">
-              <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <TelemetryChart title="CPU Usage" icon={Cpu} data={chartData} dataKey="cpuUsage" color="#3b82f6" domain={[0, 100]} formatter={(v) => `${v}%`} />
-          <TelemetryChart title="Memory Usage" icon={MemoryStick} data={chartData} dataKey="memoryUsedPct" color="#a855f7" domain={[0, 100]} formatter={(v) => `${v}%`} />
-          <TelemetryChart title="Disk Usage" icon={HardDrive} data={chartData} dataKey="diskUsedPct" color="#f97316" domain={[0, 100]} formatter={(v) => `${v}%`} />
-        </div>
-      )}
+    );
+  }
+
+  if (chartData.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <TelemetryChart title="CPU Usage" icon={Cpu} data={chartData} dataKey="cpuUsage" color="#3b82f6" domain={[0, 100]} formatter={(v) => `${v}%`} />
+      <TelemetryChart title="Memory Usage" icon={MemoryStick} data={chartData} dataKey="memoryUsedPct" color="#a855f7" domain={[0, 100]} formatter={(v) => `${v}%`} />
+      <TelemetryChart title="Disk Usage" icon={HardDrive} data={chartData} dataKey="diskUsedPct" color="#f97316" domain={[0, 100]} formatter={(v) => `${v}%`} />
     </div>
   );
 }

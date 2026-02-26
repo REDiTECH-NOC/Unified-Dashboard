@@ -130,10 +130,6 @@ export class ThreecxConnector implements IPhoneConnector {
       "/Trunks"
     );
     const trunks = Array.isArray(raw) ? raw : raw.value ?? [];
-    // Temporary debug logging — remove after trunk crash is fixed
-    if (trunks.length > 0) {
-      console.log("[3CX DEBUG] Raw trunk from API:", JSON.stringify(trunks[0], null, 2));
-    }
     return trunks.map(mapTrunkDetail);
   }
 
