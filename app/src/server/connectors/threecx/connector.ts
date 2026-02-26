@@ -15,9 +15,15 @@ import type {
   SystemTelemetry,
   SystemHealthStatus,
   TrunkInfo,
+  TrunkDetail,
   ExtensionInfo,
   ActiveCall,
   ServiceInfo,
+  CallHistoryRecord,
+  CallHistoryFilter,
+  QueueInfo,
+  RingGroupInfo,
+  GroupInfo,
 } from "../_interfaces/phone";
 import { ThreecxClient } from "./client";
 import type {
@@ -25,18 +31,31 @@ import type {
   ThreecxTelemetryPoint,
   ThreecxHealthStatus,
   ThreecxTrunk,
+  ThreecxTrunkDetail,
   ThreecxUser,
   ThreecxActiveCall,
   ThreecxService,
+  ThreecxCallHistoryRecord,
+  ThreecxQueue,
+  ThreecxQueueAgent,
+  ThreecxQueueManager,
+  ThreecxRingGroup,
+  ThreecxRingGroupMember,
+  ThreecxGroup,
 } from "./types";
 import {
   mapSystemStatus,
   mapTelemetry,
   mapHealthStatus,
   mapTrunk,
+  mapTrunkDetail,
   mapExtension,
   mapActiveCall,
   mapService,
+  mapCallHistoryRecord,
+  mapQueue,
+  mapRingGroup,
+  mapGroup,
 } from "./mappers";
 
 export class ThreecxConnector implements IPhoneConnector {
@@ -106,7 +125,159 @@ export class ThreecxConnector implements IPhoneConnector {
     return services.map(mapService);
   }
 
+  async getTrunkDetails(): Promise<TrunkDetail[]> {
+    const raw = await this.client.xapiRequest<{ value: ThreecxTrunkDetail[] }>(
+      "/Trunks"
+    );
+    const trunks = Array.isArray(raw) ? raw : raw.value ?? [];
+    // Temporary debug logging — remove after trunk crash is fixed
+    if (trunks.length > 0) {
+      console.log("[3CX DEBUG] Raw trunk from API:", JSON.stringify(trunks[0], null, 2));
+    }
+    return trunks.map(mapTrunkDetail);
+  }
+
+  async getQueues(): Promise<QueueInfo[]> {
+    const raw = await this.client.xapiRequest<{ value: ThreecxQueue[] }>(
+      "/Queues"
+    );
+    const queues = Array.isArray(raw) ? raw : raw.value ?? [];
+
+    // Fetch agents and managers for each queue in parallel
+    const results = await Promise.all(
+      queues.map(async (q) => {
+        const [agentsRaw, managersRaw] = await Promise.all([
+          this.client
+            .xapiRequest<{ value: ThreecxQueueAgent[] }>(`/Queues(${q.Id})/Agents`)
+            .catch(() => ({ value: [] as ThreecxQueueAgent[] })),
+          this.client
+            .xapiRequest<{ value: ThreecxQueueManager[] }>(`/Queues(${q.Id})/Managers`)
+            .catch(() => ({ value: [] as ThreecxQueueManager[] })),
+        ]);
+        const agents = Array.isArray(agentsRaw) ? agentsRaw : agentsRaw.value ?? [];
+        const managers = Array.isArray(managersRaw) ? managersRaw : managersRaw.value ?? [];
+        return mapQueue(q, agents, managers.map((m) => m.Number));
+      })
+    );
+
+    return results;
+  }
+
+  async getRingGroups(): Promise<RingGroupInfo[]> {
+    const raw = await this.client.xapiRequest<{ value: ThreecxRingGroup[] }>(
+      "/RingGroups"
+    );
+    const groups = Array.isArray(raw) ? raw : raw.value ?? [];
+
+    // Fetch members for each ring group in parallel
+    const results = await Promise.all(
+      groups.map(async (rg) => {
+        const membersRaw = await this.client
+          .xapiRequest<{ value: ThreecxRingGroupMember[] }>(`/RingGroups(${rg.Id})/Members`)
+          .catch(() => ({ value: [] as ThreecxRingGroupMember[] }));
+        const members = Array.isArray(membersRaw) ? membersRaw : membersRaw.value ?? [];
+        return mapRingGroup(rg, members.map((m) => m.Number));
+      })
+    );
+
+    return results;
+  }
+
+  async getGroups(): Promise<GroupInfo[]> {
+    const raw = await this.client.xapiRequest<{ value: ThreecxGroup[] }>(
+      "/Groups"
+    );
+    const groups = Array.isArray(raw) ? raw : raw.value ?? [];
+
+    const results = await Promise.all(
+      groups.map(async (g) => {
+        const membersRaw = await this.client
+          .xapiRequest<{ value: { Number: string }[] }>(`/Groups(${g.Id})/Members`)
+          .catch(() => ({ value: [] as { Number: string }[] }));
+        const members = Array.isArray(membersRaw) ? membersRaw : membersRaw.value ?? [];
+        return mapGroup(g, members.map((m) => m.Number));
+      })
+    );
+
+    return results;
+  }
+
+  /** Log a queue agent in to a specific queue */
+  async queueAgentLogin(queueId: number, extensionNumber: string): Promise<void> {
+    await this.client.xapiAction(`/Queues(${queueId})/Agents/Pbx.LogIn`, {
+      Number: extensionNumber,
+    });
+  }
+
+  /** Log a queue agent out of a specific queue */
+  async queueAgentLogout(queueId: number, extensionNumber: string): Promise<void> {
+    await this.client.xapiAction(`/Queues(${queueId})/Agents/Pbx.LogOut`, {
+      Number: extensionNumber,
+    });
+  }
+
+  async getCallHistory(top = 100, filter?: CallHistoryFilter): Promise<CallHistoryRecord[]> {
+    const params: string[] = [
+      `$top=${top}`,
+      `$orderby=SegmentStartTime desc`,
+    ];
+
+    // Build OData $filter from filter options
+    const filters: string[] = [];
+    if (filter?.dateFrom) {
+      filters.push(`SegmentStartTime ge ${filter.dateFrom}`);
+    }
+    if (filter?.dateTo) {
+      // Add 1 day to make "to" inclusive (end of day)
+      filters.push(`SegmentStartTime le ${filter.dateTo}`);
+    }
+    if (filter?.fromNumber) {
+      const q = filter.fromNumber.replace(/'/g, "''"); // escape single quotes
+      filters.push(`(contains(SrcCallerNumber,'${q}') or contains(SrcDisplayName,'${q}'))`);
+    }
+    if (filter?.toNumber) {
+      const q = filter.toNumber.replace(/'/g, "''");
+      filters.push(`(contains(DstCallerNumber,'${q}') or contains(DstDisplayName,'${q}'))`);
+    }
+    if (filter?.answered !== undefined) {
+      filters.push(`CallAnswered eq ${filter.answered}`);
+    }
+
+    if (filters.length > 0) {
+      params.push(`$filter=${filters.join(" and ")}`);
+    }
+
+    const raw = await this.client.xapiRequest<{ value: ThreecxCallHistoryRecord[] }>(
+      `/CallHistoryView?${params.join("&")}`
+    );
+    const records = Array.isArray(raw) ? raw : raw.value ?? [];
+    return records.map(mapCallHistoryRecord);
+  }
+
   async healthCheck(): Promise<HealthCheckResult> {
     return this.client.healthCheck();
+  }
+
+  // ─── Admin Actions ───────────────────────────────────────
+
+  /** Restart one or more services by name */
+  async restartService(...serviceNames: string[]): Promise<void> {
+    await this.client.xapiAction("/Services/Pbx.Restart", {
+      options: { ServiceNames: serviceNames },
+    });
+  }
+
+  /** Restart all restartable services */
+  async restartAllServices(): Promise<void> {
+    const services = await this.getServices();
+    const names = services.filter((s) => s.restartEnabled).map((s) => s.name);
+    if (names.length > 0) {
+      await this.restartService(...names);
+    }
+  }
+
+  /** Restart the PBX operating system */
+  async restartServer(): Promise<void> {
+    await this.client.xapiAction("/Services/Pbx.RestartOperatingSystem");
   }
 }

@@ -24,6 +24,9 @@ import {
   Cloud,
   Monitor,
   HardDrive,
+  Phone,
+  Wifi,
+  ChevronDown,
 } from "lucide-react";
 
 interface NavItem {
@@ -35,17 +38,18 @@ interface NavItem {
   externalKey?: string;  // Runtime URL key resolved from system.externalUrls
 }
 
-const navSections: { label: string; items: NavItem[] }[] = [
+const navSections: { label: string; collapsible?: boolean; defaultCollapsed?: boolean; items: NavItem[] }[] = [
   {
     label: "Operations",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
-      { href: "/alerts", label: "Alerts", icon: AlertTriangle, permission: "alerts.view" },
       { href: "/tickets", label: "Tickets", icon: Ticket, permission: "tickets.view" },
-      { href: "/clients", label: "Clients", icon: Users, permission: "clients.view" },
+      { href: "/alerts", label: "Alerts", icon: AlertTriangle, permission: "alerts.view" },
       { href: "/backups", label: "Backups", icon: HardDrive, permission: "backups.view" },
+      { href: "/3cx", label: "Phone Systems", icon: Phone, permission: "phone.view" },
+      { href: "/network", label: "Network", icon: Wifi, permission: "network.view" },
       { href: "/cipp", label: "CIPP", icon: Monitor, permission: "cipp.view" },
-      { href: "/audit", label: "Audit Log", icon: ScrollText, permission: "audit.view" },
+      { href: "/clients", label: "Clients", icon: Users, permission: "clients.view" },
     ],
   },
   {
@@ -56,10 +60,13 @@ const navSections: { label: string; items: NavItem[] }[] = [
       { href: "/monitoring", label: "Uptime Monitor", icon: Activity, permission: "tools.uptime" },
       { href: "#", label: "n8n", icon: Workflow, permission: "tools.n8n", external: true, externalKey: "n8n" },
       { href: "/azure", label: "Azure", icon: Cloud, permission: "tools.azure" },
+      { href: "/audit", label: "Audit Log", icon: ScrollText, permission: "audit.view" },
     ],
   },
   {
     label: "Settings",
+    collapsible: true,
+    defaultCollapsed: true,
     items: [
       { href: "/settings", label: "General", icon: Settings, permission: "settings.view" },
       { href: "/settings/integrations", label: "Integrations", icon: Plug, permission: "settings.integrations" },
@@ -116,6 +123,23 @@ export function Sidebar() {
   const activeLogo = !isDark && logoUrlLight ? logoUrlLight : logoUrl;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+
+  // Collapsible sections — init from defaultCollapsed
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
+    const defaults = new Set<string>();
+    for (const s of navSections) {
+      if (s.collapsible && s.defaultCollapsed) defaults.add(s.label);
+    }
+    return defaults;
+  });
+  const toggleSection = (label: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  };
 
   // Fetch user permissions for sidebar filtering
   const { data: permissions } = trpc.user.myPermissions.useQuery(undefined, {
@@ -238,13 +262,37 @@ export function Sidebar() {
             effectiveCollapsed ? "px-2" : "px-3"
           )}
         >
-          {visibleSections.map((section) => (
+          {visibleSections.map((section) => {
+            const isCollapsible = section.collapsible;
+            const isSectionCollapsed = isCollapsible && collapsedSections.has(section.label);
+            // Auto-expand Settings when a settings route is active
+            const hasActiveChild = section.items.some(
+              (item) => !item.external && (pathname === item.href || pathname.startsWith(item.href + "/"))
+            );
+
+            return (
             <div key={section.label} className="mt-6 first:mt-0">
               {!effectiveCollapsed && (
-                <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  {section.label}
-                </p>
+                isCollapsible ? (
+                  <button
+                    onClick={() => toggleSection(section.label)}
+                    className="flex items-center justify-between w-full px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <span>{section.label}</span>
+                    <ChevronDown
+                      className={cn(
+                        "h-3 w-3 transition-transform duration-200",
+                        isSectionCollapsed && !hasActiveChild && "-rotate-90"
+                      )}
+                    />
+                  </button>
+                ) : (
+                  <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    {section.label}
+                  </p>
+                )
               )}
+              {(!isSectionCollapsed || hasActiveChild) && (
               <div className="flex flex-col gap-0.5">
                 {section.items.map((item) => {
                   const isActive =
@@ -306,8 +354,10 @@ export function Sidebar() {
                   );
                 })}
               </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </nav>
 
         {/* Version */}

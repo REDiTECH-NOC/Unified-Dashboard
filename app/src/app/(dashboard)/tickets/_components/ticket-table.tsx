@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import { Loader2, Ticket, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { Loader2, Ticket, ChevronUp, ChevronDown, ChevronsUpDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TicketRow, type TicketRowData } from "./ticket-row";
@@ -18,6 +18,7 @@ const PRIORITY_ORDER: Record<string, number> = {
 
 interface TicketTableProps {
   tickets: TicketRowData[];
+  pinnedTicket?: TicketRowData;
   isLoading: boolean;
   hasMore?: boolean;
   page: number;
@@ -26,10 +27,13 @@ interface TicketTableProps {
   hub: TicketHub;
   emptyMessage?: string;
   emptySubMessage?: string;
+  /** Auto-expand this ticket ID on load (e.g. from notification deep link) */
+  autoExpandId?: string;
 }
 
 export function TicketTable({
   tickets,
+  pinnedTicket,
   isLoading,
   hasMore = false,
   page,
@@ -38,8 +42,14 @@ export function TicketTable({
   hub,
   emptyMessage = "No tickets found",
   emptySubMessage,
+  autoExpandId,
 }: TicketTableProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(autoExpandId ?? null);
+
+  // Auto-expand when autoExpandId changes (e.g. pinned ticket loads)
+  useEffect(() => {
+    if (autoExpandId) setExpandedId(autoExpandId);
+  }, [autoExpandId]);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -104,6 +114,12 @@ export function TicketTable({
     });
   }, [tickets, sortField, sortDir]);
 
+  // Dedup: remove pinned ticket from sorted results to avoid showing it twice
+  const displayTickets = useMemo(() => {
+    if (!pinnedTicket) return sortedTickets;
+    return sortedTickets.filter((t) => t.sourceId !== pinnedTicket.sourceId);
+  }, [sortedTickets, pinnedTicket]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -112,7 +128,7 @@ export function TicketTable({
     );
   }
 
-  if (tickets.length === 0) {
+  if (tickets.length === 0 && !pinnedTicket) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground rounded-xl border border-border/30 bg-card/50">
         <Ticket className="mb-3 h-10 w-10 opacity-30" />
@@ -142,9 +158,27 @@ export function TicketTable({
         {showQuickActions && <div />}
       </div>
 
+      {/* Pinned direct match */}
+      {pinnedTicket && (
+        <div className="border-b border-primary/20 bg-primary/5">
+          <div className="flex items-center gap-2 px-5 py-1.5 text-[10px] font-medium text-primary">
+            <Search className="h-3 w-3" />
+            Direct match
+          </div>
+          <TicketRow
+            key={`pinned-${pinnedTicket.sourceId}`}
+            ticket={pinnedTicket}
+            expanded={expandedId === pinnedTicket.sourceId}
+            onToggle={toggleExpand}
+            showQuickActions={showQuickActions}
+            hub={hub}
+          />
+        </div>
+      )}
+
       {/* Rows */}
       <div className="divide-y divide-border/15">
-        {sortedTickets.map((ticket) => (
+        {displayTickets.map((ticket) => (
           <TicketRow
             key={ticket.sourceId}
             ticket={ticket}
@@ -159,7 +193,7 @@ export function TicketTable({
       {/* Pagination */}
       <div className="flex items-center justify-between px-5 py-3 border-t border-border/30 bg-muted/5">
         <span className="text-xs text-muted-foreground">
-          {tickets.length} ticket{tickets.length !== 1 ? "s" : ""} &middot; Page {page}
+          {tickets.length + (pinnedTicket && !tickets.some((t) => t.sourceId === pinnedTicket.sourceId) ? 1 : 0)} ticket{tickets.length !== 1 ? "s" : ""} &middot; Page {page}
           {sortField && <span className="ml-2 text-primary/70">Sorted by {sortField}</span>}
         </span>
         <div className="flex gap-2">

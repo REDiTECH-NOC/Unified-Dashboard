@@ -27,6 +27,7 @@ import { useTimezone } from "@/hooks/use-timezone";
 import { AlertExpanded } from "./_components/alert-expanded";
 import { ThreatDetailPanel } from "./_components/threat-detail-panel";
 import { S1ManagementView } from "./_components/s1-management";
+import { AvananManagementView } from "./_components/avanan-management";
 
 /* ─── TYPES ──────────────────────────────────────────────── */
 
@@ -362,10 +363,11 @@ export default function AlertsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>("30d");
 
-  // ─── S1 Integration State ───────────────────────────────
+  // ─── S1 / Avanan Integration State ──────────────────────
   const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
   const [detailThreatId, setDetailThreatId] = useState<string | null>(null);
   const [showS1Management, setShowS1Management] = useState(false);
+  const [showAvananManagement, setShowAvananManagement] = useState(false);
 
   // ─── Time Range Computation ──────────────────────────────
   const createdAfter = useMemo(() => getTimeRangeDate(timeRange), [timeRange]);
@@ -375,29 +377,46 @@ export default function AlertsPage() {
   // Fetch active threats/alerts from each platform
   // Errors are expected when connectors aren't configured
 
+  // staleTime on all queries: React Query returns cached data instantly on re-navigation,
+  // then refreshes in the background. Cards never show spinners on subsequent visits.
   const s1Threats = trpc.edr.getThreats.useQuery(
     { pageSize: 100, createdAfter },
-    { retry: false, refetchInterval: 60000 }
+    { retry: false, refetchInterval: 60000, staleTime: 5 * 60_000 }
   );
 
   const bpDetections = trpc.blackpoint.getDetections.useQuery(
     { take: 100, since: createdAfter },
-    { retry: false, refetchInterval: 60000 }
+    { retry: false, refetchInterval: 60000, staleTime: 5 * 60_000 }
   );
 
   const ninjaAlerts = trpc.rmm.getAlerts.useQuery(
     { pageSize: 100, createdAfter },
-    { retry: false, refetchInterval: 60000 }
+    { retry: false, refetchInterval: 60000, staleTime: 5 * 60_000 }
   );
 
   const uptimeMonitors = trpc.uptime.list.useQuery(
     {},
-    { retry: false, refetchInterval: 60000 }
+    { retry: false, refetchInterval: 60000, staleTime: 5 * 60_000 }
   );
 
   const backupAlerts = trpc.backup.getAlerts.useQuery(
     undefined,
-    { retry: false, refetchInterval: 120000 }
+    { retry: false, refetchInterval: 120000, staleTime: 5 * 60_000 }
+  );
+
+  const avananTenants = trpc.emailSecurity.listTenants.useQuery(undefined, {
+    retry: false,
+    refetchInterval: 300000,
+    staleTime: 10 * 60_000,
+  });
+
+  const avananEventStats = trpc.emailSecurity.getEventStats.useQuery(
+    { days: 30 },
+    {
+      retry: 1,
+      refetchInterval: 600000, // 10 min — server handles staleness
+      staleTime: 10 * 60_000,  // Don't refetch for 10 min (server caches 30 min)
+    }
   );
 
   const utils = trpc.useUtils();
@@ -496,6 +515,25 @@ export default function AlertsPage() {
     }
     return { total: alerts.length, critical, high, medium };
   }, [backupAlerts.data]);
+
+  const avananSummary = useMemo(() => {
+    if (!avananTenants.data) return null;
+    let active = 0, expired = 0, totalUsers = 0;
+    for (const t of avananTenants.data) {
+      if (t.isDeleted) continue;
+      const statusCode = t.status?.toLowerCase() ?? "";
+      if (statusCode === "success") active++;
+      else expired++;
+      totalUsers += t.users ?? 0;
+    }
+    const hasEventStats = !!avananEventStats.data;
+    const eventTotal = avananEventStats.data?.total ?? 0;
+    const phishing = avananEventStats.data?.byType?.phishing ?? 0;
+    const spam = avananEventStats.data?.byType?.spam ?? 0;
+    const malware = avananEventStats.data?.byType?.malware ?? 0;
+    // Show event total when available, otherwise show tenant count
+    return { total: hasEventStats ? eventTotal : active, active, expired, totalUsers, phishing, spam, malware };
+  }, [avananTenants.data, avananEventStats.data]);
 
   // ─── Build Unified Alert List ──────────────────────────
 
@@ -703,6 +741,8 @@ export default function AlertsPage() {
     utils.rmm.getAlerts.invalidate();
     utils.uptime.list.invalidate();
     utils.backup.getAlerts.invalidate();
+    utils.emailSecurity.listTenants.invalidate();
+    utils.emailSecurity.getEventStats.invalidate();
   }
 
   return (
@@ -769,6 +809,7 @@ export default function AlertsPage() {
               setShowS1Management(false);
             } else {
               setShowS1Management(true);
+              setShowAvananManagement(false);
               setExpandedGroupKey(null);
               setDetailThreatId(null);
             }
@@ -847,14 +888,38 @@ export default function AlertsPage() {
           active={sourceFilter === "cove"}
         />
 
-        {/* Avanan — placeholder */}
+        {/* Avanan / Check Point Harmony Email */}
         <PlatformCard
           name="Avanan"
           icon={Mail}
           iconColor="bg-amber-500/10 text-amber-500"
-          total={0}
-          breakdowns={[]}
-          notConnected
+          total={avananSummary?.total ?? 0}
+          breakdowns={avananSummary ? (
+            avananSummary.phishing || avananSummary.spam || avananSummary.malware
+              ? [
+                  { label: "Phishing", count: avananSummary.phishing, severity: "critical" as const },
+                  { label: "Malware", count: avananSummary.malware, severity: "high" as const },
+                  { label: "Spam", count: avananSummary.spam, severity: "medium" as const },
+                ]
+              : [
+                  { label: "Active Tenants", count: avananSummary.active, severity: "low" as const },
+                  { label: "Expired", count: avananSummary.expired, severity: "critical" as const },
+                ]
+          ) : []}
+          loading={avananTenants.isLoading}
+          error={avananTenants.isError && !avananTenants.data}
+          notConnected={avananTenants.isError && (avananTenants.error?.message?.includes("No active") || avananTenants.error?.message?.includes("not configured"))}
+          onClick={() => {
+            if (showAvananManagement) {
+              setShowAvananManagement(false);
+            } else {
+              setShowAvananManagement(true);
+              setShowS1Management(false);
+              setExpandedGroupKey(null);
+              setDetailThreatId(null);
+            }
+          }}
+          active={showAvananManagement}
         />
       </div>
 
@@ -871,6 +936,19 @@ export default function AlertsPage() {
             </button>
           </div>
           <S1ManagementView />
+        </div>
+      ) : showAvananManagement ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowAvananManagement(false)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to All Alerts
+            </button>
+          </div>
+          <AvananManagementView />
         </div>
       ) : (
         <>

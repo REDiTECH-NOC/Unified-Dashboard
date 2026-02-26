@@ -127,6 +127,61 @@ export async function getAllCwMappedUserIds(): Promise<string[]> {
 }
 
 /**
+ * Resolve ALL app userIds who should be notified about a ticket.
+ * Checks both the owner and the resources field.
+ *
+ * CW tickets have an `owner` (single member) and `resources` (comma-separated
+ * member identifiers like "Andrew, Dave, DylanE"). CW sends "assigned"
+ * notifications to all resources, so we should too.
+ *
+ * @param cwMembers - Cached CW member list for identifier → full member lookup
+ */
+export async function resolveAllTicketRecipients(
+  rawTicket: Record<string, any> | undefined,
+  cwMembers: Array<{ id: string; identifier: string; name: string; email: string }>
+): Promise<string[]> {
+  const resolvedUserIds = new Set<string>();
+
+  // 1. Resolve owner
+  if (rawTicket?.owner) {
+    const ownerLookup = {
+      memberId: rawTicket.owner.id ? String(rawTicket.owner.id) : undefined,
+      memberIdentifier: rawTicket.owner.identifier as string | undefined,
+    };
+    const ownerId = await resolveTicketOwner(
+      rawTicket.owner.name ?? "",
+      ownerLookup
+    );
+    if (ownerId) resolvedUserIds.add(ownerId);
+  }
+
+  // 2. Resolve resources (comma-separated CW member identifiers)
+  const resourcesStr = rawTicket?.resources as string | undefined;
+  if (resourcesStr) {
+    const identifiers = resourcesStr.split(",").map((s) => s.trim()).filter(Boolean);
+    for (const identifier of identifiers) {
+      // Look up the CW member by identifier to get their full details
+      const member = cwMembers.find(
+        (m) => m.identifier.toLowerCase() === identifier.toLowerCase()
+      );
+      if (member) {
+        const userId = await resolveTicketOwner(member.name, {
+          memberId: member.id,
+          memberIdentifier: member.identifier,
+        });
+        if (userId) resolvedUserIds.add(userId);
+      } else {
+        // Fallback: try resolving the identifier directly
+        const userId = await resolveTicketOwner(identifier);
+        if (userId) resolvedUserIds.add(userId);
+      }
+    }
+  }
+
+  return Array.from(resolvedUserIds);
+}
+
+/**
  * Detect what changed between old and new ticket state.
  * Returns an array of change types for notification routing.
  */

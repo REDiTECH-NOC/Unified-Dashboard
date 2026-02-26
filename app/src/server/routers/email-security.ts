@@ -19,6 +19,103 @@ async function getEmailSecurity(prisma: Parameters<typeof ConnectorFactory.get>[
   return ConnectorFactory.getByToolId("avanan", prisma) as unknown as IEmailSecurityConnector;
 }
 
+// ── Stale-while-revalidate cache for expensive event stat aggregations ──
+// Returns cached data INSTANTLY, then refreshes in the background if stale.
+// This prevents the 60+ second API pagination from blocking page load.
+type EventStatsResult = {
+  total: number;
+  totalRecords: number;
+  byType: Record<string, number>;
+  byState: Record<string, number>;
+  bySeverity: Record<string, number>;
+  byDay: Record<string, number>;
+  byCustomer: Record<string, number>;
+  byCustomerByType: Record<string, Record<string, number>>;
+  days: number;
+};
+const statsCache = new Map<string, { data: EventStatsResult; fetchedAt: number }>();
+const STATS_STALE_AFTER = 30 * 60_000; // 30 min — trigger background refresh
+const refreshInProgress = new Set<string>(); // prevent duplicate background refreshes
+
+/** Fetch all events from Avanan API and aggregate stats. Used by getEventStats. */
+async function fetchEventStats(
+  prisma: Parameters<typeof ConnectorFactory.get>[1],
+  days: number,
+  eventStates: string[] | undefined,
+  cacheKey: string,
+): Promise<EventStatsResult> {
+  const connector = await getEmailSecurity(prisma);
+  const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const endDate = new Date();
+
+  const byType: Record<string, number> = {};
+  const byState: Record<string, number> = {};
+  const bySeverity: Record<string, number> = {};
+  const byDay: Record<string, number> = {};
+  const byCustomer: Record<string, number> = {};
+  const byCustomerByType: Record<string, Record<string, number>> = {};
+  let total = 0;
+  let scrollId: string | undefined;
+
+  const allowedStates = eventStates?.length
+    ? new Set(eventStates.map((s) => s.toLowerCase()))
+    : null;
+
+  for (let page = 0; page < 500; page++) {
+    let result;
+    try {
+      result = await connector.getSecurityEvents({ startDate, endDate }, scrollId);
+    } catch (err) {
+      console.error("[avanan] getEventStats page error:", err instanceof Error ? err.message : err);
+      break;
+    }
+
+    for (const evt of result.data) {
+      const raw = evt._raw as Record<string, unknown> | undefined;
+      const type = (raw?.type as string) || "unknown";
+      const state = (raw?.state as string) || "unknown";
+      const severity = String((raw?.severity as string) || "0");
+      const customerId = (raw?.customerId as string) || "unknown";
+      const created = (raw?.eventCreated as string) || "";
+
+      if (allowedStates && !allowedStates.has(state.toLowerCase())) continue;
+
+      total++;
+      byType[type] = (byType[type] || 0) + 1;
+      byState[state] = (byState[state] || 0) + 1;
+      bySeverity[severity] = (bySeverity[severity] || 0) + 1;
+      byCustomer[customerId] = (byCustomer[customerId] || 0) + 1;
+
+      if (!byCustomerByType[customerId]) byCustomerByType[customerId] = {};
+      byCustomerByType[customerId][type] = (byCustomerByType[customerId][type] || 0) + 1;
+
+      if (created) {
+        const day = created.substring(0, 10);
+        byDay[day] = (byDay[day] || 0) + 1;
+      }
+    }
+
+    scrollId = result.nextCursor ? String(result.nextCursor) : undefined;
+    if (!result.hasMore || !scrollId) break;
+  }
+
+  const data: EventStatsResult = {
+    total,
+    totalRecords: total,
+    byType,
+    byState,
+    bySeverity,
+    byDay,
+    byCustomer,
+    byCustomerByType,
+    days,
+  };
+
+  statsCache.set(cacheKey, { data, fetchedAt: Date.now() });
+  console.log(`[avanan] Event stats refreshed: ${total} events (cache key: ${cacheKey})`);
+  return data;
+}
+
 export const emailSecurityRouter = router({
   // ═══════════════════════════════════════════════════════════════
   // Security Events (Threats)
@@ -69,6 +166,44 @@ export const emailSecurityRouter = router({
     .query(async ({ ctx, input }) => {
       const connector = await getEmailSecurity(ctx.prisma);
       return connector.getSecurityEventById(input.eventId, input.scope);
+    }),
+
+  /**
+   * Aggregated security event stats for dashboard.
+   *
+   * Uses stale-while-revalidate pattern:
+   * - If cached data exists (even stale), returns it INSTANTLY — never blocks.
+   * - If data is >30 min old, triggers a background refresh (non-blocking).
+   * - Only blocks on the very first call after container restart.
+   *
+   * This prevents the ~60s API pagination from freezing the entire page.
+   */
+  getEventStats: protectedProcedure
+    .input(
+      z.object({
+        days: z.number().int().min(1).max(365).default(30),
+        eventStates: z.array(z.string()).optional(),
+      }).default({})
+    )
+    .query(async ({ ctx, input }) => {
+      const cacheKey = `eventStats:${input.days}:${(input.eventStates || []).sort().join(",")}`;
+      const cached = statsCache.get(cacheKey);
+
+      if (cached) {
+        // Always return cached data instantly — never block the page
+        const age = Date.now() - cached.fetchedAt;
+        if (age > STATS_STALE_AFTER && !refreshInProgress.has(cacheKey)) {
+          // Stale → trigger background refresh (don't await)
+          refreshInProgress.add(cacheKey);
+          fetchEventStats(ctx.prisma, input.days, input.eventStates, cacheKey)
+            .catch((err) => console.error("[avanan] background refresh error:", err))
+            .finally(() => refreshInProgress.delete(cacheKey));
+        }
+        return cached.data;
+      }
+
+      // No cache at all (first load after restart) — must fetch synchronously
+      return fetchEventStats(ctx.prisma, input.days, input.eventStates, cacheKey);
     }),
 
   // ═══════════════════════════════════════════════════════════════
@@ -467,43 +602,13 @@ export const emailSecurityRouter = router({
   }),
 
   // ═══════════════════════════════════════════════════════════════
-  // MSP Tenant Management
+  // MSP Tenant Management (SmartAPI)
   // ═══════════════════════════════════════════════════════════════
 
   listTenants: adminProcedure.query(async ({ ctx }) => {
     const connector = await getEmailSecurity(ctx.prisma);
     return connector.listTenants();
   }),
-
-  createTenant: adminProcedure
-    .input(
-      z.object({
-        tenantName: z.string().min(1),
-        adminEmail: z.string().email(),
-        licenses: z
-          .array(
-            z.object({
-              licenseId: z.string(),
-              quantity: z.number().int().positive(),
-            })
-          )
-          .optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const connector = await getEmailSecurity(ctx.prisma);
-      const tenant = await connector.createTenant(input);
-
-      await auditLog({
-        action: "email_security.msp.tenant.created",
-        category: "SECURITY",
-        actorId: ctx.user.id,
-        resource: `tenant:${tenant.tenantId}`,
-        detail: { tenantName: input.tenantName, adminEmail: input.adminEmail },
-      });
-
-      return tenant;
-    }),
 
   describeTenant: adminProcedure
     .input(z.object({ tenantId: z.string() }))
@@ -512,52 +617,8 @@ export const emailSecurityRouter = router({
       return connector.describeTenant(input.tenantId);
     }),
 
-  deleteTenant: adminProcedure
-    .input(z.object({ tenantId: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const connector = await getEmailSecurity(ctx.prisma);
-      await connector.deleteTenant(input.tenantId);
-
-      await auditLog({
-        action: "email_security.msp.tenant.deleted",
-        category: "SECURITY",
-        actorId: ctx.user.id,
-        resource: `tenant:${input.tenantId}`,
-        detail: { tenantId: input.tenantId },
-      });
-
-      return { success: true };
-    }),
-
-  updateTenantLicenses: adminProcedure
-    .input(
-      z.object({
-        tenantId: z.string(),
-        licenses: z.array(
-          z.object({
-            licenseId: z.string(),
-            quantity: z.number().int().positive(),
-          })
-        ),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const connector = await getEmailSecurity(ctx.prisma);
-      await connector.updateTenantLicenses(input.tenantId, input.licenses);
-
-      await auditLog({
-        action: "email_security.msp.tenant.licenses_updated",
-        category: "SECURITY",
-        actorId: ctx.user.id,
-        resource: `tenant:${input.tenantId}`,
-        detail: { tenantId: input.tenantId, licenses: input.licenses },
-      });
-
-      return { success: true };
-    }),
-
   // ═══════════════════════════════════════════════════════════════
-  // MSP Licenses
+  // MSP Licenses (SmartAPI)
   // ═══════════════════════════════════════════════════════════════
 
   listLicenses: adminProcedure.query(async ({ ctx }) => {
@@ -571,63 +632,13 @@ export const emailSecurityRouter = router({
   }),
 
   // ═══════════════════════════════════════════════════════════════
-  // MSP Partners
+  // MSP Users (SmartAPI)
   // ═══════════════════════════════════════════════════════════════
 
-  listPartners: adminProcedure.query(async ({ ctx }) => {
+  listUsers: adminProcedure.query(async ({ ctx }) => {
     const connector = await getEmailSecurity(ctx.prisma);
-    return connector.listPartners();
+    return connector.listUsers();
   }),
-
-  createPartner: adminProcedure
-    .input(
-      z.object({
-        partnerName: z.string().min(1),
-        adminEmail: z.string().email(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const connector = await getEmailSecurity(ctx.prisma);
-      const partner = await connector.createPartner(input);
-
-      await auditLog({
-        action: "email_security.msp.partner.created",
-        category: "SECURITY",
-        actorId: ctx.user.id,
-        resource: `partner:${partner.partnerId}`,
-        detail: { partnerName: input.partnerName },
-      });
-
-      return partner;
-    }),
-
-  deletePartner: adminProcedure
-    .input(z.object({ partnerId: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const connector = await getEmailSecurity(ctx.prisma);
-      await connector.deletePartner(input.partnerId);
-
-      await auditLog({
-        action: "email_security.msp.partner.deleted",
-        category: "SECURITY",
-        actorId: ctx.user.id,
-        resource: `partner:${input.partnerId}`,
-        detail: { partnerId: input.partnerId },
-      });
-
-      return { success: true };
-    }),
-
-  // ═══════════════════════════════════════════════════════════════
-  // MSP Users
-  // ═══════════════════════════════════════════════════════════════
-
-  listUsers: adminProcedure
-    .input(z.object({ tenantId: z.string().optional() }).optional())
-    .query(async ({ ctx, input }) => {
-      const connector = await getEmailSecurity(ctx.prisma);
-      return connector.listUsers(input?.tenantId);
-    }),
 
   createUser: adminProcedure
     .input(
@@ -635,8 +646,11 @@ export const emailSecurityRouter = router({
         email: z.string().email(),
         firstName: z.string().optional(),
         lastName: z.string().optional(),
-        role: z.string(),
-        tenantId: z.string().optional(),
+        role: z.string().min(1),
+        directLogin: z.boolean().optional(),
+        samlLogin: z.boolean().optional(),
+        sendAlerts: z.boolean().optional(),
+        receiveWeeklyReports: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -644,11 +658,11 @@ export const emailSecurityRouter = router({
       const user = await connector.createUser(input);
 
       await auditLog({
-        action: "email_security.msp.user.created",
+        action: "email_security.msp_user.created",
         category: "SECURITY",
         actorId: ctx.user.id,
-        resource: `user:${user.userId}`,
-        detail: { email: input.email, role: input.role, tenantId: input.tenantId },
+        resource: `msp_user:${input.email}`,
+        detail: { email: input.email, role: input.role },
       });
 
       return user;
@@ -657,40 +671,47 @@ export const emailSecurityRouter = router({
   updateUser: adminProcedure
     .input(
       z.object({
-        userId: z.string(),
+        userId: z.number(),
         firstName: z.string().optional(),
         lastName: z.string().optional(),
         role: z.string().optional(),
-        status: z.string().optional(),
+        directLogin: z.boolean().optional(),
+        samlLogin: z.boolean().optional(),
+        sendAlerts: z.boolean().optional(),
+        receiveWeeklyReports: z.boolean().optional(),
+        // MSP-level fields (write-only — accepted by UPDATE, not returned by LIST)
+        mspRole: z.enum(["Admin", "Help Desk"]).optional(),
+        mspTenantAccess: z.enum(["All", "Except", "Only"]).optional(),
+        mspTenants: z.array(z.number()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { userId, ...update } = input;
+      const { userId, ...updates } = input;
       const connector = await getEmailSecurity(ctx.prisma);
-      const user = await connector.updateUser(userId, update);
+      const user = await connector.updateUser(userId, updates);
 
       await auditLog({
-        action: "email_security.msp.user.updated",
+        action: "email_security.msp_user.updated",
         category: "SECURITY",
         actorId: ctx.user.id,
-        resource: `user:${userId}`,
-        detail: { userId, ...update },
+        resource: `msp_user:${userId}`,
+        detail: { userId, updates },
       });
 
       return user;
     }),
 
   deleteUser: adminProcedure
-    .input(z.object({ userId: z.string() }))
+    .input(z.object({ userId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const connector = await getEmailSecurity(ctx.prisma);
       await connector.deleteUser(input.userId);
 
       await auditLog({
-        action: "email_security.msp.user.deleted",
+        action: "email_security.msp_user.deleted",
         category: "SECURITY",
         actorId: ctx.user.id,
-        resource: `user:${input.userId}`,
+        resource: `msp_user:${input.userId}`,
         detail: { userId: input.userId },
       });
 
@@ -698,20 +719,19 @@ export const emailSecurityRouter = router({
     }),
 
   // ═══════════════════════════════════════════════════════════════
-  // MSP Usage
+  // MSP Usage (SmartAPI)
   // ═══════════════════════════════════════════════════════════════
 
   getUsage: adminProcedure
     .input(
       z.object({
-        period: z.enum(["monthly", "daily"]),
-        startDate: z.string().optional(),
-        endDate: z.string().optional(),
+        year: z.number().int().min(2020).max(2030),
+        month: z.number().int().min(1).max(12),
       })
     )
     .query(async ({ ctx, input }) => {
       const connector = await getEmailSecurity(ctx.prisma);
-      return connector.getUsage(input.period, input.startDate, input.endDate);
+      return connector.getUsage(input.year, input.month);
     }),
 
   // ═══════════════════════════════════════════════════════════════

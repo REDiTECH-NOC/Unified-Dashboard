@@ -29,6 +29,7 @@ export interface TicketFilter {
   assignedTo?: string;
   createdAfter?: Date;
   createdBefore?: Date;
+  updatedAfter?: Date;
   searchTerm?: string;
 }
 

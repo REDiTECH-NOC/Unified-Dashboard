@@ -271,6 +271,52 @@ export const userRouter = router({
       return { success: true };
     }),
 
+  getTicketPreferences: protectedProcedure.query(async ({ ctx }) => {
+    const keys = [
+      "tickets.myDefaultStatuses",
+      "tickets.allDefaultStatuses",
+      "tickets.allDefaultBoards",
+    ];
+    const prefs = await ctx.prisma.userPreference.findMany({
+      where: { userId: ctx.user.id, key: { in: keys } },
+    });
+    const map = Object.fromEntries(prefs.map((p) => [p.key, p.value]));
+    return {
+      myDefaultStatuses: (map["tickets.myDefaultStatuses"] as string[] | undefined) ?? null,
+      allDefaultStatuses: (map["tickets.allDefaultStatuses"] as string[] | undefined) ?? null,
+      allDefaultBoards: (map["tickets.allDefaultBoards"] as string[] | undefined) ?? null,
+    };
+  }),
+
+  saveTicketPreferences: protectedProcedure
+    .input(
+      z.object({
+        myDefaultStatuses: z.array(z.string()).optional(),
+        allDefaultStatuses: z.array(z.string()).optional(),
+        allDefaultBoards: z.array(z.string()).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const pairs: Array<[string, unknown]> = [];
+      if (input.myDefaultStatuses !== undefined)
+        pairs.push(["tickets.myDefaultStatuses", input.myDefaultStatuses]);
+      if (input.allDefaultStatuses !== undefined)
+        pairs.push(["tickets.allDefaultStatuses", input.allDefaultStatuses]);
+      if (input.allDefaultBoards !== undefined)
+        pairs.push(["tickets.allDefaultBoards", input.allDefaultBoards]);
+
+      await Promise.all(
+        pairs.map(([key, value]) =>
+          ctx.prisma.userPreference.upsert({
+            where: { userId_key: { userId: ctx.user.id, key } },
+            update: { value: value as any },
+            create: { userId: ctx.user.id, key, value: value as any },
+          })
+        )
+      );
+      return { success: true };
+    }),
+
   // Create a new local user account
   create: adminProcedure
     .input(z.object({

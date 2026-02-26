@@ -540,6 +540,7 @@ model ThreecxInstance {
   encryptedPassword    String    // AES-256-GCM encrypted web client password
   companyId            String?
   company              Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyName          String?   // free-text company name (used when not linked to a CW company)
   status               String    @default("unknown") // online | offline | degraded | unknown
   version              String?
   os                   String?
@@ -547,15 +548,33 @@ model ThreecxInstance {
   lastHealthCheck      DateTime?
   lastSeenAt           DateTime?
 
+  // License info (all from polling — not manually set)
+  productCode          String?   // e.g. "3CXPSPROFENTSPLA" — parsed for license type display
+  maxSimCalls          Int?      // from SystemStatus.MaxSimCalls
+  expirationDate       DateTime? // license expiration
+  maintenanceExpiresAt DateTime? // maintenance expiration
+  updateAvailable      Boolean?  // from GetUpdatesStats (future)
+  latestVersion        String?   // newest available version (future)
+
   // Cached status fields (updated by polling, avoids live queries for dashboard)
   callsActive          Int?
-  extensionsRegistered Int?
-  extensionsTotal      Int?
+  extensionsRegistered Int?      // phones currently registered
+  extensionsTotal      Int?      // total configured extensions
+  userExtensions       Int?      // user extensions configured (e.g. 2)
+  maxUserExtensions    Int?      // license limit for user extensions (e.g. 15)
   trunksRegistered     Int?
   trunksTotal          Int?
   cpuUsage             Float?
   diskUsagePercent     Int?
   hasFailedServices    Boolean?
+
+  // SSO Deployment — SSH credentials for on-prem relay agent file deployment
+  localIp              String?   // LAN IP of PBX (e.g., "10.0.1.50")
+  sshUsername          String?   // SSH user (typically "root")
+  encryptedSshPassword String?   // AES-256-GCM encrypted SSH password
+  ssoDeployed          Boolean   @default(false) // SSO files currently deployed
+  ssoDeployedAt        DateTime? // last successful SSO deployment
+  ssoDeployStatus      String?   // pending | deploying | deployed | failed
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -563,6 +582,59 @@ model ThreecxInstance {
   @@index([companyId])
   @@index([status])
   @@index([isActive])
+}
+
+// ─── On-Prem Relay Agent ────────────────────────────────────────
+
+// Registered relay agent running in the customer's datacenter.
+// Authenticates via API key (bcrypt-hashed). Polls for tasks and
+// executes them on the local network (SSH deployments, etc.).
+model OnPremAgent {
+  id            String    @id @default(cuid())
+  name          String    // friendly name, e.g., "HQ Relay Agent"
+  apiKeyHash    String    // bcrypt hash of the agent's API key
+  apiKeyPrefix  String    // first 8 chars for identification (e.g., "rcc_ag_1")
+  isActive      Boolean   @default(true)
+  lastHeartbeat DateTime? // updated every poll cycle
+  lastIp        String?   // IP from last heartbeat
+  version       String?   // agent software version (self-reported)
+  createdBy     String?   // userId of admin who registered
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tasks AgentTask[]
+
+  @@index([apiKeyPrefix])
+  @@index([isActive])
+}
+
+// Task queue for the on-prem relay agent. Each row = one job.
+// Lifecycle: pending → claimed → completed | failed
+model AgentTask {
+  id               String    @id @default(cuid())
+  agentId          String?   // null when pending; set when agent claims
+  agent            OnPremAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  type             String    // "deploy_sso" (extensible for future task types)
+  status           String    @default("pending") // pending | claimed | completed | failed
+  targetInstanceId String    // ThreecxInstance.id
+
+  payload      Json?     // populated at claim time (SSH creds, file contents, paths)
+  result       Json?     // { success: true } or { error: "..." }
+  errorMessage String?   // human-readable error for display
+
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(3)
+  lastAttemptAt DateTime?
+
+  createdBy   String?   // userId of admin who triggered
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([status])
+  @@index([agentId])
+  @@index([targetInstanceId])
+  @@index([status, createdAt])
 }
 
 // ─── Quick Links ────────────────────────────────────────────────

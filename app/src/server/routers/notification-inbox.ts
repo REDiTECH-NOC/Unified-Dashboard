@@ -8,8 +8,17 @@
 import { z } from "zod";
 import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { auditLog } from "@/lib/audit";
+import { redis } from "@/lib/redis";
 import { ConnectorFactory } from "../connectors/factory";
 import type { IPsaConnector } from "../connectors/_interfaces/psa";
+import {
+  createNotification,
+  resolveAllTicketRecipients,
+  detectTicketChanges,
+  detectNewReply,
+  cacheTicketState,
+  getCachedTicketState,
+} from "@/lib/notification-engine";
 
 export const notificationInboxRouter = router({
   /**
@@ -189,4 +198,154 @@ export const notificationInboxRouter = router({
       });
       return { success: true };
     }),
+
+  /**
+   * Poll CW for recently updated tickets and create notifications.
+   * Uses a Redis lock to prevent concurrent/redundant polls (90s cooldown).
+   * Any authenticated user can trigger it; it processes ALL mapped users.
+   */
+  pollTickets: protectedProcedure.mutation(async ({ ctx }) => {
+    // Redis lock — only one poll per 90 seconds
+    const lockKey = "ticket-poll:lock";
+    const acquired = await redis.set(lockKey, "1", "EX", 90, "NX");
+    if (!acquired) {
+      return { skipped: true, reason: "poll_cooldown", notifications: 0 };
+    }
+
+    try {
+      const psa = (await ConnectorFactory.get("psa", ctx.prisma)) as IPsaConnector;
+
+      // Get all users with CW integration mappings
+      const mappings = await ctx.prisma.userIntegrationMapping.findMany({
+        where: { toolId: "connectwise" },
+      });
+      if (mappings.length === 0) {
+        return { skipped: true, reason: "no_mappings", notifications: 0 };
+      }
+
+      // Fetch CW members for resource identifier resolution (cached 1hr in Redis)
+      let cwMembers: Array<{ id: string; identifier: string; name: string; email: string }> = [];
+      try {
+        const cached = await redis.get("cw:members:cache");
+        if (cached) {
+          cwMembers = JSON.parse(cached);
+        } else {
+          cwMembers = await psa.getMembers();
+          await redis.set("cw:members:cache", JSON.stringify(cwMembers), "EX", 3600);
+        }
+      } catch {}
+
+      // Query CW for tickets updated in the last 5 minutes
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const result = await psa.getTickets({ updatedAfter: fiveMinAgo }, 1, 100);
+      const tickets = result.data;
+
+      if (tickets.length === 0) {
+        return { skipped: false, notifications: 0, ticketsChecked: 0 };
+      }
+
+      let notificationCount = 0;
+
+      for (const ticket of tickets) {
+        const ticketId = ticket.sourceId;
+        const rawTicket = ticket._raw as Record<string, any> | undefined;
+
+        // Resolve ALL recipients (owner + resources)
+        const recipientUserIds = await resolveAllTicketRecipients(rawTicket, cwMembers);
+        if (recipientUserIds.length === 0) continue;
+
+        // Get cached state for comparison
+        const prevState = await getCachedTicketState(ticketId);
+        const currentState = {
+          status: ticket.status,
+          assignedTo: ticket.assignedTo,
+        };
+
+        const changes = detectTicketChanges(prevState, currentState);
+
+        for (const change of changes) {
+          if (change.type === "ticket_assigned") {
+            for (const userId of recipientUserIds) {
+              const dedupKey = `ticket-notif:${ticketId}:${change.type}:${userId}`;
+              const alreadySent = await redis.exists(dedupKey);
+              if (!alreadySent) {
+                await createNotification({
+                  userId,
+                  type: "ticket_assigned",
+                  title: `Ticket #${ticketId} assigned to you`,
+                  body: `${ticket.summary}${change.description ? ` — ${change.description}` : ""}`,
+                  linkUrl: `/tickets?id=${ticketId}`,
+                  sourceType: "connectwise_ticket",
+                  sourceId: ticketId,
+                  metadata: { companyName: ticket.companyName, priority: ticket.priority },
+                });
+                await redis.set(dedupKey, "1", "EX", 300);
+                notificationCount++;
+              }
+            }
+          }
+
+          if (change.type === "ticket_status_changed") {
+            for (const userId of recipientUserIds) {
+              const dedupKey = `ticket-notif:${ticketId}:status:${ticket.status}:${userId}`;
+              const alreadySent = await redis.exists(dedupKey);
+              if (!alreadySent) {
+                await createNotification({
+                  userId,
+                  type: "ticket_status_changed",
+                  title: `Ticket #${ticketId} status changed`,
+                  body: `${ticket.summary} — ${change.description}`,
+                  linkUrl: `/tickets?id=${ticketId}`,
+                  sourceType: "connectwise_ticket",
+                  sourceId: ticketId,
+                  metadata: { companyName: ticket.companyName, newStatus: ticket.status },
+                });
+                await redis.set(dedupKey, "1", "EX", 300);
+                notificationCount++;
+              }
+            }
+          }
+        }
+
+        // Check for new client replies
+        try {
+          const notes = await psa.getTicketNotes(ticketId);
+          const reply = await detectNewReply(ticketId, notes);
+          if (reply.isNew) {
+            for (const userId of recipientUserIds) {
+              const dedupKey = `ticket-notif:${ticketId}:reply:${reply.noteId}:${userId}`;
+              const alreadySent = await redis.exists(dedupKey);
+              if (!alreadySent) {
+                await createNotification({
+                  userId,
+                  type: "ticket_reply",
+                  title: `New reply on ticket #${ticketId}`,
+                  body: `${ticket.companyName ?? "Client"} replied to: ${ticket.summary}`,
+                  linkUrl: `/tickets?id=${ticketId}`,
+                  sourceType: "connectwise_ticket",
+                  sourceId: ticketId,
+                  metadata: { companyName: ticket.companyName, noteId: reply.noteId, replyFrom: reply.createdBy },
+                });
+                await redis.set(dedupKey, "1", "EX", 300);
+                notificationCount++;
+              }
+            }
+          }
+        } catch {
+          // Note fetch failed — skip reply detection for this ticket
+        }
+
+        // Update cached state for future diffs
+        await cacheTicketState(ticketId, currentState);
+      }
+
+      console.log(`[ticket-poll] Checked ${tickets.length} tickets, created ${notificationCount} notifications`);
+      return { skipped: false, notifications: notificationCount, ticketsChecked: tickets.length };
+    } catch (err: any) {
+      console.error("[ticket-poll] Error:", err?.message);
+      // Release lock on error so we can retry sooner
+      await redis.del(lockKey);
+      return { skipped: false, notifications: 0, error: err?.message };
+    }
+  }),
 });

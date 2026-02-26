@@ -66,26 +66,39 @@ export class ThreecxClient extends BaseHttpClient {
 
     // Authenticate against the PBX
     const loginUrl = `https://${this.fqdn}/webclient/api/Login/GetAccessToken`;
-    const response = await fetch(loginUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        Username: this.extensionNumber,
-        Password: this.password,
-        SecurityCode: "",
-      }),
-    });
-
-    if (!response.ok) {
+    console.log(`[3CX] Authenticating to ${this.fqdn} as ext ${this.extensionNumber}...`);
+    let response: Response;
+    try {
+      response = await fetch(loginUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          Username: this.extensionNumber,
+          Password: this.password,
+          SecurityCode: "",
+        }),
+      });
+    } catch (fetchErr) {
+      console.error(`[3CX] Network error reaching ${loginUrl}:`, fetchErr instanceof Error ? fetchErr.message : fetchErr);
       throw new ConnectorAuthError(
         `threecx:${this.instanceId}`,
-        `3CX login failed: HTTP ${response.status}`
+        `Cannot reach 3CX at ${this.fqdn}: ${fetchErr instanceof Error ? fetchErr.message : "Network error"}`
+      );
+    }
+
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => "");
+      console.error(`[3CX] Login failed for ${this.fqdn}: HTTP ${response.status}`, errBody);
+      throw new ConnectorAuthError(
+        `threecx:${this.instanceId}`,
+        `3CX login failed: HTTP ${response.status} — ${errBody.slice(0, 200)}`
       );
     }
 
     const data = (await response.json()) as ThreecxLoginResponse;
 
     if (data.Status !== "AuthSuccess" || !data.Token) {
+      console.error(`[3CX] Auth rejected for ${this.fqdn}: Status=${data.Status}`, JSON.stringify(data));
       throw new ConnectorAuthError(
         `threecx:${this.instanceId}`,
         `3CX auth status: ${data.Status}`
@@ -114,9 +127,14 @@ export class ThreecxClient extends BaseHttpClient {
     return accessToken;
   }
 
-  /** Make a request to the 3CX XAPI */
+  /** Make a GET request to the 3CX XAPI */
   async xapiRequest<T>(path: string): Promise<T> {
     return this.request<T>({ path });
+  }
+
+  /** Make a POST action call to the 3CX XAPI (for restart, etc.) */
+  async xapiAction<T = void>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>({ path, method: "POST", body });
   }
 
   /** Health check — fetch SystemStatus and verify connectivity */

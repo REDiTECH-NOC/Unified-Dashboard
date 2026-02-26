@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState, useRef, useCallback } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Clock, Server, GripVertical } from "lucide-react";
+import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { trpc } from "@/lib/trpc";
+import { CHART_COLORS } from "@/lib/chart-colors";
 import { METRIC_MAP, METRIC_REGISTRY, METRIC_GROUPS } from "@/lib/metric-registry";
-import { ModuleConfigPanel, ConfigSection, ConfigChip } from "../module-config-panel";
+import { ModuleConfigPanel, ConfigSection, ConfigChip, ConfigToggle } from "../module-config-panel";
 import type { ModuleComponentProps } from "../dashboard-grid";
 
 // Metric IDs that come from the uptime monitor integration
@@ -14,9 +16,27 @@ const UPTIME_METRICS = new Set(["monitors-down", "monitors-up", "avg-response"])
 // Metric IDs that come from the PSA (ConnectWise tickets)
 const TICKET_METRICS = new Set(["open-tickets", "unassigned-tickets", "my-open-tickets", "tickets-today"]);
 
+// Extract hex color from iconColor class (e.g. "bg-red-500/10 text-red-500" → "#ef4444")
+const ICON_COLOR_MAP: Record<string, string> = {
+  red: CHART_COLORS.red,
+  orange: CHART_COLORS.orange,
+  amber: CHART_COLORS.amber,
+  blue: CHART_COLORS.blue,
+  purple: CHART_COLORS.purple,
+  cyan: CHART_COLORS.cyan,
+  green: CHART_COLORS.green,
+  yellow: CHART_COLORS.amber,
+};
+
+function getSparkColor(iconColor: string): string {
+  const match = iconColor.match(/text-(\w+)-500/);
+  return (match && ICON_COLOR_MAP[match[1]]) || CHART_COLORS.blue;
+}
+
 function StatCard({
   metricId,
   liveValue,
+  sparkData,
   editing,
   index,
   onDragStart,
@@ -26,6 +46,7 @@ function StatCard({
 }: {
   metricId: string;
   liveValue?: string;
+  sparkData?: number[];
   editing?: boolean;
   index: number;
   onDragStart?: (index: number) => void;
@@ -39,6 +60,9 @@ function StatCard({
   const Icon = metric.icon;
   const displayValue = liveValue ?? metric.placeholderValue;
   const isLive = liveValue !== undefined;
+  const sparkColor = getSparkColor(metric.iconColor);
+  const hasSparkline = sparkData && sparkData.length > 1 && sparkData.some((v) => v > 0);
+  const gradientId = `spark-${metricId}`;
 
   return (
     <div
@@ -67,7 +91,6 @@ function StatCard({
       }}
       onDragEnd={(e) => {
         e.preventDefault();
-        // Clear any drag target highlights
         onDrop?.(-1);
       }}
     >
@@ -87,9 +110,32 @@ function StatCard({
           <Icon className="h-4 w-4" />
         </div>
       </div>
-      <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground">
+      {hasSparkline && (
+        <div className="mt-1.5 -mx-1">
+          <ResponsiveContainer width="100%" height={28}>
+            <AreaChart data={sparkData.map((v, i) => ({ v, i }))} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={sparkColor} stopOpacity={0.3} />
+                  <stop offset="95%" stopColor={sparkColor} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <Area
+                type="monotone"
+                dataKey="v"
+                stroke={sparkColor}
+                fill={`url(#${gradientId})`}
+                strokeWidth={1.5}
+                dot={false}
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+      <div className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", hasSparkline ? "mt-0.5" : "mt-2")}>
         <Clock className="h-3 w-3" />
-        <span>{isLive ? "Live" : "Awaiting integration"}</span>
+        <span>{isLive ? (hasSparkline ? "30-day trend" : "Live") : "Awaiting integration"}</span>
       </div>
     </div>
   );
@@ -141,6 +187,7 @@ function SystemStatusCard() {
 export function StatOverviewModule({ config, onConfigChange, isConfigOpen, onConfigClose, editing }: ModuleComponentProps) {
   const columns = (config.columns as number) || 4;
   const selectedMetrics = (config.metrics as string[]) || ["open-tickets", "active-alerts", "monitors-down", "servers-offline"];
+  const showSparklines = config.showSparklines !== false; // default true
 
   // Drag-to-reorder state
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -156,7 +203,6 @@ export function StatOverviewModule({ config, onConfigChange, isConfigOpen, onCon
 
   const handleDrop = useCallback((targetIndex: number) => {
     if (targetIndex === -1 || dragIndex === null) {
-      // Drag ended / cancelled
       setDragIndex(null);
       setDragOverIndex(null);
       return;
@@ -212,6 +258,47 @@ export function StatOverviewModule({ config, onConfigChange, isConfigOpen, onCon
     { refetchInterval: 60_000, staleTime: 25_000, enabled: !!myIdentifier, retry: 1 }
   );
 
+  // Sparkline: fetch 30 days of tickets for trend data
+  const SPARK_DAYS = 30;
+  const SPARK_BUCKETS = 10; // 10 buckets of ~3 days each
+  const sparklineCreatedAfter = useMemo(
+    () => new Date(Date.now() - SPARK_DAYS * 24 * 60 * 60 * 1000),
+    []
+  );
+  const { data: sparkTickets } = trpc.psa.getTickets.useQuery(
+    { createdAfter: sparklineCreatedAfter, pageSize: 100 },
+    {
+      refetchInterval: 120_000,
+      staleTime: 60_000,
+      enabled: showSparklines && needsTickets,
+      retry: 1,
+    }
+  );
+
+  // Build sparkline data: 30-day ticket volume in 10 buckets
+  const sparkDataMap = useMemo(() => {
+    const map = new Map<string, number[]>();
+    if (!sparkTickets?.data) return map;
+
+    const bucketSize = SPARK_DAYS / SPARK_BUCKETS; // ~3 days per bucket
+    const buckets: number[] = new Array(SPARK_BUCKETS).fill(0);
+    for (const t of sparkTickets.data) {
+      const created = t.createdAt ? new Date(t.createdAt) : null;
+      if (!created) continue;
+      const daysAgo = (Date.now() - created.getTime()) / (24 * 60 * 60 * 1000);
+      if (daysAgo >= 0 && daysAgo < SPARK_DAYS) {
+        const bucketIdx = SPARK_BUCKETS - 1 - Math.floor(daysAgo / bucketSize);
+        if (bucketIdx >= 0 && bucketIdx < SPARK_BUCKETS) {
+          buckets[bucketIdx]++;
+        }
+      }
+    }
+
+    // All ticket metrics share the same trend line (tickets created per period)
+    Array.from(TICKET_METRICS).forEach((id) => map.set(id, buckets));
+    return map;
+  }, [sparkTickets]);
+
   // Compute live values from fetched data
   const liveValues = useMemo(() => {
     const values = new Map<string, string>();
@@ -264,6 +351,7 @@ export function StatOverviewModule({ config, onConfigChange, isConfigOpen, onCon
               key={id}
               metricId={id}
               liveValue={liveValues.get(id)}
+              sparkData={showSparklines ? sparkDataMap.get(id) : undefined}
               editing={editing}
               index={index}
               onDragStart={handleDragStart}
@@ -291,6 +379,17 @@ export function StatOverviewModule({ config, onConfigChange, isConfigOpen, onCon
               </button>
             ))}
           </div>
+        </ConfigSection>
+
+        <ConfigSection label="Display">
+          <ConfigToggle
+            label="Show sparklines (30-day trend)"
+            checked={showSparklines}
+            onChange={(v) => onConfigChange({ ...config, showSparklines: v })}
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Mini trend charts on metrics with historical data.
+          </p>
         </ConfigSection>
 
         <ConfigSection label="Selected metrics">

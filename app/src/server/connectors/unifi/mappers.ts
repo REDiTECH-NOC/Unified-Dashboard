@@ -63,8 +63,9 @@ export function mapSite(site: UnifiSite): NetworkSite {
     sourceToolId: "unifi",
     siteId: site.siteId,
     hostId: site.hostId,
-    name: site.meta.name,
-    description: site.meta.desc,
+    // meta.desc is the human-readable name; meta.name is the internal slug (e.g., "1pyix7iq")
+    name: site.meta.desc || site.meta.name,
+    description: site.meta.name !== (site.meta.desc || site.meta.name) ? site.meta.name : undefined,
     timezone: site.meta.timezone,
     gatewayMac: site.meta.gatewayMac,
     permission: site.permission,

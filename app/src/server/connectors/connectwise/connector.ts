@@ -73,6 +73,13 @@ export class ConnectWisePsaConnector implements IPsaConnector {
         : beforeCondition;
     }
 
+    if (filter?.updatedAfter) {
+      const updatedCondition = `_info/lastUpdated>=[${filter.updatedAfter.toISOString()}]`;
+      params.conditions = params.conditions
+        ? `${params.conditions} AND ${updatedCondition}`
+        : updatedCondition;
+    }
+
     const tickets = await this.client["request"]<CWTicket[]>({
       path: "/service/tickets",
       params,

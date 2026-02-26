@@ -13,11 +13,17 @@ import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import type { BlackpointConnector } from "../connectors/blackpoint/connector";
 import { auditLog } from "@/lib/audit";
+import { cachedQuery } from "@/lib/query-cache";
 
 /** Get the Blackpoint connector instance (always by toolId, not category) */
 async function getBP(prisma: Parameters<typeof ConnectorFactory.getByToolId>[1]) {
   return ConnectorFactory.getByToolId("blackpoint", prisma) as Promise<BlackpointConnector>;
 }
+
+// ── In-memory stale-while-revalidate cache for detection queries ──
+const _bpCache: import("@/lib/query-cache").QueryCacheMap = new Map();
+const _bpBg = new Set<string>();
+const BP_STALE = 10 * 60_000; // 10 min
 
 export const blackpointRouter = router({
   // =========================================================================
@@ -38,18 +44,23 @@ export const blackpointRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const bp = await getBP(ctx.prisma);
-      return bp.getDetections(
-        {
-          detectionType: input.detectionType,
-          search: input.search,
-          since: input.since,
-          sortByColumn: input.sortByColumn,
-          sortDirection: input.sortDirection,
-        },
-        input.skip,
-        input.take
-      );
+      const dateKey = input.since?.toISOString().substring(0, 10) ?? "all";
+      const key = `bp:${dateKey}:${input.take}:${input.detectionType ?? ""}`;
+
+      return cachedQuery(_bpCache, _bpBg, BP_STALE, key, async () => {
+        const bp = await getBP(ctx.prisma);
+        return bp.getDetections(
+          {
+            detectionType: input.detectionType,
+            search: input.search,
+            since: input.since,
+            sortByColumn: input.sortByColumn,
+            sortDirection: input.sortDirection,
+          },
+          input.skip,
+          input.take
+        );
+      });
     }),
 
   getDetectionById: protectedProcedure

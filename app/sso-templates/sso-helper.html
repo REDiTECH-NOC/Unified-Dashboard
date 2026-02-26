@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Connecting...</title>
+<style>
+body{background:#0a0e1a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.loader{text-align:center}
+.spinner{width:40px;height:40px;margin:0 auto 1rem;border:3px solid #2d3548;border-top-color:#3b82f6;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.status{font-size:.9rem;color:#94a3b8}
+.error{color:#fca5a5;margin-top:1rem;font-size:.85rem}
+</style>
+</head>
+<body>
+<div class="loader">
+<div class="spinner" id="spinner"></div>
+<div class="status" id="status">Connecting...</div>
+</div>
+<script src="sso-helper.js"></script>
+</body>
+</html>

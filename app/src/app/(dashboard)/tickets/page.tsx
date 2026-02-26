@@ -31,18 +31,20 @@ function TicketsContent() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [myTicketCount, setMyTicketCount] = useState<number | undefined>();
 
-  // Read URL params for cross-navigation (e.g., "Company Tickets" button)
+  // Read URL params for cross-navigation (e.g., "Company Tickets" button, notification deep links)
   const urlTab = searchParams.get("tab");
   const urlCompany = searchParams.get("company");
   const urlContact = searchParams.get("contact");
+  const urlTicketId = searchParams.get("id");
   const searchParamsStr = searchParams.toString();
 
   // Sync tab state from URL — watch full search params string so re-triggers
   // even when urlTab stays "all" but company/contact changes
   useEffect(() => {
-    if (urlTab === "all") setActiveTab("all");
+    if (urlTicketId) setActiveTab("all"); // Deep link to a specific ticket → All Tickets tab
+    else if (urlTab === "all") setActiveTab("all");
     else if (urlTab === "calendar") setActiveTab("calendar");
-  }, [searchParamsStr, urlTab]);
+  }, [searchParamsStr, urlTab, urlTicketId]);
 
   // When user manually changes tabs via header, clear URL params to stay in sync
   const handleTabChange = useCallback((tab: TicketTab) => {
@@ -105,6 +107,7 @@ function TicketsContent() {
           hub={hub}
           initialCompanyId={urlCompany ?? undefined}
           initialContactSearch={urlContact ?? undefined}
+          initialTicketId={urlTicketId ?? undefined}
         />
       )}
 
