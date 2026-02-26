@@ -577,12 +577,7 @@ export const threecxRouter = router({
         input.instanceId,
         ctx.prisma
       );
-      const result = await connector.getTrunkDetails();
-      // Temporary debug logging — remove after trunk crash is fixed
-      if (result.length > 0) {
-        console.log("[3CX DEBUG] getTrunkDetails sample:", JSON.stringify(result[0], null, 2));
-      }
-      return result;
+      return connector.getTrunkDetails();
     }),
 
   /** Fetches users + cross-references with queues, ring groups, and groups to show membership */
