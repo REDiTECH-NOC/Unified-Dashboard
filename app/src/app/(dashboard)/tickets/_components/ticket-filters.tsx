@@ -65,9 +65,11 @@ interface TicketFiltersProps {
   hub: TicketHub;
   boardStatuses?: Array<{ id: string; name: string }>;
   showAssigned?: boolean;
+  hideBoard?: boolean;
+  hideStatus?: boolean;
 }
 
-export function TicketFilters({ values, onChange, hub, boardStatuses, showAssigned = true }: TicketFiltersProps) {
+export function TicketFilters({ values, onChange, hub, boardStatuses, showAssigned = true, hideBoard = false, hideStatus = false }: TicketFiltersProps) {
   const [searchInput, setSearchInput] = useState(values.searchTerm);
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
 
@@ -85,8 +87,8 @@ export function TicketFilters({ values, onChange, hub, boardStatuses, showAssign
   }, [values.searchTerm]);
 
   const activeCount = [
-    values.boardFilter,
-    values.statusFilter,
+    !hideBoard && values.boardFilter,
+    !hideStatus && values.statusFilter,
     values.priorityFilter,
     values.companyFilter,
     values.assignedFilter,
@@ -121,37 +123,41 @@ export function TicketFilters({ values, onChange, hub, boardStatuses, showAssign
 
       <div className="flex items-center gap-3 flex-wrap">
         {/* Board */}
-        <div>
-          <select
-            value={values.boardFilter ?? ""}
-            onChange={(e) => onChange({
-              ...values,
-              boardFilter: e.target.value || undefined,
-              statusFilter: undefined,
-            })}
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs"
-          >
-            <option value="">All Boards</option>
-            {hub.boards.data?.map((b) => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
-        </div>
+        {!hideBoard && (
+          <div>
+            <select
+              value={values.boardFilter ?? ""}
+              onChange={(e) => onChange({
+                ...values,
+                boardFilter: e.target.value || undefined,
+                statusFilter: undefined,
+              })}
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+            >
+              <option value="">All Boards</option>
+              {hub.boards.data?.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Status */}
-        <div>
-          <select
-            value={values.statusFilter ?? ""}
-            onChange={(e) => onChange({ ...values, statusFilter: e.target.value || undefined })}
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs"
-            disabled={!values.boardFilter}
-          >
-            <option value="">{values.boardFilter ? "All Statuses" : "Select board first"}</option>
-            {boardStatuses?.map((s) => (
-              <option key={s.id} value={s.name}>{s.name}</option>
-            ))}
-          </select>
-        </div>
+        {!hideStatus && (
+          <div>
+            <select
+              value={values.statusFilter ?? ""}
+              onChange={(e) => onChange({ ...values, statusFilter: e.target.value || undefined })}
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+              disabled={!values.boardFilter}
+            >
+              <option value="">{values.boardFilter ? "All Statuses" : "Select board first"}</option>
+              {boardStatuses?.map((s) => (
+                <option key={s.id} value={s.name}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Priority */}
         <div>

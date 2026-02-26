@@ -5,7 +5,8 @@
  *
  * CW sends callback payloads when tickets are added, updated, or deleted.
  * We fetch the full ticket, diff against cached state, and route
- * notifications to affected users via the notification engine.
+ * notifications to ALL affected users (owner + resources) via the
+ * notification engine.
  *
  * Env var: CW_WEBHOOK_SECRET
  */
@@ -13,11 +14,11 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { redis } from "@/lib/redis";
 import { auditLog } from "@/lib/audit";
 import {
   createNotification,
-  resolveTicketOwner,
-  getAllCwMappedUserIds,
+  resolveAllTicketRecipients,
   detectTicketChanges,
   detectNewReply,
   cacheTicketState,
@@ -39,6 +40,30 @@ interface CWCallbackPayload {
   Type: string; // "Ticket"
   MemberID?: number;
   [key: string]: unknown;
+}
+
+const CW_MEMBERS_CACHE_KEY = "cw:members:cache";
+const CW_MEMBERS_CACHE_TTL = 3600; // 1 hour
+
+/**
+ * Get CW members list with Redis caching.
+ */
+async function getCwMembers(
+  psa: IPsaConnector
+): Promise<Array<{ id: string; identifier: string; name: string; email: string }>> {
+  try {
+    const cached = await redis.get(CW_MEMBERS_CACHE_KEY);
+    if (cached) return JSON.parse(cached);
+  } catch {}
+
+  try {
+    const members = await psa.getMembers();
+    await redis.set(CW_MEMBERS_CACHE_KEY, JSON.stringify(members), "EX", CW_MEMBERS_CACHE_TTL);
+    return members;
+  } catch (err) {
+    console.error("[cw-webhook] Failed to fetch CW members:", err);
+    return [];
+  }
 }
 
 export async function POST(request: Request) {
@@ -88,36 +113,42 @@ export async function POST(request: Request) {
     // Fetch full ticket from CW API
     const psa = (await ConnectorFactory.get("psa", prisma)) as IPsaConnector;
     const ticket = await psa.getTicketById(ticketId);
-
-    // Extract CW owner object from raw ticket for reliable member lookup
     const rawTicket = ticket._raw as Record<string, any> | undefined;
-    const ownerLookup = {
-      memberId: rawTicket?.owner?.id ? String(rawTicket.owner.id) : undefined,
-      memberIdentifier: rawTicket?.owner?.identifier as string | undefined,
-    };
+
+    // Fetch CW members for resource identifier → member lookup
+    const cwMembers = await getCwMembers(psa);
+
+    // Resolve ALL recipients (owner + resources)
+    const recipientUserIds = await resolveAllTicketRecipients(rawTicket, cwMembers);
+
+    console.log("[cw-webhook] Ticket:", {
+      ticketId,
+      action,
+      owner: rawTicket?.owner?.name,
+      resources: rawTicket?.resources,
+      recipientCount: recipientUserIds.length,
+      recipientIds: recipientUserIds,
+    });
 
     if (action === "added") {
       let addedCount = 0;
-      // New ticket — notify ticket owner if assigned
-      if (ticket.assignedTo) {
-        const ownerId = await resolveTicketOwner(ticket.assignedTo, ownerLookup);
-        if (ownerId) {
-          await createNotification({
-            userId: ownerId,
-            type: "ticket_assigned",
-            title: `Ticket #${ticket.sourceId} assigned to you`,
-            body: ticket.summary,
-            linkUrl: `/tickets?id=${ticket.sourceId}`,
-            sourceType: "connectwise_ticket",
-            sourceId: ticket.sourceId,
-            metadata: {
-              companyName: ticket.companyName,
-              priority: ticket.priority,
-              action: "added",
-            },
-          });
-          addedCount++;
-        }
+
+      for (const userId of recipientUserIds) {
+        await createNotification({
+          userId,
+          type: "ticket_assigned",
+          title: `Ticket #${ticket.sourceId} assigned to you`,
+          body: ticket.summary,
+          linkUrl: `/tickets?id=${ticket.sourceId}`,
+          sourceType: "connectwise_ticket",
+          sourceId: ticket.sourceId,
+          metadata: {
+            companyName: ticket.companyName,
+            priority: ticket.priority,
+            action: "added",
+          },
+        });
+        addedCount++;
       }
 
       // Cache state for future diffs
@@ -139,12 +170,10 @@ export async function POST(request: Request) {
     let notificationCount = 0;
 
     for (const change of changes) {
-      if (change.type === "ticket_assigned" && ticket.assignedTo) {
-        // Notify new assignee
-        const ownerId = await resolveTicketOwner(ticket.assignedTo, ownerLookup);
-        if (ownerId) {
+      if (change.type === "ticket_assigned") {
+        for (const userId of recipientUserIds) {
           await createNotification({
-            userId: ownerId,
+            userId,
             type: "ticket_assigned",
             title: `Ticket #${ticket.sourceId} assigned to you`,
             body: `${ticket.summary} — ${change.description}`,
@@ -157,12 +186,10 @@ export async function POST(request: Request) {
         }
       }
 
-      if (change.type === "ticket_status_changed" && ticket.assignedTo) {
-        // Notify ticket owner about status change
-        const ownerId = await resolveTicketOwner(ticket.assignedTo, ownerLookup);
-        if (ownerId) {
+      if (change.type === "ticket_status_changed") {
+        for (const userId of recipientUserIds) {
           await createNotification({
-            userId: ownerId,
+            userId,
             type: "ticket_status_changed",
             title: `Ticket #${ticket.sourceId} status changed`,
             body: `${ticket.summary} — ${change.description}`,
@@ -181,11 +208,10 @@ export async function POST(request: Request) {
       const notes = await psa.getTicketNotes(ticketId);
       const reply = await detectNewReply(ticketId, notes);
 
-      if (reply.isNew && ticket.assignedTo) {
-        const ownerId = await resolveTicketOwner(ticket.assignedTo, ownerLookup);
-        if (ownerId) {
+      if (reply.isNew) {
+        for (const userId of recipientUserIds) {
           await createNotification({
-            userId: ownerId,
+            userId,
             type: "ticket_reply",
             title: `New reply on ticket #${ticket.sourceId}`,
             body: `${ticket.companyName ?? "Client"} replied to: ${ticket.summary}`,

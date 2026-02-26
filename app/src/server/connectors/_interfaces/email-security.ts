@@ -118,18 +118,21 @@ export interface TenantScope {
 // ── MSP Management Types ──
 
 export interface MspTenant {
-  tenantId: string;
-  tenantName: string;
-  scope: string;
+  id: number;
+  domain: string;
+  companyName: string;
+  deploymentMode: string;
+  users: number | null;
+  maxLicensedUsers: number | null;
   status: string;
-  createdAt?: string;
-  licenses?: Array<{
-    licenseId: string;
-    licenseName: string;
-    quantity: number;
-    status: string;
-  }>;
-  userCount?: number;
+  statusDescription: string;
+  packageName: string;
+  packageCodeName: string;
+  addons: Array<{ id: number; name: string }>;
+  isDeleted: boolean;
+  tenantRegion: string;
+  pocDateStart?: string;
+  pocDateExpiration?: string;
 }
 
 export interface MspTenantCreateInput {
@@ -142,47 +145,74 @@ export interface MspTenantCreateInput {
 }
 
 export interface MspLicense {
-  licenseId: string;
-  licenseName: string;
-  description?: string;
-  type: string;
+  id: number;
+  codeName: string;
+  displayName: string;
 }
 
 export interface MspAddOn {
-  addOnId: string;
-  addOnName: string;
-  description?: string;
-  compatibleLicenses?: string[];
+  id: number;
+  name: string;
 }
 
-export interface MspPartner {
-  partnerId: string;
-  partnerName: string;
-  status: string;
-  createdAt?: string;
-  tenantCount?: number;
-}
-
+/**
+ * MSP User — fields exposed by the SmartAPI.
+ * Note: MSP-level settings (tenant access, MSP role, permissions, drill-down)
+ * are managed in the Avanan portal only and not exposed via SmartAPI.
+ */
 export interface MspUser {
-  userId: string;
+  id: number;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  /** Portal role: "admin" | "operations" | "user" | "read-only" */
+  role: string;
+  sendAlerts?: boolean;
+  receiveWeeklyReports?: boolean;
+  /** Password login enabled */
+  directLogin?: boolean;
+  /** SAML/SSO login enabled */
+  samlLogin?: boolean;
+  /** Can view private user data on customer portal */
+  viewPrivateData?: boolean;
+}
+
+export interface MspUserCreateInput {
   email: string;
   firstName?: string;
   lastName?: string;
   role: string;
-  status: string;
-  tenantId?: string;
-  createdAt?: string;
-  lastLogin?: string;
+  directLogin?: boolean;
+  samlLogin?: boolean;
+  viewPrivateData?: boolean;
+  sendAlerts?: boolean;
+  receiveWeeklyReports?: boolean;
+}
+
+export interface MspUserUpdateInput {
+  firstName?: string;
+  lastName?: string;
+  role?: string;
+  directLogin?: boolean;
+  samlLogin?: boolean;
+  viewPrivateData?: boolean;
+  sendAlerts?: boolean;
+  receiveWeeklyReports?: boolean;
+  /** MSP role — write-only (not returned by LIST). Values: "Admin" | "Help Desk" */
+  mspRole?: string;
+  /** Tenant access mode — write-only. Values: "All" | "Except" | "Only" */
+  mspTenantAccess?: string;
+  /** Tenant IDs for Except/Only mode — write-only */
+  mspTenants?: number[];
 }
 
 export interface MspUsageRecord {
-  tenantId: string;
-  tenantName: string;
-  period: string;
-  protectedUsers: number;
-  scannedEmails: number;
-  threats: number;
-  quarantined: number;
+  day: string;
+  tenantDomain: string;
+  licenseCodeName: string;
+  users: number;
+  dailyPrice: number;
+  cost: number;
 }
 
 export interface ExceptionEntry {
@@ -291,31 +321,20 @@ export interface IEmailSecurityConnector {
 
   // --- MSP Tenant Management ---
   listTenants(): Promise<MspTenant[]>;
-  createTenant(input: MspTenantCreateInput): Promise<MspTenant>;
   describeTenant(tenantId: string): Promise<MspTenant>;
-  deleteTenant(tenantId: string): Promise<void>;
-  updateTenantLicenses(
-    tenantId: string,
-    licenses: Array<{ licenseId: string; quantity: number }>,
-  ): Promise<void>;
 
   // --- MSP Licenses ---
   listLicenses(): Promise<MspLicense[]>;
   listAddOns(): Promise<MspAddOn[]>;
 
-  // --- MSP Partners ---
-  listPartners(): Promise<MspPartner[]>;
-  createPartner(input: { partnerName: string; adminEmail: string }): Promise<MspPartner>;
-  deletePartner(partnerId: string): Promise<void>;
-
   // --- MSP Users ---
-  listUsers(tenantId?: string): Promise<MspUser[]>;
-  createUser(input: { email: string; firstName?: string; lastName?: string; role: string; tenantId?: string }): Promise<MspUser>;
-  updateUser(userId: string, input: { firstName?: string; lastName?: string; role?: string; status?: string }): Promise<MspUser>;
-  deleteUser(userId: string): Promise<void>;
+  listUsers(): Promise<MspUser[]>;
+  createUser(input: MspUserCreateInput): Promise<MspUser>;
+  updateUser(userId: number, input: MspUserUpdateInput): Promise<MspUser>;
+  deleteUser(userId: number): Promise<void>;
 
   // --- MSP Usage ---
-  getUsage(period: "monthly" | "daily", startDate?: string, endDate?: string): Promise<MspUsageRecord[]>;
+  getUsage(year: number, month: number): Promise<MspUsageRecord[]>;
 
   // --- Download ---
   downloadEntity(

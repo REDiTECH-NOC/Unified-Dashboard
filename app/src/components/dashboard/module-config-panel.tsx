@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 interface ModuleConfigPanelProps {
@@ -10,9 +12,15 @@ interface ModuleConfigPanelProps {
 }
 
 export function ModuleConfigPanel({ title, open, onClose, children }: ModuleConfigPanelProps) {
-  if (!open) return null;
+  // SSR-safe: only portal after client mount
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  return (
+  if (!open || !mounted) return null;
+
+  // Portal to document.body so the overlay escapes CSS transform containment
+  // from react-grid-layout's useCSSTransforms + overflow-hidden on module-wrapper
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-end">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative w-full max-w-sm h-full bg-card border-l border-border overflow-y-auto">
@@ -24,7 +32,8 @@ export function ModuleConfigPanel({ title, open, onClose, children }: ModuleConf
         </div>
         <div className="p-4 space-y-4">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

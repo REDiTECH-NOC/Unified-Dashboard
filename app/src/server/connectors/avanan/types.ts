@@ -13,8 +13,9 @@ export interface AvananResponseEnvelope {
   responseText: string;
   additionalText?: string;
   recordsNumber: number;
-  totalRecordsNumber: number;
-  scrollId?: string;
+  /** SmartAPI sometimes uses recordsNumber for total; Harmony uses totalRecordsNumber */
+  totalRecordsNumber?: number;
+  scrollId?: string | null;
 }
 
 export interface AvananResponse<T> {
@@ -210,111 +211,74 @@ export interface AvananTaskStatus {
   completedAt?: string;
 }
 
-// ── MSP Tenant Management ──
+// ── MSP Tenant Management (SmartAPI actual response shape) ──
+
+export interface AvananMspTenantStatus {
+  statusCode: string;
+  description: string;
+}
+
+export interface AvananMspTenantPackage {
+  id: number;
+  codeName: string;
+  displayName: string;
+}
 
 export interface AvananMspTenant {
-  tenantId: string;
-  tenantName: string;
-  scope: string;
-  status: string;
-  createdAt?: string;
-  licenses?: AvananMspTenantLicense[];
-  userCount?: number;
+  id: number;
+  domain: string;
+  deploymentMode: string;
+  pocDateStart?: string;
+  pocDateExpiration?: string;
+  users: number | null;
+  status: AvananMspTenantStatus;
+  package: AvananMspTenantPackage;
+  addons: Array<{ id: number; name: string }>;
+  maxLicensedUsers: number | null;
+  isDeleted: boolean;
+  tenantRegion: string;
+  companyName: string;
 }
 
-export interface AvananMspTenantLicense {
-  licenseId: string;
-  licenseName: string;
-  quantity: number;
-  status: string;
-}
-
-export interface AvananMspTenantCreateRequest {
-  tenantName: string;
-  adminEmail: string;
-  licenses?: Array<{
-    licenseId: string;
-    quantity: number;
-  }>;
-}
-
-export interface AvananMspTenantLicenseUpdate {
-  licenses: Array<{
-    licenseId: string;
-    quantity: number;
-  }>;
-}
-
-// ── MSP Licenses ──
+// ── MSP Licenses (SmartAPI actual response shape) ──
 
 export interface AvananMspLicense {
-  licenseId: string;
-  licenseName: string;
-  description?: string;
-  type: string;
+  id: number;
+  codeName: string;
+  displayName: string;
 }
 
 export interface AvananMspAddOn {
-  addOnId: string;
-  addOnName: string;
-  description?: string;
-  compatibleLicenses?: string[];
+  id: number;
+  name: string;
 }
 
-// ── MSP Partners ──
+// ── MSP Users (SmartAPI actual response shape) ──
 
-export interface AvananMspPartner {
-  partnerId: string;
-  partnerName: string;
-  status: string;
-  createdAt?: string;
-  tenantCount?: number;
-}
-
-export interface AvananMspPartnerCreateRequest {
-  partnerName: string;
-  adminEmail: string;
-}
-
-// ── MSP Users ──
-
+/** SmartAPI user response — only these 10 fields are returned */
 export interface AvananMspUser {
-  userId: string;
+  id: number;
   email: string;
   firstName?: string;
   lastName?: string;
   role: string;
-  status: string;
-  tenantId?: string;
-  createdAt?: string;
-  lastLogin?: string;
+  directLogin?: boolean;
+  samlLogin?: boolean;
+  viewPrivateData?: boolean;
+  sendAlerts?: boolean;
+  receiveWeeklyReports?: boolean;
 }
 
-export interface AvananMspUserCreateRequest {
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  role: string;
-  tenantId?: string;
-}
-
-export interface AvananMspUserUpdateRequest {
-  firstName?: string;
-  lastName?: string;
-  role?: string;
-  status?: string;
-}
-
-// ── MSP Usage ──
+// ── MSP Usage (SmartAPI actual response shape) ──
 
 export interface AvananMspUsageRecord {
-  tenantId: string;
-  tenantName: string;
-  period: string;
-  protectedUsers: number;
-  scannedEmails: number;
-  threats: number;
-  quarantined: number;
+  day: string;
+  tenantDomain: string;
+  licenseCodeName: string;
+  users: number;
+  dailyPrice: number;
+  cost: number;
+  externalPortalId?: string;
 }
 
 // ── Exception Management (extended CRUD) ──
@@ -395,12 +359,36 @@ export const AVANAN_REGIONS: Record<string, { label: string; apiBase: string; au
   },
 };
 
-/** MSP SmartAPI regional endpoints (for tenant-level operations via MSP key) */
-export const AVANAN_MSP_REGIONS: Record<string, string> = {
-  us: "https://smart-api-production-1-us.avanan.net",
-  eu: "https://smart-api-production-1-eu.avanan.net",
-  au: "https://smart-api-production-5-ap.avanan.net",
-  ca: "https://smart-api-production-1-ca.avanan.net",
-  uk: "https://smart-api-production-1-euw2.avanan.net",
-  in: "https://smart-api-production-1-aps1.avanan.net",
+/** MSP SmartAPI regional endpoints — auth is at the same host as API */
+export const AVANAN_MSP_REGIONS: Record<string, { label: string; apiBase: string; authBase: string }> = {
+  us: {
+    label: "United States (MSP)",
+    apiBase: "https://smart-api-production-1-us.avanan.net",
+    authBase: "https://smart-api-production-1-us.avanan.net",
+  },
+  eu: {
+    label: "Europe (MSP)",
+    apiBase: "https://smart-api-production-1-eu.avanan.net",
+    authBase: "https://smart-api-production-1-eu.avanan.net",
+  },
+  au: {
+    label: "Australia (MSP)",
+    apiBase: "https://smart-api-production-5-ap.avanan.net",
+    authBase: "https://smart-api-production-5-ap.avanan.net",
+  },
+  ca: {
+    label: "Canada (MSP)",
+    apiBase: "https://smart-api-production-1-ca.avanan.net",
+    authBase: "https://smart-api-production-1-ca.avanan.net",
+  },
+  uk: {
+    label: "United Kingdom (MSP)",
+    apiBase: "https://smart-api-production-1-euw2.avanan.net",
+    authBase: "https://smart-api-production-1-euw2.avanan.net",
+  },
+  in: {
+    label: "India (MSP)",
+    apiBase: "https://smart-api-production-1-aps1.avanan.net",
+    authBase: "https://smart-api-production-1-aps1.avanan.net",
+  },
 };

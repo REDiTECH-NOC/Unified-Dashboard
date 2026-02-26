@@ -1,14 +1,17 @@
 /**
  * Avanan (Check Point Harmony Email & Collaboration) connector.
  *
- * Implements IEmailSecurityConnector using the Harmony Email API
- * with MSP SmartAPI multi-tenant scoping.
+ * Implements IEmailSecurityConnector. Supports two API modes:
  *
- * One MSP API key manages all client tenants. Use GET /scopes to
- * discover tenants, then scope queries/actions to specific clients.
+ * **MSP SmartAPI** — tenant management, licenses, users, usage.
+ *   Endpoints: /v1.0/msp/tenants, /v1.0/msp/licenses, /v1.0/msp/users, /v1.0/msp/usage
+ *   Security events are NOT available on SmartAPI.
  *
- * MSP management endpoints (tenants, users, partners, licenses, usage)
- * use the msp_name header for authentication context.
+ * **Harmony Email API** — security events, entities, actions, exceptions, download.
+ *   Endpoints: /v1.0/event/query, /v1.0/search/query, /v1.0/action/*, /v1.0/sectool-exceptions/*
+ *   MSP management is NOT available on Harmony Email API.
+ *
+ * Mode is auto-detected by whether credentials include mspName.
  */
 
 import type { ConnectorConfig, PaginatedResponse, HealthCheckResult } from "../_base/types";
@@ -23,11 +26,11 @@ import type {
   TaskStatus,
   TenantScope,
   MspTenant,
-  MspTenantCreateInput,
   MspLicense,
   MspAddOn,
-  MspPartner,
   MspUser,
+  MspUserCreateInput,
+  MspUserUpdateInput,
   MspUsageRecord,
   ExceptionEntry,
 } from "../_interfaces/email-security";
@@ -41,7 +44,6 @@ import type {
   AvananMspTenant,
   AvananMspLicense,
   AvananMspAddOn,
-  AvananMspPartner,
   AvananMspUser,
   AvananMspUsageRecord,
   AvananExceptionEntry,
@@ -56,7 +58,7 @@ export class AvananEmailSecurityConnector implements IEmailSecurityConnector {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // Security Events
+  // Security Events (Harmony Email API only)
   // ══════════════════════════════════════════════════════════════
 
   async getSecurityEvents(
@@ -109,7 +111,7 @@ export class AvananEmailSecurityConnector implements IEmailSecurityConnector {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // Secured Entities
+  // Secured Entities (Harmony Email API only)
   // ══════════════════════════════════════════════════════════════
 
   async searchEntities(
@@ -174,7 +176,7 @@ export class AvananEmailSecurityConnector implements IEmailSecurityConnector {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // Actions
+  // Actions (Harmony Email API only)
   // ══════════════════════════════════════════════════════════════
 
   async quarantineEntity(
@@ -252,7 +254,7 @@ export class AvananEmailSecurityConnector implements IEmailSecurityConnector {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // Task Status (async action tracking)
+  // Task Status
   // ══════════════════════════════════════════════════════════════
 
   async getTaskStatus(taskId: number): Promise<TaskStatus> {
@@ -268,22 +270,17 @@ export class AvananEmailSecurityConnector implements IEmailSecurityConnector {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // Exceptions (Allowlist/Blocklist)
+  // Exceptions (Harmony Email API only)
   // ══════════════════════════════════════════════════════════════
 
-  async getExceptions(
-    type: string,
-  ): Promise<ExceptionEntry[]> {
+  async getExceptions(type: string): Promise<ExceptionEntry[]> {
     const response = await this.client.requestAvanan<AvananExceptionEntry>({
       path: `/v1.0/sectool-exceptions/checkpoint2/exceptions/${type}`,
     });
-
     return response.data.map(mapException);
   }
 
-  async createUrlException(
-    exception: EmailSecurityException,
-  ): Promise<void> {
+  async createUrlException(exception: EmailSecurityException): Promise<void> {
     await this.client.requestRaw({
       method: "POST",
       path: "/v1.0/sectool-exceptions/avanan_url",
@@ -319,10 +316,7 @@ export class AvananEmailSecurityConnector implements IEmailSecurityConnector {
     });
   }
 
-  async deleteException(
-    vendor: string,
-    excId: string,
-  ): Promise<void> {
+  async deleteException(vendor: string, excId: string): Promise<void> {
     await this.client.requestRaw({
       method: "DELETE",
       path: `/v1.0/sectool-exceptions/${vendor}/${excId}`,
@@ -343,10 +337,7 @@ export class AvananEmailSecurityConnector implements IEmailSecurityConnector {
     return response.data.map(mapException);
   }
 
-  async createWhitelistEntry(
-    vendor: string,
-    entry: EmailSecurityException,
-  ): Promise<void> {
+  async createWhitelistEntry(vendor: string, entry: EmailSecurityException): Promise<void> {
     await this.client.requestRaw({
       method: "POST",
       path: `/v1.0/sectool-exceptions/${vendor}/whitelist`,
@@ -362,10 +353,7 @@ export class AvananEmailSecurityConnector implements IEmailSecurityConnector {
     });
   }
 
-  async createBlacklistEntry(
-    vendor: string,
-    entry: EmailSecurityException,
-  ): Promise<void> {
+  async createBlacklistEntry(vendor: string, entry: EmailSecurityException): Promise<void> {
     await this.client.requestRaw({
       method: "POST",
       path: `/v1.0/sectool-exceptions/${vendor}/blacklist`,
@@ -399,238 +387,157 @@ export class AvananEmailSecurityConnector implements IEmailSecurityConnector {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // MSP Tenant Management
+  // MSP Tenant Management (SmartAPI only)
   // ══════════════════════════════════════════════════════════════
 
   async listTenants(): Promise<MspTenant[]> {
-    const response = await this.client.mspRequestAvanan<AvananMspTenant>({
+    const response = await this.client.requestAvanan<AvananMspTenant>({
       path: "/v1.0/msp/tenants",
     });
 
     return response.data.map(mapMspTenant);
   }
 
-  async createTenant(input: MspTenantCreateInput): Promise<MspTenant> {
-    const response = await this.client.mspRequest<{ responseData: AvananMspTenant }>({
-      method: "POST",
-      path: "/v1.0/msp/tenants",
-      body: {
-        requestData: {
-          tenant_name: input.tenantName,
-          admin_email: input.adminEmail,
-          licenses: input.licenses,
-        },
-      },
-    });
-
-    return mapMspTenant(response.responseData);
-  }
-
   async describeTenant(tenantId: string): Promise<MspTenant> {
-    const response = await this.client.mspRequest<{ responseData: AvananMspTenant }>({
+    const response = await this.client.requestAvanan<AvananMspTenant>({
       path: `/v1.0/msp/tenants/${tenantId}`,
     });
 
-    return mapMspTenant(response.responseData);
-  }
+    if (!response.data.length) {
+      throw new Error(`[avanan] Tenant ${tenantId} not found`);
+    }
 
-  async deleteTenant(tenantId: string): Promise<void> {
-    await this.client.mspRequest({
-      method: "DELETE",
-      path: `/v1.0/msp/tenants/${tenantId}`,
-    });
-  }
-
-  async updateTenantLicenses(
-    tenantId: string,
-    licenses: Array<{ licenseId: string; quantity: number }>,
-  ): Promise<void> {
-    await this.client.mspRequest({
-      method: "PUT",
-      path: `/v1.0/msp/tenants/${tenantId}/licenses`,
-      body: { requestData: { licenses } },
-    });
+    return mapMspTenant(response.data[0]);
   }
 
   // ══════════════════════════════════════════════════════════════
-  // MSP Licenses
+  // MSP Licenses (SmartAPI only)
   // ══════════════════════════════════════════════════════════════
 
   async listLicenses(): Promise<MspLicense[]> {
-    const response = await this.client.mspRequestAvanan<AvananMspLicense>({
+    const response = await this.client.requestAvanan<AvananMspLicense>({
       path: "/v1.0/msp/licenses",
     });
 
     return response.data.map((l) => ({
-      licenseId: l.licenseId,
-      licenseName: l.licenseName,
-      description: l.description,
-      type: l.type,
+      id: l.id,
+      codeName: l.codeName,
+      displayName: l.displayName,
     }));
   }
 
   async listAddOns(): Promise<MspAddOn[]> {
-    const response = await this.client.mspRequestAvanan<AvananMspAddOn>({
-      path: "/v1.0/msp/add-ons",
+    const response = await this.client.requestAvanan<AvananMspAddOn>({
+      path: "/v1.0/msp/addons",
     });
 
     return response.data.map((a) => ({
-      addOnId: a.addOnId,
-      addOnName: a.addOnName,
-      description: a.description,
-      compatibleLicenses: a.compatibleLicenses,
+      id: a.id,
+      name: a.name,
     }));
   }
 
   // ══════════════════════════════════════════════════════════════
-  // MSP Partners
+  // MSP Users (SmartAPI only)
   // ══════════════════════════════════════════════════════════════
 
-  async listPartners(): Promise<MspPartner[]> {
-    const response = await this.client.mspRequestAvanan<AvananMspPartner>({
-      path: "/v1.0/msp/msp-partners",
-    });
-
-    return response.data.map((p) => ({
-      partnerId: p.partnerId,
-      partnerName: p.partnerName,
-      status: p.status,
-      createdAt: p.createdAt,
-      tenantCount: p.tenantCount,
-    }));
-  }
-
-  async createPartner(input: { partnerName: string; adminEmail: string }): Promise<MspPartner> {
-    const response = await this.client.mspRequest<{ responseData: AvananMspPartner }>({
-      method: "POST",
-      path: "/v1.0/msp/msp-partners",
-      body: {
-        requestData: {
-          partner_name: input.partnerName,
-          admin_email: input.adminEmail,
-        },
-      },
-    });
-
-    return {
-      partnerId: response.responseData.partnerId,
-      partnerName: response.responseData.partnerName,
-      status: response.responseData.status,
-      createdAt: response.responseData.createdAt,
-      tenantCount: response.responseData.tenantCount,
-    };
-  }
-
-  async deletePartner(partnerId: string): Promise<void> {
-    await this.client.mspRequest({
-      method: "DELETE",
-      path: `/v1.0/msp/msp-partners/${partnerId}`,
-    });
-  }
-
-  // ══════════════════════════════════════════════════════════════
-  // MSP Users
-  // ══════════════════════════════════════════════════════════════
-
-  async listUsers(tenantId?: string): Promise<MspUser[]> {
-    const params = tenantId ? { tenant_id: tenantId } : undefined;
-    const response = await this.client.mspRequestAvanan<AvananMspUser>({
+  async listUsers(): Promise<MspUser[]> {
+    const response = await this.client.requestAvanan<AvananMspUser>({
       path: "/v1.0/msp/users",
-      params,
     });
 
     return response.data.map(mapMspUser);
   }
 
-  async createUser(input: {
-    email: string;
-    firstName?: string;
-    lastName?: string;
-    role: string;
-    tenantId?: string;
-  }): Promise<MspUser> {
-    const response = await this.client.mspRequest<{ responseData: AvananMspUser }>({
+  async createUser(input: MspUserCreateInput): Promise<MspUser> {
+    const requestData: Record<string, unknown> = {
+      email: input.email,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      role: input.role,
+      directLogin: input.directLogin ?? true,
+      samlLogin: input.samlLogin ?? false,
+      viewPrivateData: input.viewPrivateData ?? false,
+      sendAlerts: input.sendAlerts ?? false,
+      receiveWeeklyReports: input.receiveWeeklyReports ?? false,
+    };
+
+    const response = await this.client.requestAvanan<AvananMspUser>({
       method: "POST",
       path: "/v1.0/msp/users",
-      body: {
-        requestData: {
-          email: input.email,
-          first_name: input.firstName,
-          last_name: input.lastName,
-          role: input.role,
-          tenant_id: input.tenantId,
-        },
-      },
+      body: { requestData },
     });
 
-    return mapMspUser(response.responseData);
+    if (!response.data.length) {
+      throw new Error("[avanan] Failed to create user — no data returned");
+    }
+    return mapMspUser(response.data[0]);
   }
 
-  async updateUser(
-    userId: string,
-    input: { firstName?: string; lastName?: string; role?: string; status?: string },
-  ): Promise<MspUser> {
+  async updateUser(userId: number, input: MspUserUpdateInput): Promise<MspUser> {
     const requestData: Record<string, unknown> = {};
-    if (input.firstName !== undefined) requestData.first_name = input.firstName;
-    if (input.lastName !== undefined) requestData.last_name = input.lastName;
+    if (input.firstName !== undefined) requestData.firstName = input.firstName;
+    if (input.lastName !== undefined) requestData.lastName = input.lastName;
     if (input.role !== undefined) requestData.role = input.role;
-    if (input.status !== undefined) requestData.status = input.status;
+    if (input.directLogin !== undefined) requestData.directLogin = input.directLogin;
+    if (input.samlLogin !== undefined) requestData.samlLogin = input.samlLogin;
+    if (input.viewPrivateData !== undefined) requestData.viewPrivateData = input.viewPrivateData;
+    if (input.sendAlerts !== undefined) requestData.sendAlerts = input.sendAlerts;
+    if (input.receiveWeeklyReports !== undefined) requestData.receiveWeeklyReports = input.receiveWeeklyReports;
+    // MSP-level fields (write-only — accepted by UPDATE, not returned by LIST)
+    if (input.mspRole !== undefined) requestData.MSPRole = input.mspRole;
+    if (input.mspTenantAccess !== undefined) requestData.MSPTenantAccess = input.mspTenantAccess;
+    if (input.mspTenants !== undefined) requestData.MSPTenants = input.mspTenants;
 
-    const response = await this.client.mspRequest<{ responseData: AvananMspUser }>({
+    const response = await this.client.requestAvanan<AvananMspUser>({
       method: "PUT",
       path: `/v1.0/msp/users/${userId}`,
       body: { requestData },
     });
 
-    return mapMspUser(response.responseData);
+    if (!response.data.length) {
+      throw new Error(`[avanan] Failed to update user ${userId} — no data returned`);
+    }
+    return mapMspUser(response.data[0]);
   }
 
-  async deleteUser(userId: string): Promise<void> {
-    await this.client.mspRequest({
+  async deleteUser(userId: number): Promise<void> {
+    await this.client.requestRaw({
       method: "DELETE",
       path: `/v1.0/msp/users/${userId}`,
     });
   }
 
   // ══════════════════════════════════════════════════════════════
-  // MSP Usage
+  // MSP Usage (SmartAPI only)
   // ══════════════════════════════════════════════════════════════
 
-  async getUsage(
-    period: "monthly" | "daily",
-    startDate?: string,
-    endDate?: string,
-  ): Promise<MspUsageRecord[]> {
-    const params: Record<string, string> = { period };
-    if (startDate) params.start_date = startDate;
-    if (endDate) params.end_date = endDate;
-
-    const response = await this.client.mspRequestAvanan<AvananMspUsageRecord>({
+  async getUsage(year: number, month: number): Promise<MspUsageRecord[]> {
+    const response = await this.client.requestAvanan<AvananMspUsageRecord>({
       path: "/v1.0/msp/usage",
-      params,
+      params: { year: String(year), month: String(month) },
     });
 
     return response.data.map((u) => ({
-      tenantId: u.tenantId,
-      tenantName: u.tenantName,
-      period: u.period,
-      protectedUsers: u.protectedUsers,
-      scannedEmails: u.scannedEmails,
-      threats: u.threats,
-      quarantined: u.quarantined,
+      day: u.day,
+      tenantDomain: u.tenantDomain,
+      licenseCodeName: u.licenseCodeName,
+      users: u.users,
+      dailyPrice: u.dailyPrice,
+      cost: u.cost,
     }));
   }
 
   // ══════════════════════════════════════════════════════════════
-  // Download
+  // Download (Harmony Email API only)
   // ══════════════════════════════════════════════════════════════
 
   async downloadEntity(
     entityId: string,
     original = false,
-    _scope?: string,
+    scope?: string,
   ): Promise<Buffer> {
-    return this.client.downloadEntityFile(entityId, original);
+    return this.client.downloadEntityFile(entityId, original, scope);
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -658,31 +565,35 @@ function mapException(raw: AvananExceptionEntry): ExceptionEntry {
 
 function mapMspTenant(raw: AvananMspTenant): MspTenant {
   return {
-    tenantId: raw.tenantId,
-    tenantName: raw.tenantName,
-    scope: raw.scope,
-    status: raw.status,
-    createdAt: raw.createdAt,
-    licenses: raw.licenses?.map((l) => ({
-      licenseId: l.licenseId,
-      licenseName: l.licenseName,
-      quantity: l.quantity,
-      status: l.status,
-    })),
-    userCount: raw.userCount,
+    id: raw.id,
+    domain: raw.domain,
+    companyName: raw.companyName,
+    deploymentMode: raw.deploymentMode,
+    users: raw.users,
+    maxLicensedUsers: raw.maxLicensedUsers,
+    status: raw.status?.statusCode ?? "unknown",
+    statusDescription: raw.status?.description ?? "",
+    packageName: raw.package?.displayName ?? "",
+    packageCodeName: raw.package?.codeName ?? "",
+    addons: raw.addons ?? [],
+    isDeleted: raw.isDeleted,
+    tenantRegion: raw.tenantRegion,
+    pocDateStart: raw.pocDateStart,
+    pocDateExpiration: raw.pocDateExpiration,
   };
 }
 
 function mapMspUser(raw: AvananMspUser): MspUser {
   return {
-    userId: raw.userId,
+    id: raw.id,
     email: raw.email,
     firstName: raw.firstName,
     lastName: raw.lastName,
     role: raw.role,
-    status: raw.status,
-    tenantId: raw.tenantId,
-    createdAt: raw.createdAt,
-    lastLogin: raw.lastLogin,
+    directLogin: raw.directLogin,
+    samlLogin: raw.samlLogin,
+    viewPrivateData: raw.viewPrivateData,
+    sendAlerts: raw.sendAlerts,
+    receiveWeeklyReports: raw.receiveWeeklyReports,
   };
 }

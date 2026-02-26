@@ -9,6 +9,12 @@ import { z } from "zod";
 import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
+import { cachedQuery } from "@/lib/query-cache";
+
+// ── In-memory stale-while-revalidate cache for threat queries ──
+const _threatCache: import("@/lib/query-cache").QueryCacheMap = new Map();
+const _threatBg = new Set<string>();
+const THREAT_STALE = 10 * 60_000; // 10 min
 
 export const edrRouter = router({
   // ─── Threats ─────────────────────────────────────────────
@@ -28,20 +34,25 @@ export const edrRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const edr = await ConnectorFactory.get("edr", ctx.prisma);
-      return edr.getThreats(
-        {
-          siteId: input.siteId,
-          groupId: input.groupId,
-          status: input.status,
-          classification: input.classification,
-          severity: input.severity,
-          createdAfter: input.createdAfter,
-          searchTerm: input.searchTerm,
-        },
-        input.cursor,
-        input.pageSize
-      );
+      const dateKey = input.createdAfter?.toISOString().substring(0, 10) ?? "all";
+      const key = `threats:${dateKey}:${input.pageSize}:${input.status ?? ""}:${input.severity ?? ""}`;
+
+      return cachedQuery(_threatCache, _threatBg, THREAT_STALE, key, async () => {
+        const edr = await ConnectorFactory.get("edr", ctx.prisma);
+        return edr.getThreats(
+          {
+            siteId: input.siteId,
+            groupId: input.groupId,
+            status: input.status,
+            classification: input.classification,
+            severity: input.severity,
+            createdAfter: input.createdAfter,
+            searchTerm: input.searchTerm,
+          },
+          input.cursor,
+          input.pageSize
+        );
+      });
     }),
 
   getThreatById: protectedProcedure

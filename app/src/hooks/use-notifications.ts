@@ -62,6 +62,30 @@ export function useNotifications() {
     }
   }, [browserPushEnabled]);
 
+  // Ticket poll — triggers server-side CW ticket change detection every 2 minutes
+  const pollTickets = trpc.notificationInbox.pollTickets.useMutation({
+    onSuccess: (data) => {
+      if (data.notifications && data.notifications > 0) {
+        utils.notificationInbox.unreadCount.invalidate();
+        utils.notificationInbox.list.invalidate();
+      }
+    },
+  });
+  const pollTicketsRef = useRef(pollTickets);
+  pollTicketsRef.current = pollTickets;
+
+  useEffect(() => {
+    if (!session?.user) return;
+    // Initial poll after short delay to let the page load
+    const initialTimer = setTimeout(() => pollTicketsRef.current.mutate(), 5_000);
+    // Then poll every 2 minutes
+    const interval = setInterval(() => pollTicketsRef.current.mutate(), 120_000);
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [session?.user]);
+
   // tRPC queries
   const unreadCount = trpc.notificationInbox.unreadCount.useQuery(undefined, {
     enabled: !!session?.user,
