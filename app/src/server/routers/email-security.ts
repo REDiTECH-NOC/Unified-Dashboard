@@ -14,14 +14,13 @@ import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import type { IEmailSecurityConnector } from "../connectors/_interfaces/email-security";
 import { auditLog } from "@/lib/audit";
+import { cachedQuery } from "@/lib/query-cache";
 
 async function getEmailSecurity(prisma: Parameters<typeof ConnectorFactory.get>[1]) {
   return ConnectorFactory.getByToolId("avanan", prisma) as unknown as IEmailSecurityConnector;
 }
 
-// ── Stale-while-revalidate cache for expensive event stat aggregations ──
-// Returns cached data INSTANTLY, then refreshes in the background if stale.
-// This prevents the 60+ second API pagination from blocking page load.
+// ── Event stats aggregation: Redis-backed SWR via cachedQuery ──
 type EventStatsResult = {
   total: number;
   totalRecords: number;
@@ -33,16 +32,14 @@ type EventStatsResult = {
   byCustomerByType: Record<string, Record<string, number>>;
   days: number;
 };
-const statsCache = new Map<string, { data: EventStatsResult; fetchedAt: number }>();
-const STATS_STALE_AFTER = 30 * 60_000; // 30 min — trigger background refresh
-const refreshInProgress = new Set<string>(); // prevent duplicate background refreshes
+const STATS_STALE = 30 * 60_000; // 30 min — trigger background refresh
+const TENANT_STALE = 10 * 60_000; // 10 min
 
 /** Fetch all events from Avanan API and aggregate stats. Used by getEventStats. */
 async function fetchEventStats(
   prisma: Parameters<typeof ConnectorFactory.get>[1],
   days: number,
   eventStates: string[] | undefined,
-  cacheKey: string,
 ): Promise<EventStatsResult> {
   const connector = await getEmailSecurity(prisma);
   const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -111,8 +108,7 @@ async function fetchEventStats(
     days,
   };
 
-  statsCache.set(cacheKey, { data, fetchedAt: Date.now() });
-  console.log(`[avanan] Event stats refreshed: ${total} events (cache key: ${cacheKey})`);
+  console.log(`[avanan] Event stats refreshed: ${total} events`);
   return data;
 }
 
@@ -171,12 +167,11 @@ export const emailSecurityRouter = router({
   /**
    * Aggregated security event stats for dashboard.
    *
-   * Uses stale-while-revalidate pattern:
-   * - If cached data exists (even stale), returns it INSTANTLY — never blocks.
+   * Uses Redis-backed stale-while-revalidate (via cachedQuery):
+   * - If Redis has cached data (even stale), returns it INSTANTLY.
    * - If data is >30 min old, triggers a background refresh (non-blocking).
-   * - Only blocks on the very first call after container restart.
-   *
-   * This prevents the ~60s API pagination from freezing the entire page.
+   * - Only blocks on the very first call with empty Redis cache.
+   * - Data survives container restarts (persisted in Redis for 24h).
    */
   getEventStats: protectedProcedure
     .input(
@@ -186,24 +181,10 @@ export const emailSecurityRouter = router({
       }).default({})
     )
     .query(async ({ ctx, input }) => {
-      const cacheKey = `eventStats:${input.days}:${(input.eventStates || []).sort().join(",")}`;
-      const cached = statsCache.get(cacheKey);
-
-      if (cached) {
-        // Always return cached data instantly — never block the page
-        const age = Date.now() - cached.fetchedAt;
-        if (age > STATS_STALE_AFTER && !refreshInProgress.has(cacheKey)) {
-          // Stale → trigger background refresh (don't await)
-          refreshInProgress.add(cacheKey);
-          fetchEventStats(ctx.prisma, input.days, input.eventStates, cacheKey)
-            .catch((err) => console.error("[avanan] background refresh error:", err))
-            .finally(() => refreshInProgress.delete(cacheKey));
-        }
-        return cached.data;
-      }
-
-      // No cache at all (first load after restart) — must fetch synchronously
-      return fetchEventStats(ctx.prisma, input.days, input.eventStates, cacheKey);
+      const key = `stats:${input.days}:${(input.eventStates || []).sort().join(",")}`;
+      return cachedQuery<EventStatsResult>("avanan", STATS_STALE, key, () =>
+        fetchEventStats(ctx.prisma, input.days, input.eventStates),
+      );
     }),
 
   // ═══════════════════════════════════════════════════════════════
@@ -606,8 +587,10 @@ export const emailSecurityRouter = router({
   // ═══════════════════════════════════════════════════════════════
 
   listTenants: adminProcedure.query(async ({ ctx }) => {
-    const connector = await getEmailSecurity(ctx.prisma);
-    return connector.listTenants();
+    return cachedQuery("avanan", TENANT_STALE, "tenants", async () => {
+      const connector = await getEmailSecurity(ctx.prisma);
+      return connector.listTenants();
+    });
   }),
 
   describeTenant: adminProcedure
