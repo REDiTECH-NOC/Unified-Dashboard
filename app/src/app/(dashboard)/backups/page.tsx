@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { Suspense, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import {
   HardDrive,
@@ -10,6 +11,7 @@ import {
   Monitor,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Users,
   Loader2,
   Cloud,
@@ -17,6 +19,7 @@ import {
   X,
   Copy,
   Check,
+  ArrowUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BackupSummaryCards } from "./_components/backup-summary-cards";
@@ -180,24 +183,94 @@ function CustomerExpandedRow({ customer }: { customer: CustomerRow }) {
 
 /* ─── Customer Summary Table ─────────────────────────────────── */
 
+type SortColumn = "name" | "totalDevices" | "healthyDevices" | "warningDevices" | "failedDevices" | "overdueDevices" | "offlineDevices" | "totalStorageBytes";
+type SortDir = "asc" | "desc";
+
+function SortableHeader({
+  label,
+  column,
+  currentSort,
+  currentDir,
+  onSort,
+  align = "center",
+  colorClass,
+}: {
+  label: string;
+  column: SortColumn;
+  currentSort: SortColumn;
+  currentDir: SortDir;
+  onSort: (col: SortColumn) => void;
+  align?: "left" | "center" | "right";
+  colorClass?: string;
+}) {
+  const isActive = currentSort === column;
+  const alignClass = align === "left" ? "text-left justify-start" : align === "right" ? "text-right justify-end" : "text-center justify-center";
+  return (
+    <th className={cn("py-2.5 font-medium", colorClass)}>
+      <button
+        onClick={() => onSort(column)}
+        className={cn(
+          "flex items-center gap-0.5 w-full transition-colors",
+          alignClass,
+          isActive ? "text-zinc-200" : "hover:text-zinc-300"
+        )}
+      >
+        {label}
+        {isActive ? (
+          currentDir === "asc" ? (
+            <ChevronUp className="h-3 w-3" />
+          ) : (
+            <ChevronDown className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowUpDown className="h-2.5 w-2.5 opacity-30" />
+        )}
+      </button>
+    </th>
+  );
+}
+
 function CustomerSummaryTable({
   customers,
   isLoading,
   onSelectCustomer,
+  searchTerm,
 }: {
   customers: CustomerRow[];
   isLoading: boolean;
   onSelectCustomer: (id: string) => void;
+  searchTerm: string;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sortCol, setSortCol] = useState<SortColumn>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
-  const sorted = useMemo(
-    () =>
-      [...customers].sort(
-        (a, b) => (STATUS_ORDER[a.overallStatus] ?? 9) - (STATUS_ORDER[b.overallStatus] ?? 9)
-      ),
-    [customers]
-  );
+  const handleSort = (col: SortColumn) => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortCol(col);
+      setSortDir(col === "name" ? "asc" : "desc");
+    }
+  };
+
+  const filtered = useMemo(() => {
+    if (!searchTerm) return customers;
+    const q = searchTerm.toLowerCase();
+    return customers.filter((c) => c.name.toLowerCase().includes(q));
+  }, [customers, searchTerm]);
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortCol === "name") {
+        cmp = a.name.localeCompare(b.name);
+      } else {
+        cmp = (a[sortCol] as number) - (b[sortCol] as number);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [filtered, sortCol, sortDir]);
 
   if (isLoading) {
     return (
@@ -214,17 +287,24 @@ function CustomerSummaryTable({
         <thead>
           <tr className="text-zinc-400 border-b border-zinc-800 text-xs">
             <th className="w-8" />
-            <th className="text-left py-2.5 font-medium">Customer</th>
-            <th className="text-center py-2.5 font-medium">Devices</th>
-            <th className="text-center py-2.5 font-medium text-green-400">Healthy</th>
-            <th className="text-center py-2.5 font-medium text-amber-400">Warning</th>
-            <th className="text-center py-2.5 font-medium text-red-400">Failed</th>
-            <th className="text-center py-2.5 font-medium text-orange-400">Overdue</th>
-            <th className="text-center py-2.5 font-medium text-zinc-400">Offline</th>
-            <th className="text-right py-2.5 font-medium">Storage</th>
+            <SortableHeader label="Customer" column="name" currentSort={sortCol} currentDir={sortDir} onSort={handleSort} align="left" />
+            <SortableHeader label="Devices" column="totalDevices" currentSort={sortCol} currentDir={sortDir} onSort={handleSort} />
+            <SortableHeader label="Healthy" column="healthyDevices" currentSort={sortCol} currentDir={sortDir} onSort={handleSort} colorClass="text-green-400" />
+            <SortableHeader label="Warning" column="warningDevices" currentSort={sortCol} currentDir={sortDir} onSort={handleSort} colorClass="text-amber-400" />
+            <SortableHeader label="Failed" column="failedDevices" currentSort={sortCol} currentDir={sortDir} onSort={handleSort} colorClass="text-red-400" />
+            <SortableHeader label="Overdue" column="overdueDevices" currentSort={sortCol} currentDir={sortDir} onSort={handleSort} colorClass="text-orange-400" />
+            <SortableHeader label="Offline" column="offlineDevices" currentSort={sortCol} currentDir={sortDir} onSort={handleSort} colorClass="text-zinc-400" />
+            <SortableHeader label="Storage" column="totalStorageBytes" currentSort={sortCol} currentDir={sortDir} onSort={handleSort} align="right" />
           </tr>
         </thead>
         <tbody>
+          {sorted.length === 0 && (
+            <tr>
+              <td colSpan={9} className="text-center py-12 text-zinc-500 text-sm">
+                {searchTerm ? "No customers match your search" : "No customers found"}
+              </td>
+            </tr>
+          )}
           {sorted.map((c) => {
             const isExpanded = expandedId === c.sourceId;
             return (
@@ -389,10 +469,21 @@ function computeSummaryFromDevices(deviceList: DeviceLike[]) {
 /* ─── Main Page ──────────────────────────────────────────────── */
 
 export default function BackupsPage() {
+  return (
+    <Suspense>
+      <BackupsPageInner />
+    </Suspense>
+  );
+}
+
+function BackupsPageInner() {
+  const searchParams = useSearchParams();
+  const initialDeviceId = searchParams.get("device") ?? undefined;
   const [provider, setProvider] = useState<ProviderTab>("cove");
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [deviceTypeFilter, setDeviceTypeFilter] = useState<"workstation" | "server" | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState("");
+  const [customerSearchTerm, setCustomerSearchTerm] = useState("");
   const [customerFilter, setCustomerFilter] = useState<string | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<ViewTab>("devices");
 
@@ -605,8 +696,8 @@ export default function BackupsPage() {
               </button>
             </div>
 
-            {/* Filters (devices tab only) */}
-            {activeTab === "devices" && (
+            {/* Filters */}
+            {activeTab === "devices" ? (
               <div className="flex items-center gap-3 flex-wrap">
                 {/* Search */}
                 <div className="relative">
@@ -679,6 +770,28 @@ export default function BackupsPage() {
                   </button>
                 </div>
               </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                {/* Customer search */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+                  <input
+                    type="text"
+                    value={customerSearchTerm}
+                    onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                    placeholder="Search customers..."
+                    className="pl-8 pr-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-600 w-[250px]"
+                  />
+                  {customerSearchTerm && (
+                    <button
+                      onClick={() => setCustomerSearchTerm("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
@@ -688,21 +801,29 @@ export default function BackupsPage() {
               <BackupDeviceTable
                 devices={(devices.data ?? []) as Parameters<typeof BackupDeviceTable>[0]["devices"]}
                 isLoading={devices.isLoading}
+                initialExpandedId={initialDeviceId}
               />
             ) : (
               <CustomerSummaryTable
                 customers={(customers.data ?? []) as CustomerRow[]}
                 isLoading={customers.isLoading}
                 onSelectCustomer={handleSelectCustomer}
+                searchTerm={customerSearchTerm}
               />
             )}
           </div>
 
-          {/* Footer: device count */}
+          {/* Footer: count */}
           {activeTab === "devices" && devices.data && (
             <div className="text-xs text-zinc-500">
               Showing {devices.data.length} device{devices.data.length !== 1 ? "s" : ""}
               {customerFilter && selectedCustomerName && ` for ${selectedCustomerName}`}
+            </div>
+          )}
+          {activeTab === "customers" && customers.data && (
+            <div className="text-xs text-zinc-500">
+              {customers.data.length} customer{customers.data.length !== 1 ? "s" : ""}
+              {customerSearchTerm && ` · filtered by "${customerSearchTerm}"`}
             </div>
           )}
         </>

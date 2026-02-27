@@ -28,8 +28,15 @@ import { AlertExpanded } from "./_components/alert-expanded";
 import { ThreatDetailPanel } from "./_components/threat-detail-panel";
 import { S1ManagementView } from "./_components/s1-management";
 import { AvananManagementView } from "./_components/avanan-management";
+import { BlackpointManagementView } from "./_components/bp-management";
 
 /* ─── TYPES ──────────────────────────────────────────────── */
+
+type SourceKey = "sentinelone" | "blackpoint" | "ninjaone" | "uptime" | "cove";
+const ALL_SOURCES: SourceKey[] = ["sentinelone", "blackpoint", "ninjaone", "uptime", "cove"];
+const SOURCE_LABELS: Record<SourceKey, string> = {
+  sentinelone: "S1", blackpoint: "BP", ninjaone: "Ninja", uptime: "Uptime", cove: "Cove",
+};
 
 interface UnifiedAlert {
   id: string;
@@ -51,6 +58,14 @@ interface UnifiedAlert {
   mitigationStatus?: string;
   /** Raw source ID for drill-down */
   sourceId: string;
+  /** Merged alert: both sources that contributed */
+  mergedSources?: Array<{ source: string; sourceId: string; sourceLabel: string }>;
+  /** Blackpoint enrichment for merged alerts */
+  bpRaw?: Record<string, unknown>;
+  bpSourceId?: string;
+  bpRiskScore?: number;
+  bpTicketStatus?: string;
+  bpOrganizationSourceId?: string;
 }
 
 interface AlertGroup {
@@ -128,12 +143,13 @@ interface PlatformCardProps {
   breakdowns: SeverityCount[];
   loading?: boolean;
   error?: boolean;
+  errorMessage?: string;
   notConnected?: boolean;
   onClick?: () => void;
   active?: boolean;
 }
 
-function PlatformCard({ name, icon: Icon, iconColor, total, breakdowns, loading, error, notConnected, onClick, active }: PlatformCardProps) {
+function PlatformCard({ name, icon: Icon, iconColor, total, breakdowns, loading, error, errorMessage, notConnected, onClick, active }: PlatformCardProps) {
   if (notConnected) {
     return (
       <div className="relative rounded-xl p-4 bg-card border border-border shadow-card-light dark:shadow-card overflow-hidden opacity-50">
@@ -178,7 +194,9 @@ function PlatformCard({ name, icon: Icon, iconColor, total, breakdowns, loading,
           </div>
           <div>
             <p className="text-xs text-muted-foreground">{name}</p>
-            <p className="text-xs text-red-400 mt-0.5">Connection Error</p>
+            <p className="text-xs text-red-400 mt-0.5 truncate max-w-[200px]" title={errorMessage || "Connection Error"}>
+              {errorMessage ? errorMessage.replace(/^\[.*?\]\s*/, "").substring(0, 40) : "Connection Error"}
+            </p>
           </div>
         </div>
       </div>
@@ -283,9 +301,19 @@ function AlertRow({ group, expanded, onToggle }: { group: AlertGroup; expanded: 
             </span>
           )}
           <SeverityBadge severity={alert.severity} />
-          <span className={cn("text-[10px] px-1.5 py-0.5 rounded border", sourceColors[alert.source])}>
-            {alert.sourceLabel}
-          </span>
+          {alert.mergedSources ? (
+            <span className="inline-flex items-center gap-0.5">
+              {alert.mergedSources.map(ms => (
+                <span key={ms.source} className={cn("text-[10px] px-1.5 py-0.5 rounded border", sourceColors[ms.source])}>
+                  {ms.source === "sentinelone" ? "S1" : ms.source === "blackpoint" ? "BP" : ms.sourceLabel}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span className={cn("text-[10px] px-1.5 py-0.5 rounded border", sourceColors[alert.source])}>
+              {alert.sourceLabel}
+            </span>
+          )}
           {alert.mitigationStatus && (
             <span className={cn(
               "text-[10px] px-1.5 py-0.5 rounded border",
@@ -352,12 +380,11 @@ function AlertRow({ group, expanded, onToggle }: { group: AlertGroup; expanded: 
 
 /* ─── MAIN PAGE ──────────────────────────────────────────── */
 
-type SourceFilter = "all" | "sentinelone" | "blackpoint" | "ninjaone" | "uptime" | "cove";
 type SeverityFilter = "all" | SeverityKey;
 
 export default function AlertsPage() {
   const router = useRouter();
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [activeSources, setActiveSources] = useState<Set<SourceKey>>(new Set(ALL_SOURCES));
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -368,6 +395,31 @@ export default function AlertsPage() {
   const [detailThreatId, setDetailThreatId] = useState<string | null>(null);
   const [showS1Management, setShowS1Management] = useState(false);
   const [showAvananManagement, setShowAvananManagement] = useState(false);
+  const [showBpManagement, setShowBpManagement] = useState(false);
+
+  // ─── Source Filter Helpers ─────────────────────────────────
+  const allSourcesActive = activeSources.size === ALL_SOURCES.length || activeSources.size === 0;
+
+  function toggleSource(source: SourceKey) {
+    setActiveSources(prev => {
+      const next = new Set(prev);
+      if (next.has(source)) {
+        next.delete(source);
+        if (next.size === 0) return new Set(ALL_SOURCES);
+      } else {
+        next.add(source);
+      }
+      return next;
+    });
+  }
+
+  function setOnlySource(source: SourceKey) {
+    if (activeSources.size === 1 && activeSources.has(source)) {
+      setActiveSources(new Set(ALL_SOURCES));
+    } else {
+      setActiveSources(new Set([source]));
+    }
+  }
 
   // ─── Time Range Computation ──────────────────────────────
   const createdAfter = useMemo(() => getTimeRangeDate(timeRange), [timeRange]);
@@ -540,11 +592,14 @@ export default function AlertsPage() {
   const unifiedAlerts = useMemo(() => {
     const alerts: UnifiedAlert[] = [];
 
-    // SentinelOne threats
+    // ── Step 1: Build S1 alerts + hostname lookup for merge ──
+    const s1Alerts: UnifiedAlert[] = [];
+    const s1ByHostname = new Map<string, { alert: UnifiedAlert; index: number }[]>();
+
     if (s1Threats.data?.data) {
       for (const t of s1Threats.data.data) {
         const raw = t._raw as { threatInfo?: { confidenceLevel?: string; mitigationStatus?: string; sha256?: string; sha1?: string; md5?: string } } | undefined;
-        alerts.push({
+        const s1Alert: UnifiedAlert = {
           id: `s1-${t.sourceId}`,
           source: "sentinelone",
           sourceLabel: "SentinelOne",
@@ -560,13 +615,75 @@ export default function AlertsPage() {
           classification: raw?.threatInfo?.confidenceLevel,
           mitigationStatus: raw?.threatInfo?.mitigationStatus ?? t.status,
           sourceId: t.sourceId,
-        });
+        };
+        const idx = s1Alerts.length;
+        s1Alerts.push(s1Alert);
+
+        if (t.deviceHostname) {
+          const key = t.deviceHostname.toLowerCase();
+          if (!s1ByHostname.has(key)) s1ByHostname.set(key, []);
+          s1ByHostname.get(key)!.push({ alert: s1Alert, index: idx });
+        }
       }
     }
 
-    // Blackpoint detections
+    // ── Step 2: Build BP alerts, merging with S1 where applicable ──
+    const mergedS1Indices = new Set<number>();
+
     if (bpDetections.data?.data) {
       for (const d of bpDetections.data.data) {
+        const bpRaw = d._raw as Record<string, unknown> | undefined;
+        const alertTypes = (bpRaw?.alertTypes as string[]) ?? [];
+        const isSentinelOne = alertTypes.some(t => t.toUpperCase().includes("SENTINELONE"));
+
+        if (isSentinelOne && d.deviceHostname) {
+          const key = d.deviceHostname.toLowerCase();
+          const candidates = s1ByHostname.get(key);
+
+          if (candidates && candidates.length > 0) {
+            // Find closest-in-time unmerged S1 alert on same hostname
+            const bpTime = new Date(d.detectedAt).getTime();
+            let bestMatch: { alert: UnifiedAlert; index: number } | null = null;
+            let bestTimeDiff = Infinity;
+
+            for (const c of candidates) {
+              if (mergedS1Indices.has(c.index)) continue;
+              const diff = Math.abs(c.alert.detectedAt.getTime() - bpTime);
+              if (diff < bestTimeDiff) {
+                bestTimeDiff = diff;
+                bestMatch = c;
+              }
+            }
+
+            if (bestMatch) {
+              mergedS1Indices.add(bestMatch.index);
+              const s1a = bestMatch.alert;
+              const higherScore = Math.max(s1a.severityScore, d.severityScore);
+              const higherSeverity = higherScore === s1a.severityScore ? s1a.severity : d.severity;
+              const ticketStatus = (bpRaw?.ticket as Record<string, unknown> | undefined)?.status as string | undefined;
+
+              alerts.push({
+                ...s1a,
+                id: `merged-${s1a.sourceId}-${d.sourceId}`,
+                severity: higherSeverity,
+                severityScore: higherScore,
+                mergedSources: [
+                  { source: "sentinelone", sourceId: s1a.sourceId, sourceLabel: "SentinelOne" },
+                  { source: "blackpoint", sourceId: d.sourceId, sourceLabel: "Blackpoint" },
+                ],
+                bpRaw: bpRaw ?? undefined,
+                bpSourceId: d.sourceId,
+                bpRiskScore: (bpRaw?.riskScore as number) ?? d.severityScore * 10,
+                bpTicketStatus: ticketStatus,
+                bpOrganizationSourceId: d.organizationSourceId ?? (bpRaw?.customerId as string),
+              });
+              continue;
+            }
+          }
+        }
+
+        // No merge — standalone BP alert (pass bpRaw for detail view)
+        const ticketStatus = (bpRaw?.ticket as Record<string, unknown> | undefined)?.status as string | undefined;
         alerts.push({
           id: `bp-${d.sourceId}`,
           source: "blackpoint",
@@ -580,7 +697,18 @@ export default function AlertsPage() {
           organizationName: d.organizationName,
           detectedAt: new Date(d.detectedAt),
           sourceId: d.sourceId,
+          bpRaw: bpRaw ?? undefined,
+          bpRiskScore: (bpRaw?.riskScore as number) ?? d.severityScore * 10,
+          bpTicketStatus: ticketStatus,
+          bpOrganizationSourceId: d.organizationSourceId ?? (bpRaw?.customerId as string),
         });
+      }
+    }
+
+    // ── Step 3: Add non-merged S1 alerts ──
+    for (let i = 0; i < s1Alerts.length; i++) {
+      if (!mergedS1Indices.has(i)) {
+        alerts.push(s1Alerts[i]);
       }
     }
 
@@ -665,8 +793,13 @@ export default function AlertsPage() {
   const filteredAlerts = useMemo(() => {
     let result = unifiedAlerts;
 
-    if (sourceFilter !== "all") {
-      result = result.filter((a) => a.source === sourceFilter);
+    if (!allSourcesActive) {
+      result = result.filter((a) => {
+        if (a.mergedSources) {
+          return a.mergedSources.some(ms => activeSources.has(ms.source as SourceKey));
+        }
+        return activeSources.has(a.source as SourceKey);
+      });
     }
     if (severityFilter !== "all") {
       result = result.filter((a) => a.severity === severityFilter);
@@ -683,7 +816,7 @@ export default function AlertsPage() {
     }
 
     return result;
-  }, [unifiedAlerts, sourceFilter, severityFilter, searchQuery]);
+  }, [unifiedAlerts, allSourcesActive, activeSources, severityFilter, searchQuery]);
 
   // ─── Group Alerts ───────────────────────────────────────
 
@@ -803,18 +936,19 @@ export default function AlertsPage() {
           ] : []}
           loading={s1Threats.isLoading}
           error={s1Threats.isError && !s1Threats.data}
-          notConnected={s1Threats.isError && s1Threats.error?.message?.includes("No active")}
+          notConnected={s1Threats.isError && (s1Threats.error?.message?.includes("No active") || s1Threats.error?.message?.includes("not configured"))}
           onClick={() => {
             if (showS1Management) {
               setShowS1Management(false);
             } else {
               setShowS1Management(true);
               setShowAvananManagement(false);
+              setShowBpManagement(false);
               setExpandedGroupKey(null);
               setDetailThreatId(null);
             }
           }}
-          active={showS1Management || sourceFilter === "sentinelone"}
+          active={showS1Management || (activeSources.size === 1 && activeSources.has("sentinelone"))}
         />
 
         {/* Blackpoint */}
@@ -831,9 +965,20 @@ export default function AlertsPage() {
           ] : []}
           loading={bpDetections.isLoading}
           error={bpDetections.isError && !bpDetections.data}
-          notConnected={bpDetections.isError && bpDetections.error?.message?.includes("No active")}
-          onClick={() => setSourceFilter(sourceFilter === "blackpoint" ? "all" : "blackpoint")}
-          active={sourceFilter === "blackpoint"}
+          errorMessage={bpDetections.error?.message}
+          notConnected={bpDetections.isError && (bpDetections.error?.message?.includes("No active") || bpDetections.error?.message?.includes("not configured"))}
+          onClick={() => {
+            if (showBpManagement) {
+              setShowBpManagement(false);
+            } else {
+              setShowBpManagement(true);
+              setShowS1Management(false);
+              setShowAvananManagement(false);
+              setExpandedGroupKey(null);
+              setDetailThreatId(null);
+            }
+          }}
+          active={showBpManagement}
         />
 
         {/* NinjaRMM */}
@@ -850,9 +995,9 @@ export default function AlertsPage() {
           ] : []}
           loading={ninjaAlerts.isLoading}
           error={ninjaAlerts.isError && !ninjaAlerts.data}
-          notConnected={ninjaAlerts.isError && ninjaAlerts.error?.message?.includes("No active")}
-          onClick={() => setSourceFilter(sourceFilter === "ninjaone" ? "all" : "ninjaone")}
-          active={sourceFilter === "ninjaone"}
+          notConnected={ninjaAlerts.isError && (ninjaAlerts.error?.message?.includes("No active") || ninjaAlerts.error?.message?.includes("not configured"))}
+          onClick={() => setOnlySource("ninjaone")}
+          active={activeSources.size === 1 && activeSources.has("ninjaone")}
         />
 
         {/* Uptime Monitors */}
@@ -884,8 +1029,8 @@ export default function AlertsPage() {
           loading={backupAlerts.isLoading}
           error={backupAlerts.isError && !backupAlerts.data && !backupAlerts.error?.message?.includes("not configured") && !backupAlerts.error?.message?.includes("No active")}
           notConnected={backupAlerts.isError && (backupAlerts.error?.message?.includes("not configured") || backupAlerts.error?.message?.includes("No active"))}
-          onClick={() => setSourceFilter(sourceFilter === "cove" ? "all" : "cove")}
-          active={sourceFilter === "cove"}
+          onClick={() => setOnlySource("cove")}
+          active={activeSources.size === 1 && activeSources.has("cove")}
         />
 
         {/* Avanan / Check Point Harmony Email */}
@@ -915,6 +1060,7 @@ export default function AlertsPage() {
             } else {
               setShowAvananManagement(true);
               setShowS1Management(false);
+              setShowBpManagement(false);
               setExpandedGroupKey(null);
               setDetailThreatId(null);
             }
@@ -937,6 +1083,19 @@ export default function AlertsPage() {
           </div>
           <S1ManagementView />
         </div>
+      ) : showBpManagement ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowBpManagement(false)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to All Alerts
+            </button>
+          </div>
+          <BlackpointManagementView />
+        </div>
       ) : showAvananManagement ? (
         <div className="space-y-4">
           <div className="flex items-center gap-3">
@@ -958,10 +1117,11 @@ export default function AlertsPage() {
             <div className="px-4 py-3 border-b border-border space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-medium text-foreground">
-                  All Alerts
+                  {allSourcesActive ? "All Alerts" : "Filtered Alerts"}
                   <span className="ml-2 text-muted-foreground font-normal">
                     {filteredAlerts.length} alert{filteredAlerts.length !== 1 ? "s" : ""} in {groupedAlerts.length} group{groupedAlerts.length !== 1 ? "s" : ""}
                     {" "}&middot; {timeRangeLabel}
+                    {!allSourcesActive && <> &middot; {activeSources.size} source{activeSources.size !== 1 ? "s" : ""}</>}
                   </span>
                 </h2>
                 <button
@@ -987,6 +1147,31 @@ export default function AlertsPage() {
                     />
                   </div>
 
+                  {/* Source filter checkboxes */}
+                  <div className="flex gap-1 items-center">
+                    {ALL_SOURCES.map((s) => {
+                      const isChecked = activeSources.has(s);
+                      return (
+                        <button
+                          key={s}
+                          onClick={() => toggleSource(s)}
+                          className={cn(
+                            "flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg border transition-colors",
+                            isChecked
+                              ? sourceColors[s]
+                              : "border-border bg-transparent text-muted-foreground/50 hover:text-muted-foreground"
+                          )}
+                        >
+                          <span className={cn(
+                            "w-2 h-2 rounded-sm border transition-colors",
+                            isChecked ? "bg-current border-current" : "border-muted-foreground/40"
+                          )} />
+                          {SOURCE_LABELS[s]}
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   {/* Severity filter */}
                   <div className="flex gap-1">
                     {(["all", "critical", "high", "medium", "low"] as const).map((s) => {
@@ -1010,9 +1195,9 @@ export default function AlertsPage() {
                   </div>
 
                   {/* Clear filters */}
-                  {(sourceFilter !== "all" || severityFilter !== "all" || searchQuery) && (
+                  {(!allSourcesActive || severityFilter !== "all" || searchQuery) && (
                     <button
-                      onClick={() => { setSourceFilter("all"); setSeverityFilter("all"); setSearchQuery(""); }}
+                      onClick={() => { setActiveSources(new Set(ALL_SOURCES)); setSeverityFilter("all"); setSearchQuery(""); }}
                       className="text-[10px] text-red-500 hover:text-red-400 transition-colors"
                     >
                       Clear all
@@ -1039,7 +1224,7 @@ export default function AlertsPage() {
                   <>
                     <p className="text-sm font-medium">No alerts match your filters</p>
                     <button
-                      onClick={() => { setSourceFilter("all"); setSeverityFilter("all"); setSearchQuery(""); }}
+                      onClick={() => { setActiveSources(new Set(ALL_SOURCES)); setSeverityFilter("all"); setSearchQuery(""); }}
                       className="text-xs mt-2 text-red-500 hover:underline"
                     >
                       Clear filters

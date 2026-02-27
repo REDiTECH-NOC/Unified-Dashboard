@@ -330,6 +330,7 @@ export function TabAllTickets({ hub, initialCompanyId, initialContactSearch, ini
           hasMore={isMultiBoard ? false : singleBoardTickets.data?.hasMore}
           page={page}
           onPageChange={setPage}
+          showQuickActions
           hub={hub}
           emptyMessage="No tickets found"
           emptySubMessage={

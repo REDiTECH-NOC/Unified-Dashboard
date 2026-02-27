@@ -196,6 +196,38 @@ export interface CWAgreement {
   _info?: Record<string, unknown>;
 }
 
+export interface CWAgreementAddition {
+  id: number;
+  product?: { id: number; identifier: string; description: string };
+  quantity?: number;
+  lessIncluded?: number;
+  unitPrice?: number;
+  unitCost?: number;
+  effectiveDate?: string;
+  cancelledDate?: string;
+  description?: string;
+  billCustomer?: string; // "Billable" | "DoNotBill" | "NoCharge"
+  taxableFlag?: boolean;
+  margin?: number;
+  purchaseItemFlag?: boolean;
+  specialOrderFlag?: boolean;
+  agreementStatus?: string;
+  _info?: Record<string, unknown>;
+}
+
+export interface CWProduct {
+  id: number;
+  identifier: string;
+  description: string;
+  category?: { id: number; name: string };
+  subcategory?: { id: number; name: string };
+  type?: { id: number; name: string };
+  unitOfMeasure?: { id: number; name: string };
+  price?: number;
+  cost?: number;
+  _info?: Record<string, unknown>;
+}
+
 export interface CWScheduleEntry {
   id: number;
   objectId?: number;

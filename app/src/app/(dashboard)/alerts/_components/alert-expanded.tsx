@@ -22,8 +22,12 @@ import {
   Check,
   ChevronsLeft,
   ChevronsRight,
+  Shield,
+  AlertTriangle,
 } from "lucide-react";
 import { ConfirmationDialog } from "./confirmation-dialog";
+import { CoveAlertDetail } from "./cove-alert-detail";
+import { AlertTicketLink } from "./alert-ticket-link";
 
 /* ─── TYPES ────────────────────────────────────────────── */
 
@@ -37,6 +41,12 @@ interface AlertItem {
   severity: string;
   fileHash?: string;
   detectedAt: Date;
+  mergedSources?: Array<{ source: string; sourceId: string; sourceLabel: string }>;
+  bpRaw?: Record<string, unknown>;
+  bpSourceId?: string;
+  bpRiskScore?: number;
+  bpTicketStatus?: string;
+  bpOrganizationSourceId?: string;
 }
 
 interface AlertExpandedProps {
@@ -473,6 +483,390 @@ function ThreatDetail({
   );
 }
 
+/* ─── BLACKPOINT DETAIL (for standalone BP alerts) ────── */
+
+function BlackpointAlertDetail({ alert, onClose }: { alert: AlertItem; onClose: () => void }) {
+  const { dateTime } = useTimezone();
+  const raw = alert.bpRaw;
+  if (!raw) {
+    return (
+      <div className="px-6 py-4 bg-accent/30 border-t border-border/50 space-y-3">
+        <p className="text-xs text-muted-foreground">No detail data available.</p>
+        <AlertTicketLink
+          hostname={alert.deviceHostname}
+          organizationName={alert.organizationName}
+          organizationSourceId={alert.bpOrganizationSourceId}
+          toolId="blackpoint"
+          alertContext={{ title: alert.title, severity: alert.severity, source: "blackpoint", deviceHostname: alert.deviceHostname, detectedAt: alert.detectedAt }}
+        />
+        <button onClick={onClose} className="text-xs text-red-500 hover:text-red-400">Close</button>
+      </div>
+    );
+  }
+
+  const riskScore = alert.bpRiskScore ?? (raw.riskScore as number) ?? 0;
+  const alertCount = (raw.alertCount as number) ?? 1;
+  const alertTypes = (raw.alertTypes as string[]) ?? [];
+  const groupKey = raw.groupKey as string | undefined;
+  const status = (raw.status as string) ?? "OPEN";
+  const ticket = raw.ticket as { status?: string; notes?: Array<{ status: string; created: string }> } | null | undefined;
+  const created = raw.created as string | undefined;
+  const updated = raw.updated as string | null | undefined;
+
+  const bpAlert = raw.alert as Record<string, unknown> | null | undefined;
+  const action = bpAlert?.action as string | undefined;
+  const hostname = (bpAlert?.hostname as string) ?? alert.deviceHostname;
+  const username = bpAlert?.username as string | undefined;
+  const provider = bpAlert?.eventProvider as string | undefined;
+  const ruleName = bpAlert?.ruleName as string | undefined;
+  const threatFramework = bpAlert?.threatFramework as string | undefined;
+  const anomalyPct = bpAlert?.anomalyPercentile as number | undefined;
+  const reasons = (bpAlert?.reasons as Array<Record<string, unknown>>) ?? [];
+  const socActions = (bpAlert?.socReportingActions as Array<Record<string, unknown>>) ?? [];
+  const details = bpAlert?.details as Record<string, unknown> | null | undefined;
+
+  const fmtReason = (r: Record<string, unknown>) => {
+    if (typeof r.name === "string") return r.name + (r.value !== undefined && r.value !== 0 ? `: ${r.value}` : "");
+    if (typeof r.reason === "string") return r.reason;
+    if (typeof r.description === "string") return r.description;
+    return JSON.stringify(r);
+  };
+
+  const riskColor = (score: number): string => {
+    if (score >= 80) return "bg-red-500/10 text-red-400 border-red-500/20";
+    if (score >= 60) return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+    if (score >= 40) return "bg-yellow-500/10 text-yellow-400 border-yellow-500/20";
+    if (score >= 20) return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+    return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+  };
+
+  return (
+    <div className="bg-accent/20 border-t border-border/50 animate-in slide-in-from-top-2 duration-200">
+      <div className="px-6 py-4 space-y-4">
+        {/* ─── Header badges ─── */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-bold tabular-nums", riskColor(riskScore))}>
+            Risk: {riskScore}
+          </span>
+          <span className={cn(
+            "text-[10px] px-1.5 py-0.5 rounded border",
+            status === "RESOLVED" ? "bg-green-500/10 text-green-400 border-green-500/20" : "bg-red-500/10 text-red-400 border-red-500/20"
+          )}>
+            {status}
+          </span>
+          {ticket?.status && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/10 text-blue-400">
+              SOC: {ticket.status}
+            </span>
+          )}
+          {alertCount > 1 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-accent text-muted-foreground">
+              {alertCount} alert{alertCount !== 1 ? "s" : ""} in group
+            </span>
+          )}
+          {alertTypes.map((t, i) => (
+            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-600 bg-zinc-500/10 text-zinc-300">
+              {t}
+            </span>
+          ))}
+        </div>
+
+        {/* ─── Alert detail grid ─── */}
+        <div className="grid grid-cols-3 gap-6">
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-medium text-muted-foreground uppercase flex items-center gap-1.5">
+              <Monitor className="h-3.5 w-3.5" /> Detection
+            </h4>
+            <div className="space-y-1 text-xs">
+              {action && <div><span className="text-muted-foreground">Action </span><span className="text-foreground font-medium">{action}</span></div>}
+              {hostname && <div><span className="text-muted-foreground">Host </span><span className="text-foreground font-medium">{hostname}</span></div>}
+              {username && <div><span className="text-muted-foreground">User </span><span className="text-foreground font-medium">{username}</span></div>}
+              {provider && <div><span className="text-muted-foreground">Provider </span><span className="text-foreground font-medium">{provider}</span></div>}
+              {groupKey && <div><span className="text-muted-foreground">Group Key </span><span className="text-foreground font-mono text-[10px]">{groupKey}</span></div>}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-medium text-muted-foreground uppercase flex items-center gap-1.5">
+              <FileText className="h-3.5 w-3.5" /> Threat Intel
+            </h4>
+            <div className="space-y-1 text-xs">
+              {ruleName && <div><span className="text-muted-foreground">Rule </span><span className="text-foreground font-medium">{ruleName}</span></div>}
+              {threatFramework && <div><span className="text-muted-foreground">Framework </span><span className="text-foreground font-medium truncate block max-w-[250px]">{threatFramework}</span></div>}
+              {anomalyPct != null && <div><span className="text-muted-foreground">Anomaly </span><span className="text-foreground font-medium">{anomalyPct}th percentile</span></div>}
+              {created && <div><span className="text-muted-foreground">Created </span><span className="text-foreground">{dateTime(created)}</span></div>}
+              {updated && <div><span className="text-muted-foreground">Updated </span><span className="text-foreground">{dateTime(updated)}</span></div>}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-medium text-muted-foreground uppercase flex items-center gap-1.5">
+              <Shield className="h-3.5 w-3.5" /> SOC Status
+            </h4>
+            <div className="space-y-1 text-xs">
+              {ticket?.status && <div><span className="text-muted-foreground">Ticket Status </span><span className="text-foreground font-medium">{ticket.status}</span></div>}
+              {ticket?.notes && ticket.notes.length > 0 && ticket.notes.map((n, i) => (
+                <div key={i} className="text-[10px]">
+                  <span className="text-blue-400/70">{n.status}</span>
+                  <span className="text-muted-foreground ml-1.5">{dateTime(n.created)}</span>
+                </div>
+              ))}
+              {!ticket?.status && <div className="text-muted-foreground text-[10px]">No SOC ticket data</div>}
+            </div>
+          </div>
+        </div>
+
+        {/* ─── SOC Analysis (actions taken by Blackpoint SOC) ─── */}
+        {socActions.length > 0 && (
+          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-1.5">
+            <span className="text-[10px] font-medium text-blue-400 uppercase">SOC Analysis</span>
+            {socActions.map((sa, i) => {
+              const label = typeof sa.action === "string" ? sa.action : null;
+              const desc = typeof sa.description === "string" ? sa.description : null;
+              const saStatus = typeof sa.status === "string" ? sa.status : null;
+              return (
+                <div key={i}>
+                  {label && <p className="text-xs text-foreground font-medium">{label}{saStatus && <span className="text-[10px] text-muted-foreground ml-2">({saStatus})</span>}</p>}
+                  {desc && <p className="text-[10px] text-foreground/70">{desc}</p>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ─── Detection Reasons ─── */}
+        {reasons.length > 0 && (
+          <div className="space-y-1">
+            <span className="text-[10px] font-medium text-muted-foreground uppercase">Detection Reasons</span>
+            <div className="flex flex-wrap gap-1">
+              {reasons.map((r, i) => (
+                <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+                  {fmtReason(r)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Detection Details (flattened from nested BP data) ─── */}
+        {details && Object.keys(details).length > 0 && (() => {
+          // Extract useful fields from nested objects
+          const d = details as Record<string, unknown>;
+          const items: Array<{ label: string; value: string; mono?: boolean }> = [];
+
+          // Process info
+          const proc = d.process as Record<string, unknown> | undefined;
+          if (proc) {
+            if (proc.name) items.push({ label: "Process", value: String(proc.name) });
+            if (proc.pid) items.push({ label: "PID", value: String(proc.pid), mono: true });
+            if (proc.executable) items.push({ label: "Executable", value: String(proc.executable), mono: true });
+          }
+
+          // Source / destination IPs
+          const src = d.source as Record<string, unknown> | undefined;
+          const dst = d.destination as Record<string, unknown> | undefined;
+          if (src?.ip) items.push({ label: "Source IP", value: String(src.ip), mono: true });
+          if (dst?.ip) items.push({ label: "Destination IP", value: String(dst.ip), mono: true });
+
+          // Server info
+          const srv = d.server as Record<string, unknown> | undefined;
+          if (srv?.address && srv.address !== src?.ip) items.push({ label: "Server", value: `${srv.address}${srv.port ? `:${srv.port}` : ""}`, mono: true });
+
+          // Threat / MITRE
+          const threat = d.threat as Record<string, unknown> | undefined;
+          const tactic = threat?.tactic as Record<string, unknown> | undefined;
+          const technique = threat?.technique as Record<string, unknown> | undefined;
+          if (tactic?.name) items.push({ label: "MITRE Tactic", value: `${tactic.name}${tactic.id ? ` (${tactic.id})` : ""}` });
+          if (technique?.name && technique.name !== tactic?.name) items.push({ label: "MITRE Technique", value: `${technique.name}${technique.id ? ` (${technique.id})` : ""}` });
+
+          // Rule info (if not already shown above)
+          const rule = d.rule as Record<string, unknown> | undefined;
+          if (rule?.description && rule.description !== ruleName) items.push({ label: "Rule Description", value: String(rule.description) });
+          if (rule?.category) items.push({ label: "Rule Category", value: String(rule.category) });
+
+          // Tags
+          const tags = d.tags as string[] | undefined;
+          if (tags && tags.length > 0) items.push({ label: "Tags", value: tags.join(", ") });
+
+          // Timestamp
+          const ts = d["@timestamp"] as string | undefined;
+          if (ts) items.push({ label: "Event Time", value: new Date(ts).toLocaleString() });
+
+          // Any remaining scalar values not already covered
+          const skip = new Set(["host", "rule", "event", "threat", "process", "source", "destination", "server", "agent", "labels", "bcs_actions", "bcs_host", "account", "organization", "tags", "@timestamp"]);
+          for (const [k, v] of Object.entries(d)) {
+            if (skip.has(k)) continue;
+            if (v == null || v === "") continue;
+            if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+              items.push({ label: k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()), value: String(v) });
+            }
+          }
+
+          if (items.length === 0) return null;
+          return (
+            <div className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase">Detection Details</span>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[11px]">
+                {items.map((item, i) => (
+                  <div key={i} className="flex gap-1.5">
+                    <span className="text-muted-foreground whitespace-nowrap">{item.label}</span>
+                    <span className={cn("text-foreground truncate", item.mono && "font-mono text-[10px]")} title={item.value}>
+                      {item.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ─── Fallback when no enrichment data ─── */}
+        {!socActions.length && !reasons.length && !ruleName && !details && (
+          <p className="text-[10px] text-muted-foreground">
+            No additional enrichment data available from the API &mdash; the detection summary shown in CompassOne is generated by Blackpoint&apos;s BROC AI and not exposed via their API.
+          </p>
+        )}
+
+        {/* ─── Related Tickets ─── */}
+        <AlertTicketLink
+          hostname={alert.deviceHostname}
+          organizationName={alert.organizationName}
+          organizationSourceId={alert.bpOrganizationSourceId}
+          toolId="blackpoint"
+          alertContext={{ title: alert.title, severity: alert.severity, source: "blackpoint", deviceHostname: alert.deviceHostname, detectedAt: alert.detectedAt }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ─── BLACKPOINT CONTEXT (for merged S1+BP alerts) ────── */
+
+const bpRiskColor = (score: number): string => {
+  if (score >= 80) return "bg-red-500/10 text-red-400 border-red-500/20";
+  if (score >= 60) return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+  if (score >= 40) return "bg-yellow-500/10 text-yellow-400 border-yellow-500/20";
+  if (score >= 20) return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+  return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+};
+
+function BpContextSection({ bpRaw, bpRiskScore, bpTicketStatus }: {
+  bpRaw: Record<string, unknown>;
+  bpRiskScore?: number;
+  bpTicketStatus?: string;
+}) {
+  const alertTypes = (bpRaw.alertTypes as string[]) ?? [];
+  const alertCount = (bpRaw.alertCount as number) ?? 1;
+  const bpAlert = bpRaw.alert as Record<string, unknown> | null | undefined;
+  const reasons = (bpAlert?.reasons as Array<Record<string, unknown>>) ?? [];
+  const socActions = (bpAlert?.socReportingActions as Array<Record<string, unknown>>) ?? [];
+  const anomalyPct = bpAlert?.anomalyPercentile as number | undefined;
+  const ruleName = bpAlert?.ruleName as string | undefined;
+  const threatFramework = bpAlert?.threatFramework as string | undefined;
+  const action = bpAlert?.action as string | undefined;
+  const username = bpAlert?.username as string | undefined;
+  const provider = bpAlert?.eventProvider as string | undefined;
+  const ticket = bpRaw.ticket as { status?: string; notes?: Array<{ status: string; created: string }> } | null | undefined;
+  const riskScore = bpRiskScore ?? (bpRaw.riskScore as number) ?? 0;
+
+  const fmtReason = (r: Record<string, unknown>) => {
+    if (typeof r.name === "string") return r.name + (r.value !== undefined && r.value !== 0 ? `: ${r.value}` : "");
+    if (typeof r.reason === "string") return r.reason;
+    return JSON.stringify(r);
+  };
+
+  return (
+    <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-2.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Shield className="h-3.5 w-3.5 text-blue-400" />
+        <span className="text-xs font-medium text-blue-400">Blackpoint MDR Context</span>
+        <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-medium", bpRiskColor(riskScore))}>
+          Risk: {riskScore}
+        </span>
+        {(bpTicketStatus || ticket?.status) && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/10 text-blue-400">
+            SOC: {bpTicketStatus || ticket?.status}
+          </span>
+        )}
+        {alertCount > 1 && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-accent text-muted-foreground">
+            {alertCount} alerts in group
+          </span>
+        )}
+      </div>
+
+      {/* Detection detail grid */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+        {alertTypes.length > 0 && (
+          <div><span className="text-muted-foreground">Detection Types: </span><span className="text-foreground">{alertTypes.join(", ")}</span></div>
+        )}
+        {action && (
+          <div><span className="text-muted-foreground">Action: </span><span className="text-foreground font-medium">{action}</span></div>
+        )}
+        {username && (
+          <div><span className="text-muted-foreground">User: </span><span className="text-foreground">{username}</span></div>
+        )}
+        {provider && (
+          <div><span className="text-muted-foreground">Provider: </span><span className="text-foreground">{provider}</span></div>
+        )}
+        {ruleName && (
+          <div><span className="text-muted-foreground">Rule: </span><span className="text-foreground">{ruleName}</span></div>
+        )}
+        {threatFramework && (
+          <div><span className="text-muted-foreground">Framework: </span><span className="text-foreground truncate">{threatFramework}</span></div>
+        )}
+        {anomalyPct != null && (
+          <div><span className="text-muted-foreground">Anomaly: </span><span className="text-foreground">{anomalyPct}th percentile</span></div>
+        )}
+      </div>
+
+      {/* SOC Analysis (rich action descriptions from Blackpoint SOC) */}
+      {socActions.length > 0 && (
+        <div className="space-y-1">
+          <span className="text-[10px] font-medium text-blue-400 uppercase">SOC Analysis</span>
+          {socActions.map((sa, i) => {
+            const label = typeof sa.action === "string" ? sa.action : null;
+            const desc = typeof sa.description === "string" ? sa.description : null;
+            const saStatus = typeof sa.status === "string" ? sa.status : null;
+            return (
+              <div key={i}>
+                {label && <p className="text-[11px] text-foreground font-medium">{label}{saStatus && <span className="text-[10px] text-muted-foreground ml-2">({saStatus})</span>}</p>}
+                {desc && <p className="text-[10px] text-foreground/70">{desc}</p>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Detection reasons */}
+      {reasons.length > 0 && (
+        <div className="space-y-0.5">
+          <span className="text-[10px] text-muted-foreground font-medium">Detection Reasons:</span>
+          <div className="flex flex-wrap gap-1">
+            {reasons.map((r, i) => (
+              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+                {fmtReason(r)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* SOC ticket notes timeline */}
+      {ticket?.notes && ticket.notes.length > 0 && (
+        <div className="space-y-0.5">
+          <span className="text-[10px] text-muted-foreground font-medium">SOC Ticket Timeline:</span>
+          <div className="flex flex-wrap gap-1">
+            {ticket.notes.map((n, i) => (
+              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-300 border border-blue-500/20">
+                {n.status}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── MAIN COMPONENT ──────────────────────────────────── */
 
 export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertExpandedProps) {
@@ -483,14 +877,82 @@ export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertEx
   const currentAlert = alerts[currentIndex];
   const allSourceIds = alerts.map((a) => a.sourceId);
 
-  // Non-S1 sources: simple placeholder
+  // Cove Backup alerts: rich detail view
+  if (source === "cove") {
+    return (
+      <div className="bg-accent/20 border-t border-border/50 animate-in slide-in-from-top-2 duration-200">
+        <div className="px-6 py-4 space-y-4">
+          {/* Group Navigation Bar (same as S1) */}
+          {isGroup && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0}
+                  className="p-1 rounded hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title="First">
+                  <ChevronsLeft className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+                <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0}
+                  className="flex items-center gap-1 h-7 px-2 rounded-lg text-[11px] font-medium bg-accent border border-border text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed hover:bg-accent/80">
+                  <ChevronLeft className="h-3 w-3" /> Prev
+                </button>
+                <span className="text-xs font-medium text-foreground px-2">
+                  {currentIndex + 1} <span className="text-muted-foreground">/ {alerts.length}</span>
+                </span>
+                <button onClick={() => setCurrentIndex((i) => Math.min(alerts.length - 1, i + 1))} disabled={currentIndex === alerts.length - 1}
+                  className="flex items-center gap-1 h-7 px-2 rounded-lg text-[11px] font-medium bg-accent border border-border text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed hover:bg-accent/80">
+                  Next <ChevronRight className="h-3 w-3" />
+                </button>
+                <button onClick={() => setCurrentIndex(alerts.length - 1)} disabled={currentIndex === alerts.length - 1}
+                  className="p-1 rounded hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title="Last">
+                  <ChevronsRight className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                {currentAlert.deviceHostname && (
+                  <span className="font-medium text-foreground">{currentAlert.deviceHostname}</span>
+                )}
+                <span>{dateTime(currentAlert.detectedAt)}</span>
+              </div>
+            </div>
+          )}
+
+          <CoveAlertDetail
+            key={currentAlert.sourceId}
+            alert={currentAlert}
+          />
+
+          <button onClick={onClose} className="text-xs text-red-500 hover:text-red-400">
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Blackpoint standalone alerts: rich detail view
+  if (source === "blackpoint") {
+    return <BlackpointAlertDetail alert={currentAlert} onClose={onClose} />;
+  }
+
+  // Other non-S1 sources: placeholder with ticket link
   if (source !== "sentinelone") {
     return (
-      <div className="px-6 py-4 bg-accent/30 border-t border-border/50">
+      <div className="px-6 py-4 bg-accent/30 border-t border-border/50 space-y-3">
         <p className="text-xs text-muted-foreground">
           Detailed view not yet available for this source.
         </p>
-        <button onClick={onClose} className="text-xs text-red-500 hover:text-red-400 mt-2">
+        <AlertTicketLink
+          hostname={currentAlert.deviceHostname}
+          organizationName={currentAlert.organizationName}
+          toolId={source === "ninjaone" ? "ninjaone" : undefined}
+          alertContext={{
+            title: currentAlert.title,
+            severity: currentAlert.severity,
+            source,
+            deviceHostname: currentAlert.deviceHostname,
+            detectedAt: currentAlert.detectedAt,
+          }}
+        />
+        <button onClick={onClose} className="text-xs text-red-500 hover:text-red-400">
           Close
         </button>
       </div>
@@ -566,6 +1028,61 @@ export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertEx
           allSourceIds={allSourceIds}
           isBulk={isGroup}
         />
+
+        {/* ─── Blackpoint MDR Context (for merged alerts) ─── */}
+        {currentAlert.mergedSources && currentAlert.bpRaw && (
+          <BpContextSection
+            bpRaw={currentAlert.bpRaw}
+            bpRiskScore={currentAlert.bpRiskScore}
+            bpTicketStatus={currentAlert.bpTicketStatus}
+          />
+        )}
+
+        {/* ─── Related Tickets ─── */}
+        {currentAlert.mergedSources ? (
+          <div className="space-y-2">
+            <AlertTicketLink
+              hostname={currentAlert.deviceHostname}
+              organizationName={currentAlert.organizationName}
+              toolId="sentinelone"
+              label="SentinelOne Tickets"
+              alertContext={{
+                title: currentAlert.title,
+                severity: currentAlert.severity,
+                source: "sentinelone",
+                deviceHostname: currentAlert.deviceHostname,
+                detectedAt: currentAlert.detectedAt,
+              }}
+            />
+            <AlertTicketLink
+              hostname={currentAlert.deviceHostname}
+              organizationName={currentAlert.organizationName}
+              organizationSourceId={currentAlert.bpOrganizationSourceId}
+              toolId="blackpoint"
+              label="Blackpoint Tickets"
+              alertContext={{
+                title: currentAlert.title,
+                severity: currentAlert.severity,
+                source: "blackpoint",
+                deviceHostname: currentAlert.deviceHostname,
+                detectedAt: currentAlert.detectedAt,
+              }}
+            />
+          </div>
+        ) : (
+          <AlertTicketLink
+            hostname={currentAlert.deviceHostname}
+            organizationName={currentAlert.organizationName}
+            toolId="sentinelone"
+            alertContext={{
+              title: currentAlert.title,
+              severity: currentAlert.severity,
+              source: "sentinelone",
+              deviceHostname: currentAlert.deviceHostname,
+              detectedAt: currentAlert.detectedAt,
+            }}
+          />
+        )}
       </div>
     </div>
   );

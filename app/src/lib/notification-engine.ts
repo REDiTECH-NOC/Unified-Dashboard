@@ -127,6 +127,33 @@ export async function getAllCwMappedUserIds(): Promise<string[]> {
 }
 
 /**
+ * Resolve the app userId of the CW member who triggered a webhook event.
+ * Used to suppress self-notifications (don't notify a tech about their own actions).
+ *
+ * @param memberId - CW numeric member ID from the callback payload's MemberID field
+ * @param cwMembers - Cached CW member list for ID → full member lookup
+ */
+export async function resolveActorUserId(
+  memberId: number | undefined,
+  cwMembers: Array<{ id: string; identifier: string; name: string; email: string }>
+): Promise<string | null> {
+  if (!memberId) return null;
+
+  const memberIdStr = String(memberId);
+  const member = cwMembers.find((m) => String(m.id) === memberIdStr);
+
+  if (member) {
+    return resolveTicketOwner(member.name, {
+      memberId: member.id,
+      memberIdentifier: member.identifier,
+    });
+  }
+
+  // Fallback: try resolving the numeric ID directly
+  return resolveTicketOwner("", { memberId: memberIdStr });
+}
+
+/**
  * Resolve ALL app userIds who should be notified about a ticket.
  * Checks both the owner and the resources field.
  *

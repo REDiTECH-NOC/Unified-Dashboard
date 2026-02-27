@@ -18,19 +18,25 @@ import type {
   BackupDashboardSummary,
   BackupDeviceFilter,
   BackupOverallStatus,
+  BackupSessionHistoryEntry,
+  BackupErrorDetail,
+  RecoveryVerification,
 } from "../_interfaces/backup";
 import type { NormalizedAlert } from "../_interfaces/common";
+import { ConnectorError } from "../_base/errors";
 import { CoveClient } from "./client";
-import type { BackupSessionHistoryEntry } from "../_interfaces/backup";
 import {
   DEVICE_LIST_COLUMNS,
-  HISTORY_COLUMNS,
   type CoveStatisticsResult,
   type CovePartner,
+  type CoveStorageNodeError,
+  type CoveQueryErrorsResult,
+  type CoveDraasStatistic,
+  type CoveDraasSessionFile,
+  type CoveSystemLogInfo,
 } from "./types";
 import {
   mapStatisticsRow,
-  mapHistoryRows,
   aggregateByCustomer,
   generateBackupAlerts,
   isM365Tenant,
@@ -313,39 +319,441 @@ export class CoveBackupConnector implements IBackupConnector {
     const cached = await this.cacheGet<BackupSessionHistoryEntry[]>(key);
 
     if (cached && this.isFresh(cached.cachedAt, 15 * 60)) {
-      // 15 min freshness for session history
       return cached.data;
     }
 
-    // Fetch from API
+    // EnumerateAccountHistoryStatistics returns device stats AS OF a given
+    // timeslice (one snapshot per call). To build session history, we query
+    // one timeslice per day and diff the per-source timestamps to detect
+    // which sessions ran each day.
     const rootPartnerId = await this.getRootPartnerId();
     const numericId = parseInt(deviceId, 10);
 
-    // Calculate date range
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    // Columns for history: per-source status, counts, sizes, duration, timestamp
+    const historyStatFields = ["0", "1", "2", "3", "4", "5", "7", "A", "G"];
+    const historyPrefixes = ["F", "S", "Q", "X", "N", "W", "H", "G", "J"];
+    const columns = [
+      "I1",  // device name
+      // Total stats
+      "T0", "T1", "T2", "T3", "T4", "T5", "T7", "TA", "TG",
+      // Per-source stats
+      ...historyPrefixes.flatMap((p) => historyStatFields.map((f) => `${p}${f}`)),
+    ];
 
-    const rawResult = await this.client.call<CoveStatisticsResult>(
-      "EnumerateAccountHistoryStatistics",
-      {
+    // Smart sampling: daily for last 7 days, every 2 days for 8-30.
+    // Cuts API calls from 30 → ~19 while preserving recent detail.
+    const now = new Date();
+    const timeslices: number[] = [];
+    for (let d = 0; d < days; d += d < 7 ? 1 : 2) {
+      const ts = new Date(now);
+      ts.setDate(ts.getDate() - d);
+      ts.setHours(23, 59, 59, 0);
+      timeslices.push(Math.floor(ts.getTime() / 1000));
+    }
+
+    // Build batch calls — single lock acquisition for all timeslices
+    const batchCalls = timeslices.map((ts) => ({
+      method: "EnumerateAccountHistoryStatistics",
+      params: {
+        timeslice: ts,
         query: {
           PartnerId: rootPartnerId,
-          Filter: `AccountId EQ ${numericId}`,
+          Filter: `(AU == ${numericId})`,
+          Columns: columns,
           StartRecordNumber: 0,
-          RecordsCount: 100,
-          Columns: HISTORY_COLUMNS,
+          RecordsCount: 1,
         },
+      },
+    }));
+
+    const batchResults = await this.client.callBatch<CoveStatisticsResult>(batchCalls);
+
+    // Parse snapshots from batch results
+    const snapshots: Array<{
+      timeslice: number;
+      settings: Record<string, string | number | null>;
+    }> = [];
+
+    for (let i = 0; i < batchResults.length; i++) {
+      const rawResult = batchResults[i];
+      if (!rawResult) continue;
+
+      const rows = Array.isArray(rawResult)
+        ? rawResult
+        : Array.isArray(rawResult?.result)
+          ? rawResult.result
+          : [];
+
+      if (rows.length > 0 && Array.isArray(rows[0].Settings)) {
+        const flat: Record<string, string | number | null> = {};
+        for (const s of rows[0].Settings) {
+          if (s && typeof s === "object") {
+            for (const [k, v] of Object.entries(s)) {
+              flat[k] = v as string | number | null;
+            }
+          }
+        }
+        snapshots.push({ timeslice: timeslices[i], settings: flat });
       }
+    }
+
+    // Build session entries by detecting per-source timestamp changes between days.
+    // If a source's "last session timestamp" ({prefix}G) changes between day N and
+    // day N+1, a session ran on day N. Use the stats from day N's snapshot.
+    const DATA_SOURCE_LABELS: Record<string, { type: string; label: string }> = {
+      F: { type: "files", label: "Files & Folders" },
+      S: { type: "system_state", label: "System State" },
+      Q: { type: "mssql", label: "MS SQL" },
+      X: { type: "vss_exchange", label: "Exchange (VSS)" },
+      N: { type: "network_shares", label: "Network Shares" },
+      W: { type: "vmware", label: "VMware" },
+      H: { type: "hyperv", label: "Hyper-V" },
+      G: { type: "m365_exchange", label: "M365 Exchange" },
+      J: { type: "m365_onedrive", label: "M365 OneDrive" },
+    };
+
+    const statusMap: Record<number, string> = {
+      1: "in_process", 2: "failed", 3: "aborted", 5: "completed",
+      6: "interrupted", 7: "not_started", 8: "completed_with_errors",
+      9: "in_progress_with_faults", 10: "over_quota", 11: "no_selection", 12: "restarted",
+    };
+
+    const safeNum = (v: string | number | null | undefined): number | null => {
+      if (v == null || v === "") return null;
+      const n = typeof v === "number" ? v : Number(v);
+      return isNaN(n) ? null : n;
+    };
+
+    const entries: BackupSessionHistoryEntry[] = [];
+
+    for (let i = 0; i < snapshots.length; i++) {
+      const snap = snapshots[i];
+      const prevSnap = i + 1 < snapshots.length ? snapshots[i + 1] : null;
+
+      for (const prefix of historyPrefixes) {
+        const sessionTs = safeNum(snap.settings[`${prefix}G`]);
+        if (sessionTs == null || sessionTs === 0) continue;
+
+        // Check if this session is "new" compared to the previous day's snapshot
+        const prevSessionTs = prevSnap ? safeNum(prevSnap.settings[`${prefix}G`]) : null;
+        if (prevSnap && prevSessionTs === sessionTs) continue; // Same session, skip
+
+        const statusCode = safeNum(snap.settings[`${prefix}0`]);
+        const meta = DATA_SOURCE_LABELS[prefix];
+        if (!meta) continue;
+
+        entries.push({
+          timestamp: new Date(sessionTs * 1000).toISOString(),
+          dataSourceType: meta.type as BackupSessionHistoryEntry["dataSourceType"],
+          dataSourceLabel: meta.label,
+          status: (statusMap[statusCode ?? 0] ?? "unknown") as BackupSessionHistoryEntry["status"],
+          durationSeconds: safeNum(snap.settings[`${prefix}A`]),
+          selectedCount: safeNum(snap.settings[`${prefix}1`]),
+          processedCount: safeNum(snap.settings[`${prefix}2`]),
+          selectedSizeBytes: safeNum(snap.settings[`${prefix}3`]),
+          processedSizeBytes: safeNum(snap.settings[`${prefix}4`]),
+          transferredSizeBytes: safeNum(snap.settings[`${prefix}5`]),
+          errorsCount: safeNum(snap.settings[`${prefix}7`]),
+        });
+      }
+    }
+
+    // Sort by timestamp descending
+    entries.sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
 
-    const entries = mapHistoryRows(rawResult);
-
-    // Cache with shorter TTL for history (6 hours)
+    // Cache with 6 hour TTL
     const envelope = { data: entries, cachedAt: Date.now() };
     await redis.set(key, JSON.stringify(envelope), "EX", 6 * 60 * 60);
 
     return entries;
+  }
+
+  // ─── Per-File Error Details (Storage Node API) ─────────────────
+
+  /**
+   * Get the storage node URL + auth token for a device.
+   *
+   * Two API calls needed:
+   * 1. EnumerateAccountRemoteAccessEndpoints → storage node URL (parsed from WebRcgUrl)
+   * 2. GetAccountInfoById → auth token + account name
+   */
+  private async getStorageNodeEndpoint(accountId: number): Promise<{
+    url: string;
+    token: string;
+    accountName: string;
+  }> {
+    const key = `cove:storagenode:${this.config.toolId}:${accountId}`;
+    const cached = await this.cacheGet<{ url: string; token: string; accountName: string }>(key);
+
+    if (cached && this.isFresh(cached.cachedAt, 10 * 60)) {
+      return cached.data;
+    }
+
+    // Step 1: Get storage node URL from remote access endpoints
+    const endpointResp = await this.client.call<{ result: Array<{ WebRcgUrl?: string; InternalInfoPageUrl?: string }> }>(
+      "EnumerateAccountRemoteAccessEndpoints",
+      { accountId },
+    );
+
+    const endpoints = endpointResp?.result ?? [];
+    if (endpoints.length === 0) {
+      throw new ConnectorError("cove", `No storage node endpoint for account ${accountId}`);
+    }
+
+    // Parse base URL from WebRcgUrl: "https://us-ch-0202-12.cloudbackup.management:443/rcg/..."
+    const rawUrl = endpoints[0].WebRcgUrl ?? endpoints[0].InternalInfoPageUrl ?? "";
+    let storageNodeUrl: string;
+    try {
+      const parsed = new URL(rawUrl);
+      storageNodeUrl = `${parsed.protocol}//${parsed.hostname}`;
+    } catch {
+      throw new ConnectorError("cove", `Could not parse storage node URL from: ${rawUrl.slice(0, 100)}`);
+    }
+
+    // Step 2: Get auth token + account name from GetAccountInfoById
+    const accountInfo = await this.client.call<{ result: { Token: string; Name: string } }>(
+      "GetAccountInfoById",
+      { accountId },
+    );
+
+    const token = accountInfo?.result?.Token;
+    const accountName = accountInfo?.result?.Name;
+
+    if (!token || !accountName) {
+      throw new ConnectorError("cove", `GetAccountInfoById missing Token or Name for account ${accountId}`);
+    }
+
+    const result = { url: storageNodeUrl, token, accountName };
+
+    const envelope = { data: result, cachedAt: Date.now() };
+    await redis.set(key, JSON.stringify(envelope), "EX", 30 * 60);
+
+    return result;
+  }
+
+  /**
+   * Fetch per-file error details for a backup device from the Cove storage node.
+   *
+   * Flow:
+   * 1. EnumerateAccountRemoteAccessEndpoints → storage node URL + token
+   * 2. QueryErrors on storage node → per-file error details
+   */
+  async getDeviceErrorDetails(deviceId: string): Promise<BackupErrorDetail[]> {
+    const key = `cove:errors:${this.config.toolId}:${deviceId}`;
+    const cached = await this.cacheGet<BackupErrorDetail[]>(key);
+
+    if (cached && this.isFresh(cached.cachedAt, 5 * 60)) {
+      return cached.data;
+    }
+
+    const numericId = parseInt(deviceId, 10);
+
+    // Step 1: Get storage node endpoint
+    const endpoint = await this.getStorageNodeEndpoint(numericId);
+
+    // Step 2: Query errors on the storage node
+    // sessionId: 0 = all sessions, query: "0 != 1" = always true (all errors)
+    const queryParams = {
+      accountId: numericId,
+      sessionId: 0,
+      query: "0 != 1",
+      orderBy: "Time DESC",
+      groupId: 0,
+      account: endpoint.accountName,
+      token: endpoint.token,
+      range: { Offset: 0, Size: 500 },
+    };
+
+    let rawErrors: CoveStorageNodeError[];
+    try {
+      const result = await this.client.callStorageNode<CoveQueryErrorsResult>(
+        endpoint.url,
+        "QueryErrors",
+        queryParams,
+      );
+      rawErrors = Array.isArray(result) ? result : result?.result ?? [];
+    } catch (err) {
+      // Token may have expired — clear endpoint cache, re-fetch, retry once
+      if (err instanceof ConnectorError) {
+        const endpointKey = `cove:storagenode:${this.config.toolId}:${numericId}`;
+        await redis.del(endpointKey);
+
+        const freshEndpoint = await this.getStorageNodeEndpoint(numericId);
+        const retryResult = await this.client.callStorageNode<CoveQueryErrorsResult>(
+          freshEndpoint.url,
+          "QueryErrors",
+          {
+            ...queryParams,
+            account: freshEndpoint.accountName,
+            token: freshEndpoint.token,
+          },
+        );
+        rawErrors = Array.isArray(retryResult) ? retryResult : retryResult?.result ?? [];
+      } else {
+        throw err;
+      }
+    }
+
+    // Step 3: Normalize to BackupErrorDetail[]
+    const errors: BackupErrorDetail[] = rawErrors.map((e) => ({
+      filename: e.Filename,
+      errorMessage: e.Text,
+      errorCode: e.Code,
+      occurrenceCount: e.Count,
+      timestamp: new Date(e.Time * 1000).toISOString(),
+      sessionId: String(e.SessionId),
+    }));
+
+    // Cache 5 min freshness, 1 hour Redis TTL
+    const envelope = { data: errors, cachedAt: Date.now() };
+    await redis.set(key, JSON.stringify(envelope), "EX", 60 * 60);
+
+    return errors;
+  }
+
+  // ─── Recovery Verification (DRaaS REST API) ────────────────────
+
+  /**
+   * Fetch recovery verification data for a device via the DRaaS REST API.
+   * Includes boot screenshot URL, boot/recovery details, and system events.
+   * Returns { available: false } if recovery testing is not configured.
+   */
+  async getRecoveryVerification(deviceId: string): Promise<RecoveryVerification> {
+    const key = `cove:recovery:${this.config.toolId}:${deviceId}`;
+    const cached = await this.cacheGet<RecoveryVerification>(key);
+
+    if (cached && this.isFresh(cached.cachedAt, 15 * 60)) {
+      return cached.data;
+    }
+
+    const numericId = parseInt(deviceId, 10);
+
+    // Step 1: Check if recovery testing exists for this device
+    let stats: CoveDraasStatistic;
+    try {
+      const dashResp = await this.client.draasGet<{
+        data: Array<{ type: string; id: string; attributes: CoveDraasStatistic }>;
+      }>("/dashboard/", {
+        "filter[backup_cloud_device_id.eq]": String(numericId),
+        "filter[type.in]": "RECOVERY_TESTING,SELF_HOSTED,AZURE_SELF_HOSTED,ESXI_SELF_HOSTED",
+      });
+
+      if (!dashResp.data || dashResp.data.length === 0) {
+        const notAvailable: RecoveryVerification = {
+          available: false, bootStatus: null, recoveryStatus: null,
+          backupSessionTimestamp: null, recoverySessionTimestamp: null,
+          recoveryDurationSeconds: null, planName: null, restoreFormat: null,
+          bootCheckFrequency: null, screenshotUrl: null,
+          stoppedServices: [], systemEvents: [], colorbar: [],
+        };
+        const envelope = { data: notAvailable, cachedAt: Date.now() };
+        await redis.set(key, JSON.stringify(envelope), "EX", 2 * 60 * 60);
+        return notAvailable;
+      }
+
+      stats = dashResp.data[0].attributes;
+    } catch (err) {
+      console.error("[Cove] DRaaS dashboard error:", err);
+      throw err;
+    }
+
+    // Step 2: Get session files (screenshot + system log) for the latest session
+    let screenshotUrl: string | null = null;
+    let stoppedServices: string[] = [];
+    let systemEvents: RecoveryVerification["systemEvents"] = [];
+
+    const sessionId = stats.last_recovery_session_id;
+    if (sessionId && stats.last_recovery_screenshot_presented) {
+      try {
+        const filesResp = await this.client.draasGet<{
+          data: CoveDraasSessionFile[];
+        }>(`/sessions/${sessionId}/files/`, {
+          "filter[file_type.in]": "screenshot,system_log",
+        });
+
+        for (const file of filesResp.data || []) {
+          // Get temporary S3 URL for each file
+          const tempUrlResp = await this.client.draasPost<{
+            data: { attributes: { url: string } };
+          }>(`/sessions/${sessionId}/files/${file.id}/get-temporary-url/`, {
+            data: { type: "FileTemporaryUrl", attributes: { map: null, encoder: {}, updates: null, cloneFrom: null } },
+          });
+
+          const fileUrl = tempUrlResp.data?.attributes?.url;
+          if (!fileUrl) continue;
+
+          if (file.attributes.file_type === "screenshot") {
+            screenshotUrl = fileUrl;
+          } else if (file.attributes.file_type === "system_log") {
+            // Download and decode the system log (.info file = base64 JSON)
+            try {
+              const logResp = await fetch(fileUrl, {
+                signal: AbortSignal.timeout(15_000),
+              });
+              if (logResp.ok) {
+                const b64Text = await logResp.text();
+                const decoded = Buffer.from(b64Text, "base64").toString("utf-8");
+                const logData = JSON.parse(decoded) as CoveSystemLogInfo;
+
+                stoppedServices = logData.VmSystemInfo?.StoppedServicesWithAutostart ?? [];
+                systemEvents = (logData.VmSystemInfo?.SystemLogRecords ?? []).map((r) => ({
+                  eventId: r.EventID,
+                  level: r.Level,
+                  message: r.Message,
+                  provider: r.ProviderName,
+                  timestamp: r.TimeCreated,
+                }));
+              }
+            } catch (logErr) {
+              console.error("[Cove] Failed to decode system log:", logErr);
+            }
+          }
+        }
+      } catch (fileErr) {
+        console.error("[Cove] DRaaS session files error:", fileErr);
+        // Continue without screenshot/log — still show what we have from dashboard
+      }
+    }
+
+    // Step 3: Build normalized result
+    const bootFreqMap: Record<number, string> = {
+      0: "Each recovery session",
+      1: "Every other session",
+      2: "Every 3rd session",
+    };
+
+    const result: RecoveryVerification = {
+      available: true,
+      bootStatus: stats.last_boot_test_status?.toLowerCase() === "success" ? "success" : stats.last_boot_test_status ? "failed" : null,
+      recoveryStatus: stats.current_recovery_status,
+      backupSessionTimestamp: stats.last_boot_test_backup_session_timestamp
+        ? new Date(stats.last_boot_test_backup_session_timestamp * 1000).toISOString()
+        : null,
+      recoverySessionTimestamp: stats.last_boot_test_recovery_session_timestamp
+        ? new Date(stats.last_boot_test_recovery_session_timestamp * 1000).toISOString()
+        : null,
+      recoveryDurationSeconds: stats.last_recovery_duration_sec,
+      planName: stats.plan_name,
+      restoreFormat: stats.recovery_target_type,
+      bootCheckFrequency: bootFreqMap[stats.device_boot_frequency] ?? `Every ${stats.device_boot_frequency + 1} sessions`,
+      screenshotUrl,
+      stoppedServices,
+      systemEvents,
+      colorbar: (stats.colorbar ?? []).map((c) => ({
+        status: c.status,
+        sessionId: c.session_id,
+        backupTimestamp: new Date(Number(c.backup_session_timestamp) * 1000).toISOString(),
+        recoveryTimestamp: new Date(Number(c.recovery_session_timestamp) * 1000).toISOString(),
+      })),
+    };
+
+    // Cache: 15 min freshness, 2 hour Redis TTL
+    const envelope = { data: result, cachedAt: Date.now() };
+    await redis.set(key, JSON.stringify(envelope), "EX", 2 * 60 * 60);
+
+    return result;
   }
 
   // ─── Health Check ──────────────────────────────────────────────

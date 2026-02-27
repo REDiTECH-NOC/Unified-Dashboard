@@ -28,6 +28,7 @@ interface SubEntityCounts {
   sites: { synced: number; created: number };
   configurations: { synced: number; created: number; skipped: boolean };
   agreements: { synced: number; created: number; skipped: boolean };
+  additions: { synced: number; created: number; skipped: boolean };
 }
 
 async function syncCompanySubEntities(
@@ -41,6 +42,7 @@ async function syncCompanySubEntities(
     sites: { synced: 0, created: 0 },
     configurations: { synced: 0, created: 0, skipped: false },
     agreements: { synced: 0, created: 0, skipped: false },
+    additions: { synced: 0, created: 0, skipped: false },
   };
 
   // ── Contacts ──
@@ -179,11 +181,13 @@ async function syncCompanySubEntities(
       hasMore = result.hasMore;
       page++;
     }
-  } catch {
+  } catch (err) {
+    console.error("[CW Sync] Configurations sync failed:", err);
     counts.configurations.skipped = true;
   }
 
   // ── Agreements (may be permission-blocked) ──
+  const syncedAgreements: Array<{ cwId: string; localId: string }> = [];
   try {
     let page = 1;
     let hasMore = true;
@@ -206,21 +210,77 @@ async function syncCompanySubEntities(
           lastSyncedAt: new Date(),
         };
 
+        let localId: string;
         if (existing) {
           await prisma.companyAgreement.update({ where: { id: existing.id }, data });
+          localId = existing.id;
           counts.agreements.synced++;
         } else {
-          await prisma.companyAgreement.create({
+          const created = await prisma.companyAgreement.create({
             data: { ...data, companyId: localCompanyId, psaSourceId: String(agr.id) },
           });
+          localId = created.id;
           counts.agreements.created++;
+        }
+        // Track for additions sync (skip cancelled agreements)
+        if (!agr.cancelledFlag) {
+          syncedAgreements.push({ cwId: String(agr.id), localId });
         }
       }
       hasMore = result.hasMore;
       page++;
     }
-  } catch {
+  } catch (err) {
+    console.error("[CW Sync] Agreements sync failed:", err);
     counts.agreements.skipped = true;
+  }
+
+  // ── Agreement Additions (billing line items) ──
+  console.log(`[CW Sync] Syncing additions for ${syncedAgreements.length} agreements:`, syncedAgreements.map(a => a.cwId));
+  try {
+    for (const agr of syncedAgreements) {
+      let addPage = 1;
+      let addHasMore = true;
+      while (addHasMore) {
+        const addResult = await connector.getAgreementAdditions(agr.cwId, addPage, 100);
+        console.log(`[CW Sync] Agreement ${agr.cwId}: got ${addResult.data.length} additions (page ${addPage})`);
+        for (const add of addResult.data) {
+          const existing = await prisma.agreementAddition.findUnique({
+            where: { psaSourceId: String(add.id) },
+          });
+
+          const addData = {
+            productId: add.product?.id ? String(add.product.id) : null,
+            productName: add.product?.description || add.description || "Unknown Product",
+            description: add.description || null,
+            quantity: add.quantity ?? 0,
+            unitPrice: add.unitPrice ?? null,
+            unitCost: add.unitCost ?? null,
+            effectiveDate: add.effectiveDate ? new Date(add.effectiveDate) : null,
+            endDate: add.cancelledDate ? new Date(add.cancelledDate) : null,
+            cancelledFlag: !!add.cancelledDate,
+            billCustomer: add.billCustomer || null,
+            taxableFlag: add.taxableFlag ?? false,
+            lastSyncedAt: new Date(),
+          };
+
+          if (existing) {
+            await prisma.agreementAddition.update({ where: { id: existing.id }, data: addData });
+            counts.additions.synced++;
+          } else {
+            await prisma.agreementAddition.create({
+              data: { ...addData, agreementId: agr.localId, psaSourceId: String(add.id) },
+            });
+            counts.additions.created++;
+          }
+        }
+        addHasMore = addResult.hasMore;
+        addPage++;
+      }
+    }
+  } catch (err) {
+    console.error("[CW Sync] Agreement additions sync failed:", err);
+    counts.additions.skipped = true;
   }
 
   return counts;

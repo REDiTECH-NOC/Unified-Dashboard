@@ -24,6 +24,8 @@ import { aiRouter } from "./ai";
 import { notificationInboxRouter } from "./notification-inbox";
 import { notificationPreferencesRouter } from "./notification-preferences";
 import { notificationChannelRouter } from "./notification-channel";
+import { billingRouter } from "./billing";
+import { licensingRouter } from "./licensing";
 
 export const appRouter = router({
   user: userRouter,
@@ -51,6 +53,8 @@ export const appRouter = router({
   notificationInbox: notificationInboxRouter,
   notificationPreferences: notificationPreferencesRouter,
   notificationChannel: notificationChannelRouter,
+  billing: billingRouter,
+  licensing: licensingRouter,
 });
 
 export type AppRouter = typeof appRouter;

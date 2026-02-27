@@ -21,6 +21,12 @@ async function getBP(prisma: Parameters<typeof ConnectorFactory.getByToolId>[1])
 }
 
 const BP_STALE = 10 * 60_000; // 10 min
+const BP_TENANT_STALE = 30 * 60_000; // 30 min — tenants rarely change
+
+/** Fetch all tenant IDs (cached). Most BP endpoints require x-tenant-id. */
+async function getTenantIds(bp: BlackpointConnector): Promise<Array<{ id: string; name: string }>> {
+  return cachedQuery("bp", BP_TENANT_STALE, "tenant-ids", () => bp.getTenantIds());
+}
 
 export const blackpointRouter = router({
   // =========================================================================
@@ -30,6 +36,7 @@ export const blackpointRouter = router({
   getDetections: protectedProcedure
     .input(
       z.object({
+        tenantId: z.string().optional(),
         status: z.array(z.string()).optional(),
         detectionType: z.string().optional(),
         search: z.string().optional(),
@@ -42,74 +49,139 @@ export const blackpointRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const dateKey = input.since?.toISOString().substring(0, 10) ?? "all";
-      const key = `bp:${dateKey}:${input.take}:${input.detectionType ?? ""}`;
+      const tenantKey = input.tenantId ?? "all";
+      const key = `det:${tenantKey}:${dateKey}:${input.take}:${input.detectionType ?? ""}`;
+      const filter = {
+        detectionType: input.detectionType,
+        search: input.search,
+        since: input.since,
+        sortByColumn: input.sortByColumn,
+        sortDirection: input.sortDirection,
+      };
 
       return cachedQuery("bp", BP_STALE, key, async () => {
         const bp = await getBP(ctx.prisma);
-        return bp.getDetections(
-          {
-            detectionType: input.detectionType,
-            search: input.search,
-            since: input.since,
-            sortByColumn: input.sortByColumn,
-            sortDirection: input.sortDirection,
-          },
-          input.skip,
-          input.take
+
+        // If specific tenant requested, query directly
+        if (input.tenantId) {
+          return bp.getDetections(filter, input.skip, input.take, input.tenantId);
+        }
+
+        // Aggregate across all tenants
+        const tenants = await getTenantIds(bp);
+        const results = await Promise.allSettled(
+          tenants.map(t => bp.getDetections(filter, 0, input.take, t.id))
         );
+
+        const allData = results
+          .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bp.getDetections>>> => r.status === "fulfilled")
+          .flatMap(r => r.value.data);
+
+        // Sort by detectedAt descending
+        allData.sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime());
+
+        const totalCount = results
+          .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bp.getDetections>>> => r.status === "fulfilled")
+          .reduce((sum, r) => sum + (r.value.totalCount ?? 0), 0);
+
+        return {
+          data: allData.slice(input.skip, input.skip + input.take),
+          hasMore: allData.length > input.skip + input.take,
+          totalCount,
+        };
       });
     }),
 
   getDetectionById: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getDetectionById(input.id);
+      if (input.tenantId) return bp.getDetectionById(input.id, input.tenantId);
+      // Try each tenant until found
+      const tenants = await getTenantIds(bp);
+      for (const t of tenants) {
+        try { return await bp.getDetectionById(input.id, t.id); } catch { /* try next */ }
+      }
+      throw new Error("Detection not found across any tenant");
     }),
 
   getDetectionAlerts: protectedProcedure
     .input(
       z.object({
         alertGroupId: z.string(),
+        tenantId: z.string().optional(),
         skip: z.number().min(0).default(0),
         take: z.number().min(1).max(200).default(100),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getDetectionAlerts(input.alertGroupId, input.skip, input.take);
+      if (input.tenantId) return bp.getDetectionAlerts(input.alertGroupId, input.skip, input.take, input.tenantId);
+      const tenants = await getTenantIds(bp);
+      const errors: string[] = [];
+      for (const t of tenants) {
+        try { return await bp.getDetectionAlerts(input.alertGroupId, input.skip, input.take, t.id); } catch (e) { errors.push(`${t.id}: ${(e as Error).message}`); }
+      }
+      console.error(`[blackpoint] getDetectionAlerts failed for ${input.alertGroupId} across ${tenants.length} tenants:`, errors);
+      throw new Error("Detection alerts not found across any tenant");
     }),
 
   getDetectionCount: protectedProcedure
     .input(
       z.object({
+        tenantId: z.string().optional(),
         detectionType: z.string().optional(),
         since: z.date().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getDetectionCount({
-        detectionType: input.detectionType,
-        since: input.since,
-      });
+      const filter = { detectionType: input.detectionType, since: input.since };
+      if (input.tenantId) return bp.getDetectionCount(filter, input.tenantId);
+      // Sum across all tenants
+      const tenants = await getTenantIds(bp);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getDetectionCount(filter, t.id))
+      );
+      return results
+        .filter((r): r is PromiseFulfilledResult<number> => r.status === "fulfilled")
+        .reduce((sum, r) => sum + r.value, 0);
     }),
 
   getDetectionsByWeek: protectedProcedure
     .input(
       z.object({
+        tenantId: z.string().optional(),
         startDate: z.date().optional(),
         endDate: z.date().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getDetectionsByWeek(input.startDate, input.endDate);
+      if (input.tenantId) return bp.getDetectionsByWeek(input.startDate, input.endDate, input.tenantId);
+      // Aggregate across tenants
+      const tenants = await getTenantIds(bp);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getDetectionsByWeek(input.startDate, input.endDate, t.id))
+      );
+      const weekMap = new Map<string, number>();
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          for (const w of r.value) {
+            const key = w.date.toISOString();
+            weekMap.set(key, (weekMap.get(key) ?? 0) + w.count);
+          }
+        }
+      }
+      return Array.from(weekMap.entries())
+        .map(([date, count]) => ({ date: new Date(date), count }))
+        .sort((a, b) => a.date.getTime() - b.date.getTime());
     }),
 
   getTopDetectionsByEntity: protectedProcedure
     .input(
       z.object({
+        tenantId: z.string().optional(),
         startDate: z.date().optional(),
         endDate: z.date().optional(),
         limit: z.number().min(1).max(50).default(10),
@@ -117,12 +189,27 @@ export const blackpointRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getTopDetectionsByEntity(input.startDate, input.endDate, input.limit);
+      if (input.tenantId) return bp.getTopDetectionsByEntity(input.startDate, input.endDate, input.limit, input.tenantId);
+      const tenants = await getTenantIds(bp);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getTopDetectionsByEntity(input.startDate, input.endDate, input.limit, t.id))
+      );
+      const entityMap = new Map<string, number>();
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          for (const e of r.value) entityMap.set(e.name, (entityMap.get(e.name) ?? 0) + e.count);
+        }
+      }
+      return Array.from(entityMap.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, input.limit);
     }),
 
   getTopDetectionsByThreat: protectedProcedure
     .input(
       z.object({
+        tenantId: z.string().optional(),
         startDate: z.date().optional(),
         endDate: z.date().optional(),
         limit: z.number().min(1).max(50).default(10),
@@ -130,7 +217,25 @@ export const blackpointRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getTopDetectionsByThreat(input.startDate, input.endDate, input.limit);
+      if (input.tenantId) return bp.getTopDetectionsByThreat(input.startDate, input.endDate, input.limit, input.tenantId);
+      const tenants = await getTenantIds(bp);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getTopDetectionsByThreat(input.startDate, input.endDate, input.limit, t.id))
+      );
+      const threatMap = new Map<string, { count: number }>();
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          for (const e of r.value) {
+            const existing = threatMap.get(e.name);
+            threatMap.set(e.name, { count: (existing?.count ?? 0) + e.count });
+          }
+        }
+      }
+      const total = Array.from(threatMap.values()).reduce((s, v) => s + v.count, 0);
+      return Array.from(threatMap.entries())
+        .map(([name, v]) => ({ name, count: v.count, percentage: total > 0 ? Math.round((v.count / total) * 100) : 0 }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, input.limit);
     }),
 
   // =========================================================================
@@ -145,43 +250,66 @@ export const blackpointRouter = router({
         search: z.string().optional(),
         sortByColumn: z.string().optional(),
         sortDirection: z.enum(["ASC", "DESC"]).optional(),
-        skip: z.number().min(0).default(0),
-        take: z.number().min(1).max(200).default(100),
+        page: z.number().min(1).default(1),
+        pageSize: z.number().min(1).max(200).default(100),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getAssets(
-        {
-          tenantId: input.tenantId,
-          assetClass: input.assetClass,
-          search: input.search,
-          sortByColumn: input.sortByColumn,
-          sortDirection: input.sortDirection,
-        },
-        input.skip,
-        input.take
+      const filter = {
+        assetClass: input.assetClass,
+        search: input.search,
+        sortByColumn: input.sortByColumn,
+        sortDirection: input.sortDirection,
+      };
+      if (input.tenantId) return bp.getAssets(filter, input.page, input.pageSize, input.tenantId);
+      // Aggregate across tenants
+      const tenants = await getTenantIds(bp);
+      console.log(`[blackpoint] getAssets: querying ${tenants.length} tenants`);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getAssets(filter, 1, input.pageSize, t.id))
       );
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed.length > 0) console.error(`[blackpoint] getAssets: ${failed.length}/${tenants.length} tenants failed:`, failed.map(r => r.reason?.message ?? r.reason));
+      const allData = results
+        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bp.getAssets>>> => r.status === "fulfilled")
+        .flatMap(r => r.value.data);
+      const totalCount = results
+        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bp.getAssets>>> => r.status === "fulfilled")
+        .reduce((sum, r) => sum + (r.value.totalCount ?? 0), 0);
+      console.log(`[blackpoint] getAssets: ${allData.length} assets, ${totalCount} total`);
+      return { data: allData.slice(0, input.pageSize), hasMore: allData.length > input.pageSize, totalCount };
     }),
 
   getAssetById: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getAssetById(input.id);
+      if (input.tenantId) return bp.getAssetById(input.id, input.tenantId);
+      const tenants = await getTenantIds(bp);
+      for (const t of tenants) {
+        try { return await bp.getAssetById(input.id, t.id); } catch { /* try next */ }
+      }
+      throw new Error("Asset not found across any tenant");
     }),
 
   getAssetRelationships: protectedProcedure
     .input(
       z.object({
         assetId: z.string(),
-        skip: z.number().min(0).default(0),
-        take: z.number().min(1).max(200).default(100),
+        tenantId: z.string().optional(),
+        page: z.number().min(1).default(1),
+        pageSize: z.number().min(1).max(200).default(100),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getAssetRelationships(input.assetId, input.skip, input.take);
+      if (input.tenantId) return bp.getAssetRelationships(input.assetId, input.page, input.pageSize, input.tenantId);
+      const tenants = await getTenantIds(bp);
+      for (const t of tenants) {
+        try { return await bp.getAssetRelationships(input.assetId, input.page, input.pageSize, t.id); } catch { /* try next */ }
+      }
+      throw new Error("Asset relationships not found");
     }),
 
   // =========================================================================
@@ -191,13 +319,13 @@ export const blackpointRouter = router({
   getTenants: protectedProcedure
     .input(
       z.object({
-        skip: z.number().min(0).default(0),
-        take: z.number().min(1).max(200).default(100),
+        page: z.number().min(1).default(1),
+        pageSize: z.number().min(1).max(200).default(100),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getTenants(input.skip, input.take);
+      return bp.getTenants(input.page, input.pageSize);
     }),
 
   getTenantById: protectedProcedure
@@ -328,10 +456,10 @@ export const blackpointRouter = router({
     }),
 
   getMs365ApprovedCountries: protectedProcedure
-    .input(z.object({ connectionId: z.string() }))
+    .input(z.object({ connectionId: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getMs365ApprovedCountries(input.connectionId);
+      return bp.getMs365ApprovedCountries(input.connectionId, input.tenantId);
     }),
 
   approveMs365Country: adminProcedure
@@ -368,13 +496,14 @@ export const blackpointRouter = router({
     .input(
       z.object({
         connectionId: z.string(),
+        tenantId: z.string().optional(),
         skip: z.number().min(0).default(0),
         take: z.number().min(1).max(200).default(100),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getMs365Users(input.connectionId, input.skip, input.take);
+      return bp.getMs365Users(input.connectionId, input.skip, input.take, input.tenantId);
     }),
 
   // =========================================================================
@@ -489,45 +618,89 @@ export const blackpointRouter = router({
     .input(
       z.object({
         tenantId: z.string().optional(),
-        skip: z.number().min(0).default(0),
-        take: z.number().min(1).max(200).default(100),
+        page: z.number().min(1).default(1),
+        pageSize: z.number().min(1).max(200).default(100),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getVulnerabilities(input.skip, input.take, input.tenantId);
+      if (input.tenantId) return bp.getVulnerabilities(input.page, input.pageSize, input.tenantId);
+      const tenants = await getTenantIds(bp);
+      console.log(`[blackpoint] getVulnerabilities: querying ${tenants.length} tenants`);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getVulnerabilities(1, input.pageSize, t.id))
+      );
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed.length > 0) console.error(`[blackpoint] getVulnerabilities: ${failed.length}/${tenants.length} failed:`, failed.map(r => r.reason?.message ?? r.reason));
+      const allData = results
+        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bp.getVulnerabilities>>> => r.status === "fulfilled")
+        .flatMap(r => r.value.data);
+      const totalCount = results
+        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bp.getVulnerabilities>>> => r.status === "fulfilled")
+        .reduce((sum, r) => sum + (r.value.meta?.totalItems ?? 0), 0);
+      console.log(`[blackpoint] getVulnerabilities: ${allData.length} vulns, ${totalCount} total`);
+      return { data: allData.slice(0, input.pageSize), meta: { currentPage: 1, totalItems: totalCount, totalPages: Math.ceil(totalCount / input.pageSize), pageSize: input.pageSize } };
     }),
 
   getVulnerabilityById: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getVulnerabilityById(input.id);
+      if (input.tenantId) return bp.getVulnerabilityById(input.id, input.tenantId);
+      const tenants = await getTenantIds(bp);
+      for (const t of tenants) {
+        try { return await bp.getVulnerabilityById(input.id, t.id); } catch { /* try next */ }
+      }
+      throw new Error("Vulnerability not found");
     }),
 
   getVulnerabilityAssets: protectedProcedure
     .input(
       z.object({
         vulnId: z.string(),
-        skip: z.number().min(0).default(0),
-        take: z.number().min(1).max(200).default(100),
+        tenantId: z.string().optional(),
+        page: z.number().min(1).default(1),
+        pageSize: z.number().min(1).max(200).default(100),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getVulnerabilityAssets(input.vulnId, input.skip, input.take);
+      if (input.tenantId) return bp.getVulnerabilityAssets(input.vulnId, input.page, input.pageSize, input.tenantId);
+      const tenants = await getTenantIds(bp);
+      for (const t of tenants) {
+        try { return await bp.getVulnerabilityAssets(input.vulnId, input.page, input.pageSize, t.id); } catch { /* try next */ }
+      }
+      throw new Error("Vulnerability assets not found");
     }),
 
   getVulnerabilitySeverityStats: protectedProcedure
-    .query(async ({ ctx }) => {
+    .input(z.object({ tenantId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getVulnerabilitySeverityStats();
+      if (input?.tenantId) return bp.getVulnerabilitySeverityStats(input.tenantId);
+      const tenants = await getTenantIds(bp);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getVulnerabilitySeverityStats(t.id))
+      );
+      const severityMap = new Map<string, number>();
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          for (const s of r.value) severityMap.set(s.severity, (severityMap.get(s.severity) ?? 0) + s.count);
+        }
+      }
+      return Array.from(severityMap.entries()).map(([severity, count]) => ({ severity, count }));
     }),
 
   getVulnerabilityTenantStats: protectedProcedure
     .query(async ({ ctx }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getVulnerabilityTenantStats();
+      const tenants = await getTenantIds(bp);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getVulnerabilityTenantStats(t.id))
+      );
+      return results
+        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bp.getVulnerabilityTenantStats>>> => r.status === "fulfilled")
+        .flatMap(r => r.value);
     }),
 
   // =========================================================================
@@ -718,19 +891,45 @@ export const blackpointRouter = router({
   getScansAndSchedules: protectedProcedure
     .input(
       z.object({
-        skip: z.number().min(0).default(0),
-        take: z.number().min(1).max(200).default(100),
+        tenantId: z.string().optional(),
+        page: z.number().min(1).default(1),
+        pageSize: z.number().min(1).max(200).default(100),
       })
     )
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getScansAndSchedules(input.skip, input.take);
+      if (input.tenantId) return bp.getScansAndSchedules(input.page, input.pageSize, input.tenantId);
+      const tenants = await getTenantIds(bp);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getScansAndSchedules(1, input.pageSize, t.id))
+      );
+      const allData = results
+        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bp.getScansAndSchedules>>> => r.status === "fulfilled")
+        .flatMap(r => r.value.data);
+      const totalCount = results
+        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bp.getScansAndSchedules>>> => r.status === "fulfilled")
+        .reduce((sum, r) => sum + (r.value.meta?.totalItems ?? 0), 0);
+      return { data: allData.slice(0, input.pageSize), meta: { currentPage: 1, totalItems: totalCount, totalPages: Math.ceil(totalCount / input.pageSize), pageSize: input.pageSize } };
     }),
 
   getScansAndSchedulesStats: protectedProcedure
-    .query(async ({ ctx }) => {
+    .input(z.object({ tenantId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
-      return bp.getScansAndSchedulesStats();
+      if (input?.tenantId) return bp.getScansAndSchedulesStats(input.tenantId);
+      const tenants = await getTenantIds(bp);
+      const results = await Promise.allSettled(
+        tenants.map(t => bp.getScansAndSchedulesStats(t.id))
+      );
+      const totals: Record<string, number> = {};
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          for (const [k, v] of Object.entries(r.value)) {
+            if (typeof v === "number") totals[k] = (totals[k] ?? 0) + v;
+          }
+        }
+      }
+      return totals;
     }),
 
   // =========================================================================

@@ -19,6 +19,7 @@ import { auditLog } from "@/lib/audit";
 import {
   createNotification,
   resolveAllTicketRecipients,
+  resolveActorUserId,
   detectTicketChanges,
   detectNewReply,
   cacheTicketState,
@@ -119,14 +120,23 @@ export async function POST(request: Request) {
     const cwMembers = await getCwMembers(psa);
 
     // Resolve ALL recipients (owner + resources)
-    const recipientUserIds = await resolveAllTicketRecipients(rawTicket, cwMembers);
+    const allRecipientUserIds = await resolveAllTicketRecipients(rawTicket, cwMembers);
+
+    // Resolve the actor (who triggered this webhook) to suppress self-notifications
+    const actorUserId = await resolveActorUserId(payload.MemberID, cwMembers);
+    const recipientUserIds = actorUserId
+      ? allRecipientUserIds.filter((id) => id !== actorUserId)
+      : allRecipientUserIds;
 
     console.log("[cw-webhook] Ticket:", {
       ticketId,
       action,
       owner: rawTicket?.owner?.name,
       resources: rawTicket?.resources,
+      actorMemberId: payload.MemberID,
+      actorUserId,
       recipientCount: recipientUserIds.length,
+      suppressedSelf: actorUserId ? allRecipientUserIds.length !== recipientUserIds.length : false,
       recipientIds: recipientUserIds,
     });
 

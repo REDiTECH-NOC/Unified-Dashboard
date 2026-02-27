@@ -9,7 +9,7 @@ import type { ConnectorConfig, PaginatedResponse } from "../_base/types";
 import type { IPsaConnector, TicketFilter, CompanyFilter, CreateTicketInput, UpdateTicketInput, TicketNote, TimeEntryInput, BoardStatus } from "../_interfaces/psa";
 import type { NormalizedTicket, NormalizedOrganization, NormalizedContact } from "../_interfaces/common";
 import { ConnectWiseClient } from "./client";
-import type { CWTicket, CWTicketNote, CWCompany, CWContact, CWBoard, CWBoardStatus, CWMember, CWTimeEntry, CWSite, CWAgreement, CWConfiguration } from "./types";
+import type { CWTicket, CWTicketNote, CWCompany, CWContact, CWBoard, CWBoardStatus, CWMember, CWTimeEntry, CWSite, CWAgreement, CWConfiguration, CWAgreementAddition, CWProduct } from "./types";
 import { mapTicket, mapTicketNote, mapCompany, mapContact, mapBoardStatus } from "./mappers";
 import { getCwCache, setCwCache, invalidateCwTicketCaches } from "@/lib/cw-cache";
 
@@ -369,6 +369,67 @@ export class ConnectWisePsaConnector implements IPsaConnector {
       },
     });
     return { data: agreements, hasMore: agreements.length === pageSize };
+  }
+
+  // ─── Agreement Additions (billing line items) ─────────────
+
+  async getAgreementAdditions(
+    agreementId: string,
+    page = 1,
+    pageSize = 100
+  ): Promise<{ data: CWAgreementAddition[]; hasMore: boolean }> {
+    const additions = await this.client["request"]<CWAgreementAddition[]>({
+      path: `/finance/agreements/${agreementId}/additions`,
+      params: {
+        page,
+        pageSize,
+        orderBy: "id asc",
+      },
+    });
+    return { data: additions, hasMore: additions.length === pageSize };
+  }
+
+  async getProducts(
+    page = 1,
+    pageSize = 100,
+    searchTerm?: string
+  ): Promise<{ data: CWProduct[]; hasMore: boolean }> {
+    const params: Record<string, string | number | boolean | undefined> = {
+      page,
+      pageSize,
+      orderBy: "description asc",
+    };
+    if (searchTerm) {
+      params.conditions = `description like "%${searchTerm}%"`;
+    }
+    const products = await this.client["request"]<CWProduct[]>({
+      path: "/procurement/catalog",
+      params,
+    });
+    return { data: products, hasMore: products.length === pageSize };
+  }
+
+  async updateAgreementAdditionQty(
+    agreementId: string,
+    additionId: string,
+    newQty: number,
+    effectiveDate?: string
+  ): Promise<CWAgreementAddition> {
+    const operations: Array<{ op: string; path: string; value: unknown }> = [
+      { op: "replace", path: "quantity", value: newQty },
+    ];
+    if (effectiveDate) {
+      operations.push({
+        op: "replace",
+        path: "effectiveDate",
+        value: effectiveDate,
+      });
+    }
+    return this.client["request"]<CWAgreementAddition>({
+      method: "PATCH",
+      path: `/finance/agreements/${agreementId}/additions/${additionId}`,
+      body: operations,
+    });
   }
 
   // ─── Contacts ──────────────────────────────────────────────

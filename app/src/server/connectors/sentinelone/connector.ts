@@ -364,7 +364,7 @@ export class SentinelOneEdrConnector implements IEdrConnector {
   // ─── Sites & Groups ────────────────────────────────────────
 
   async getSites(): Promise<
-    Array<{ id: string; name: string; state?: string; accountName?: string }>
+    Array<{ id: string; name: string; state?: string; accountName?: string; sku?: string }>
   > {
     const response = await this.client.requestS1<{ sites: S1Site[] }>({
       path: "/sites",
@@ -376,6 +376,7 @@ export class SentinelOneEdrConnector implements IEdrConnector {
       name: s.name,
       state: s.state,
       accountName: s.accountName,
+      sku: s.sku ?? s.suite ?? undefined,
     }));
   }
 

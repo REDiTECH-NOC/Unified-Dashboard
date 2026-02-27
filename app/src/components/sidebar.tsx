@@ -26,6 +26,7 @@ import {
   HardDrive,
   Phone,
   Wifi,
+  DollarSign,
   ChevronDown,
 } from "lucide-react";
 
@@ -50,6 +51,7 @@ const navSections: { label: string; collapsible?: boolean; defaultCollapsed?: bo
       { href: "/network", label: "Network", icon: Wifi, permission: "network.view" },
       { href: "/cipp", label: "CIPP", icon: Monitor, permission: "cipp.view" },
       { href: "/clients", label: "Clients", icon: Users, permission: "clients.view" },
+      { href: "/billing", label: "Billing", icon: DollarSign, permission: "billing.view" },
     ],
   },
   {

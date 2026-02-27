@@ -7,6 +7,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import superjson from "superjson";
 import { NotificationToaster } from "@/components/notification-toast";
+import { TicketBubbleProvider } from "@/contexts/ticket-bubble-context";
 
 // Queries that hit external services and can be slow (8s+ timeouts).
 // Sent via individual httpLink so they resolve independently —
@@ -62,8 +63,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <SessionProvider>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
-          {children}
-          <NotificationToaster />
+          <TicketBubbleProvider>
+            {children}
+            <NotificationToaster />
+          </TicketBubbleProvider>
         </QueryClientProvider>
       </trpc.Provider>
     </SessionProvider>

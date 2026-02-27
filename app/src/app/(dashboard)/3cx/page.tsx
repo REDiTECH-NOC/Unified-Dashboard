@@ -43,7 +43,7 @@ export default function PhoneSystemsPage() {
   );
 
   const canManage = permissions?.includes("phone.manage") ?? false;
-  const agentOnline = agentStatus?.some((a) => a.isOnline) ?? false;
+  const agentOnline = agentStatus?.some((a: { isOnline: boolean }) => a.isOnline) ?? false;
   const hasAgent = (agentStatus?.length ?? 0) > 0;
 
   // Refresh all

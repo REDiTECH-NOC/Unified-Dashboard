@@ -181,6 +181,8 @@ export interface S1Site {
   accountId?: string;
   activeLicenses?: number;
   totalLicenses?: number;
+  sku?: string;   // License tier: "Complete", "Control", etc.
+  suite?: string;  // Alternative license field
   createdAt?: string;
   updatedAt?: string;
 }

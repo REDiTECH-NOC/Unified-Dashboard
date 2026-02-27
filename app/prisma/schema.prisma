@@ -372,13 +372,15 @@ model Company {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  integrationMappings CompanyIntegrationMapping[]
-  threecxInstances    ThreecxInstance[]
-  monitors            Monitor[]
-  contacts            CompanyContact[]
-  sites               CompanySite[]
-  configurations      CompanyConfiguration[]
-  agreements          CompanyAgreement[]
+  integrationMappings      CompanyIntegrationMapping[]
+  threecxInstances         ThreecxInstance[]
+  monitors                 Monitor[]
+  contacts                 CompanyContact[]
+  sites                    CompanySite[]
+  configurations           CompanyConfiguration[]
+  agreements               CompanyAgreement[]
+  reconciliationSnapshots  ReconciliationSnapshot[]
+  billingAssignments       CompanyBillingAssignment[]
 
   @@index([name])
   @@index([status])
@@ -472,7 +474,201 @@ model CompanyAgreement {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  additions AgreementAddition[]
+
   @@index([companyId])
+}
+
+// Line items within a CW agreement — each represents a billed product/service.
+// Synced from ConnectWise GET /finance/agreements/{id}/additions
+model AgreementAddition {
+  id              String           @id @default(cuid())
+  agreementId     String
+  agreement       CompanyAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  psaSourceId     String           @unique // CW addition ID
+  productId       String?          // CW product catalog reference ID
+  productName     String           // e.g., "SentinelOne Complete - Workstation"
+  description     String?
+  quantity        Float            @default(0) // Billed qty
+  unitPrice       Float?
+  unitCost        Float?
+  effectiveDate   DateTime?
+  endDate         DateTime?
+  cancelledFlag   Boolean          @default(false)
+  billCustomer    String?          // "Billable", "DoNotBill", "NoCharge"
+  taxableFlag     Boolean          @default(false)
+  lastSyncedAt    DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([agreementId])
+  @@index([productName])
+}
+
+// All known vendor products — auto-discovered from APIs or manually created by admin.
+// Replaces hardcoded vendor product lists. Each can be mapped to PSA billing items.
+model BillingVendorProduct {
+  id               String   @id @default(cuid())
+  vendorToolId     String   // "sentinelone", "ninjaone", "cove", etc.
+  productKey       String   // "complete", "control", "workstations", "servers", etc.
+  productName      String   // "SentinelOne Complete", "NinjaOne Workstations"
+  unit             String   @default("devices")
+  isAutoDiscovered Boolean  @default(false) // true = pulled from vendor API, false = admin-created
+  isActive         Boolean  @default(true)
+  createdBy        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  assignments CompanyBillingAssignment[]
+
+  @@unique([vendorToolId, productKey])
+  @@index([vendorToolId])
+}
+
+// Links companies to vendor products — for billing reconciliation.
+// Auto-discovered: populated during reconciliation (e.g., S1 site SKU → assignment).
+// Manual: admin assigns products to companies in the UI.
+model CompanyBillingAssignment {
+  id               String   @id @default(cuid())
+  companyId        String
+  vendorProductId  String
+  isAutoDiscovered Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorProduct  BillingVendorProduct @relation(fields: [vendorProductId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, vendorProductId])
+  @@index([companyId])
+  @@index([vendorProductId])
+}
+
+// Maps a vendor integration product/service to a PSA product name.
+// E.g., SentinelOne "Complete" agents → CW "SentinelOne Complete - Workstation"
+model BillingProductMapping {
+  id                String   @id @default(cuid())
+  vendorToolId      String   // "ninjaone", "sentinelone", "cove", etc.
+  vendorProductKey  String   // Vendor-specific product identifier or category
+  vendorProductName String   // Display name (e.g., "Complete - Workstation")
+  psaProductName    String?  // CW product name pattern to match additions
+  countMethod       String   @default("per_device") // "per_device", "per_user", "per_license", "per_mailbox"
+  unitLabel         String   @default("devices")    // "devices", "agents", "users", "licenses", "mailboxes"
+  isActive          Boolean  @default(true)
+  createdBy         String?
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([vendorToolId, vendorProductKey, psaProductName])
+  @@index([vendorToolId])
+  @@index([psaProductName])
+}
+
+// Point-in-time reconciliation run for a company.
+// Captures vendor counts vs PSA billing for audit and history.
+model ReconciliationSnapshot {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  snapshotAt  DateTime @default(now())
+  triggeredBy String?  // userId or "system" for scheduled
+  status      String   @default("completed") // "in_progress", "completed", "failed"
+  summary     Json?    // { totalDiscrepancies, totalRevenueImpact, matchedCount, ... }
+  createdAt   DateTime @default(now())
+
+  items ReconciliationItem[]
+
+  @@index([companyId])
+  @@index([snapshotAt])
+  @@index([companyId, snapshotAt(sort: Desc)])
+}
+
+// Individual line-item comparison within a reconciliation snapshot.
+model ReconciliationItem {
+  id                String                 @id @default(cuid())
+  snapshotId        String
+  snapshot          ReconciliationSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  companyId         String
+  agreementId       String?  // local CompanyAgreement ID
+  agreementName     String?
+  additionPsaId     String?  // CW addition psaSourceId (for write-back)
+  agreementPsaId    String?  // CW agreement psaSourceId (for write-back)
+  productName       String   // PSA product name
+  vendorToolId      String   // Source tool (ninjaone, sentinelone, cove)
+  vendorProductKey  String?
+  vendorProductName String?
+  psaQty            Float    // What CW says is billed
+  vendorQty         Float    // What the vendor reports
+  discrepancy       Float    // vendorQty - psaQty (positive = underbilling)
+  unitPrice         Float?   // Price per unit from CW addition
+  revenueImpact     Float?   // discrepancy * unitPrice
+  status            String   @default("pending") // "pending", "approved", "dismissed", "adjusted"
+  resolvedBy        String?  // userId
+  resolvedAt        DateTime?
+  resolvedNote      String?
+  createdAt         DateTime @default(now())
+
+  @@index([snapshotId])
+  @@index([companyId])
+  @@index([status])
+  @@index([vendorToolId])
+}
+
+// Configuration for recurring billing sync schedule
+model BillingSyncConfig {
+  id            String    @id @default(cuid())
+  enabled       Boolean   @default(true)
+  frequency     String    @default("weekly") // "daily", "weekly", "monthly"
+  dayOfWeek     Int       @default(1)        // 0=Sun, 1=Mon, ..., 6=Sat (for weekly)
+  hourUtc       Int       @default(6)        // Hour in UTC (0-23)
+  lastSyncAt    DateTime?
+  lastSyncStatus String?  // "completed", "failed"
+  updatedBy     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// Detailed reconciliation activity log — Gradient MSP style.
+// Tracks every count change, approval, dismissal, and PSA write-back.
+model BillingActivityEntry {
+  id                String   @id @default(cuid())
+  companyId         String
+  companyName       String
+  agreementName     String?  // CW agreement name
+  productName       String   // PSA product / service name
+  vendorToolId      String   // ninjaone, sentinelone, cove
+  vendorProductName String?  // Human-readable vendor product name
+  psaQty            Float    // CW billed quantity at the time
+  vendorQty         Float    // Vendor-reported count at the time
+  change            Float    // vendorQty - psaQty (positive = underbilled)
+  effectiveDate     DateTime? // When the change takes effect in CW
+  action            String   // "detected" | "approved" | "dismissed" | "synced_to_psa" | "auto_approved"
+  result            String   @default("pending") // "pending" | "success" | "failed" | "no_action"
+  resultNote        String?  // Extra detail (e.g. "PSA qty updated from 5 to 8")
+  actorId           String?  // userId who performed the action (null = system/auto)
+  actorName         String?  // Denormalized for display
+  snapshotId        String?  // Link back to reconciliation snapshot
+  reconciliationItemId String? // Link back to the specific item
+  createdAt         DateTime @default(now())
+
+  @@index([companyId])
+  @@index([createdAt])
+  @@index([action])
+  @@index([vendorToolId])
+}
+
+// Org-wide billing reconciliation settings (singleton — one row, upserted on save).
+model BillingSettings {
+  id                   String   @id @default(cuid())
+  defaultEffectiveDate String   @default("today") // "today" | "cycle_start" | "custom"
+  customEffectiveDay   Int? // Day of month (1-28) when "custom"
+  defaultContractView  String   @default("active_only") // "all" | "active_only" | "discrepancies_only"
+  autoApproveMatches   Boolean  @default(true) // Auto-approve items with 0 discrepancy
+  showCostData         Boolean  @default(true) // Show cost/profit columns to managers
+  updatedBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 // Maps a Company to its org/site ID in each non-PSA tool.

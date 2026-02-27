@@ -27,6 +27,18 @@ export default function IntegrationsPage() {
       router.push("/settings/integrations/cove");
       return;
     }
+    if (toolId === "ninjaone") {
+      router.push("/settings/integrations/ninjaone");
+      return;
+    }
+    if (toolId === "sentinelone") {
+      router.push("/settings/integrations/sentinelone");
+      return;
+    }
+    if (toolId === "pax8") {
+      router.push("/settings/integrations/pax8");
+      return;
+    }
     if (toolId === AI_TOOL_ID) {
       router.push("/settings/integrations/ai");
       return;
