@@ -12,10 +12,16 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Package,
   Link2,
   Search,
   X,
+  EyeOff,
+  Eye,
+  Clock,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
@@ -54,6 +60,11 @@ export default function CompanyBillingPage() {
   const reconciliationQuery = trpc.billing.getCompanyReconciliation.useQuery(
     { companyId },
     { staleTime: 30_000 }
+  );
+
+  const statsQuery = trpc.billing.getCompanyBillingStats.useQuery(
+    { companyId },
+    { staleTime: 60_000 }
   );
 
   const reconcileMutation = trpc.billing.reconcileCompany.useMutation({
@@ -158,10 +169,48 @@ export default function CompanyBillingPage() {
         </button>
       </div>
 
-      {/* Mini Summary */}
-      <div className="grid grid-cols-4 gap-4">
+      {/* Financial Stats */}
+      <div className="grid grid-cols-3 gap-4">
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
-          <div className="text-xs text-zinc-500">Total Items</div>
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <TrendingUp className="h-3.5 w-3.5" />
+            Monthly Revenue
+          </div>
+          <div className="text-2xl font-semibold text-green-400 mt-1">
+            {statsQuery.data ? `$${statsQuery.data.monthlyRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+          </div>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <TrendingDown className="h-3.5 w-3.5" />
+            Monthly Cost
+          </div>
+          <div className="text-2xl font-semibold text-red-400 mt-1">
+            {statsQuery.data ? `$${statsQuery.data.monthlyCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+          </div>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <DollarSign className="h-3.5 w-3.5" />
+            Monthly Profit
+            {statsQuery.data && (
+              <span className={`ml-1 ${statsQuery.data.margin >= 50 ? "text-green-500" : statsQuery.data.margin >= 25 ? "text-amber-500" : "text-red-500"}`}>
+                ({statsQuery.data.margin}%)
+              </span>
+            )}
+          </div>
+          <div className={`text-2xl font-semibold mt-1 ${
+            statsQuery.data && statsQuery.data.monthlyProfit >= 0 ? "text-green-400" : "text-red-400"
+          }`}>
+            {statsQuery.data ? `$${statsQuery.data.monthlyProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+          </div>
+        </div>
+      </div>
+
+      {/* Reconciliation + Ticket Hours Summary */}
+      <div className="grid grid-cols-5 gap-4">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
+          <div className="text-xs text-zinc-500">Reconciliation Items</div>
           <div className="text-2xl font-semibold text-zinc-100">{items.length}</div>
         </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
@@ -177,25 +226,24 @@ export default function CompanyBillingPage() {
           </div>
         </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
-          <div className="text-xs text-zinc-500">Vendor Integrations</div>
-          <div className="flex gap-2 mt-1">
-            {(data.integrationMappings as any[]).map((m: any) => {
-              const v = VENDOR_LABELS[m.toolId];
-              return (
-                <span key={m.id} className={`text-sm font-medium ${v?.color ?? "text-zinc-400"}`}>
-                  {v?.label ?? m.toolId}
-                </span>
-              );
-            })}
-            {data.integrationMappings.length === 0 && (
-              <span className="text-sm text-zinc-500">None mapped</span>
-            )}
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <Clock className="h-3.5 w-3.5" />
+            Ticket Hours (30d)
+          </div>
+          <div className="text-2xl font-semibold text-blue-400 mt-1">
+            {statsQuery.data ? `${statsQuery.data.ticketHours30d}h` : "—"}
+          </div>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <Clock className="h-3.5 w-3.5" />
+            Ticket Hours (12mo)
+          </div>
+          <div className="text-2xl font-semibold text-blue-400 mt-1">
+            {statsQuery.data ? `${statsQuery.data.ticketHours12m}h` : "—"}
           </div>
         </div>
       </div>
-
-      {/* Vendor Products — live from APIs */}
-      <VendorProductsSection companyId={companyId} />
 
       {/* Reconciliation Items */}
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 overflow-hidden">
@@ -332,6 +380,9 @@ export default function CompanyBillingPage() {
         )}
       </div>
 
+      {/* Vendor Products — live from APIs */}
+      <VendorProductsSection companyId={companyId} />
+
       {/* Agreements Section (collapsed by default, for reference) */}
       {data.agreements.length > 0 && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/50">
@@ -399,6 +450,7 @@ export default function CompanyBillingPage() {
 // ─── Vendor Products with Inline Mapping ────────────────────
 
 function VendorProductsSection({ companyId }: { companyId: string }) {
+  const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
   const [mappingTarget, setMappingTarget] = useState<{
     toolId: string;
     productKey: string;
@@ -427,6 +479,14 @@ function VendorProductsSection({ companyId }: { companyId: string }) {
     },
   });
 
+  const ignoreMutation = trpc.billing.ignoreVendorProduct.useMutation({
+    onSuccess: () => vendorProductsQuery.refetch(),
+  });
+
+  const unignoreMutation = trpc.billing.unignoreVendorProduct.useMutation({
+    onSuccess: () => vendorProductsQuery.refetch(),
+  });
+
   const products = vendorProductsQuery.data;
 
   type VendorProduct = NonNullable<typeof products>[number];
@@ -442,6 +502,15 @@ function VendorProductsSection({ companyId }: { companyId: string }) {
     }
     return map;
   }, [products]);
+
+  const toggleVendor = (toolId: string) => {
+    setExpandedVendors((prev) => {
+      const next = new Set(prev);
+      if (next.has(toolId)) next.delete(toolId);
+      else next.add(toolId);
+      return next;
+    });
+  };
 
   if (vendorProductsQuery.isLoading) {
     return (
@@ -472,6 +541,7 @@ function VendorProductsSection({ companyId }: { companyId: string }) {
 
   const totalProducts = products.length;
   const mappedCount = products.filter((p) => p.isMapped).length;
+  const ignoredCount = products.filter((p) => p.isIgnored).length;
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 overflow-hidden">
@@ -482,145 +552,210 @@ function VendorProductsSection({ companyId }: { companyId: string }) {
             Vendor Products
           </h2>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Live subscription counts from linked vendors ({mappedCount}/{totalProducts} mapped to CW)
+            Live subscription counts from linked vendors ({mappedCount}/{totalProducts} mapped to CW
+            {ignoredCount > 0 && `, ${ignoredCount} ignored`})
           </p>
         </div>
       </div>
 
-      {Array.from(grouped.entries()).map(([toolId, vendorProducts]) => (
-        <div key={toolId}>
-          {/* Vendor header */}
-          <div className="px-4 py-2 bg-zinc-900/40 border-b border-zinc-800/50 flex items-center gap-2">
-            <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] border ${
-              VENDOR_TAG_COLORS[toolId] ?? "text-zinc-400 bg-zinc-500/10 border-zinc-500/20"
-            }`}>
-              {VENDOR_LABELS[toolId]?.label ?? toolId}
-            </span>
-            <span className="text-[10px] text-zinc-500">
-              {vendorProducts.length} product{vendorProducts.length !== 1 ? "s" : ""}
-            </span>
-          </div>
+      {Array.from(grouped.entries()).map(([toolId, vendorProducts]) => {
+        const isExpanded = expandedVendors.has(toolId);
+        const unmappedCount = vendorProducts.filter((p) => !p.isMapped && !p.isIgnored).length;
 
-          {/* Products table header */}
-          <div className="grid grid-cols-[1fr_80px_80px_250px] px-4 py-1.5 border-b border-zinc-800/30 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            <div>Product</div>
-            <div className="text-right">Qty</div>
-            <div className="text-center">Unit</div>
-            <div>CW Mapping</div>
-          </div>
-
-          {/* Product rows */}
-          {vendorProducts.map((p) => (
-            <div
-              key={`${p.toolId}:${p.productKey}`}
-              className="grid grid-cols-[1fr_80px_80px_250px] px-4 py-2.5 border-b border-zinc-800/30 items-center hover:bg-zinc-900/30 transition-colors"
+        return (
+          <div key={toolId}>
+            {/* Vendor header — clickable to expand/collapse */}
+            <button
+              onClick={() => toggleVendor(toolId)}
+              className="w-full px-4 py-2.5 bg-zinc-900/40 border-b border-zinc-800/50 flex items-center gap-2 hover:bg-zinc-900/60 transition-colors"
             >
-              <div className="text-sm text-zinc-200 truncate pr-2">{p.productName}</div>
-              <div className="text-right font-mono text-sm text-zinc-300">{p.quantity}</div>
-              <div className="text-center text-xs text-zinc-500">{p.unit}</div>
-              <div className="relative">
-                {p.isMapped ? (
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <Link2 className="h-3 w-3 text-green-400 shrink-0" />
-                    <span className="text-green-400 truncate">{p.cwProductName}</span>
-                  </div>
-                ) : mappingTarget?.productKey === p.productKey && mappingTarget?.toolId === p.toolId ? (
-                  <div className="relative">
-                    <div className="flex items-center gap-1">
-                      <Search className="h-3 w-3 text-zinc-500 shrink-0" />
-                      <input
-                        ref={inputRef}
-                        type="text"
-                        placeholder="Search CW products..."
-                        value={cwSearch}
-                        onChange={(e) => {
-                          setCwSearch(e.target.value);
-                          setShowDropdown(true);
-                        }}
-                        onFocus={() => setShowDropdown(true)}
-                        autoFocus
-                        className="w-full px-2 py-1 text-xs bg-muted/50 border border-primary/50 rounded focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                      <button
-                        onClick={() => {
-                          setMappingTarget(null);
-                          setCwSearch("");
-                          setShowDropdown(false);
-                        }}
-                        className="text-zinc-500 hover:text-zinc-300 shrink-0"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                    {showDropdown && typeof document !== "undefined" && (() => {
-                      const rect = inputRef.current?.getBoundingClientRect();
-                      if (!rect) return null;
-                      return createPortal(
-                        <div
-                          className="fixed z-[100] max-h-48 overflow-y-auto bg-popover border border-border rounded-lg shadow-lg"
-                          style={{
-                            bottom: `${window.innerHeight - rect.top + 4}px`,
-                            left: `${rect.left}px`,
-                            width: `${Math.max(rect.width, 480)}px`,
-                          }}
-                        >
-                          {cwProductsQuery.isLoading ? (
-                            <div className="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              Searching...
-                            </div>
-                          ) : !cwProductsQuery.data?.length ? (
-                            <div className="px-3 py-2 text-xs text-muted-foreground">
-                              {cwSearch ? "No CW products found" : "Type to search CW products"}
-                            </div>
-                          ) : (
-                            cwProductsQuery.data.map((cw) => (
-                              <button
-                                key={cw.id}
-                                onClick={() => {
-                                  quickMapMutation.mutate({
-                                    vendorToolId: mappingTarget.toolId,
-                                    vendorProductKey: mappingTarget.productKey,
-                                    vendorProductName: mappingTarget.productName,
-                                    psaProductName: cw.description ?? cw.identifier,
-                                  });
-                                }}
-                                className="w-full px-3 py-2 text-left text-xs hover:bg-muted/50 transition-colors flex items-center gap-2"
-                                title={`${cw.description ?? cw.identifier}${cw.category ? ` (${cw.category})` : ""}`}
-                              >
-                                <span className="text-zinc-200">{cw.description ?? cw.identifier}</span>
-                                {cw.category && (
-                                  <span className="text-[10px] text-zinc-500 shrink-0">({cw.category})</span>
-                                )}
-                              </button>
-                            ))
-                          )}
-                        </div>,
-                        document.body
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => {
-                      setMappingTarget({
-                        toolId: p.toolId,
-                        productKey: p.productKey,
-                        productName: p.productName,
-                      });
-                      setCwSearch("");
-                    }}
-                    className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              {isExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+              )}
+              <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] border ${
+                VENDOR_TAG_COLORS[toolId] ?? "text-zinc-400 bg-zinc-500/10 border-zinc-500/20"
+              }`}>
+                {VENDOR_LABELS[toolId]?.label ?? toolId}
+              </span>
+              <span className="text-[10px] text-zinc-500">
+                {vendorProducts.length} product{vendorProducts.length !== 1 ? "s" : ""}
+              </span>
+              {unmappedCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 ml-auto">
+                  <AlertTriangle className="h-3 w-3" />
+                  {unmappedCount} unmapped
+                </span>
+              )}
+            </button>
+
+            {/* Expanded content */}
+            {isExpanded && (
+              <>
+                {/* Products table header */}
+                <div className="grid grid-cols-[1fr_80px_80px_250px_40px] px-4 py-1.5 border-b border-zinc-800/30 text-[10px] font-medium uppercase tracking-wider text-muted-foreground bg-zinc-900/20">
+                  <div>Product</div>
+                  <div className="text-right">Qty</div>
+                  <div className="text-center">Unit</div>
+                  <div>CW Mapping</div>
+                  <div></div>
+                </div>
+
+                {/* Product rows */}
+                {vendorProducts.map((p) => (
+                  <div
+                    key={`${p.toolId}:${p.productKey}`}
+                    className={`grid grid-cols-[1fr_80px_80px_250px_40px] px-4 py-2.5 border-b border-zinc-800/30 items-center hover:bg-zinc-900/30 transition-colors ${
+                      p.isIgnored ? "opacity-50" : ""
+                    }`}
                   >
-                    <Link2 className="h-3 w-3" />
-                    Map to CW
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
+                    <div className="text-sm text-zinc-200 truncate pr-2">
+                      {p.productName}
+                      {p.isIgnored && (
+                        <span className="ml-2 text-[10px] text-zinc-500 italic">ignored</span>
+                      )}
+                    </div>
+                    <div className="text-right font-mono text-sm text-zinc-300">{p.quantity}</div>
+                    <div className="text-center text-xs text-zinc-500">{p.unit}</div>
+                    <div className="relative">
+                      {p.isMapped ? (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <Link2 className="h-3 w-3 text-green-400 shrink-0" />
+                          <span className="text-green-400 truncate">{p.cwProductName}</span>
+                        </div>
+                      ) : p.isIgnored ? (
+                        <span className="text-[10px] text-zinc-500 italic">—</span>
+                      ) : mappingTarget?.productKey === p.productKey && mappingTarget?.toolId === p.toolId ? (
+                        <div className="relative">
+                          <div className="flex items-center gap-1">
+                            <Search className="h-3 w-3 text-zinc-500 shrink-0" />
+                            <input
+                              ref={inputRef}
+                              type="text"
+                              placeholder="Search CW products..."
+                              value={cwSearch}
+                              onChange={(e) => {
+                                setCwSearch(e.target.value);
+                                setShowDropdown(true);
+                              }}
+                              onFocus={() => setShowDropdown(true)}
+                              autoFocus
+                              className="w-full px-2 py-1 text-xs bg-muted/50 border border-primary/50 rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                            />
+                            <button
+                              onClick={() => {
+                                setMappingTarget(null);
+                                setCwSearch("");
+                                setShowDropdown(false);
+                              }}
+                              className="text-zinc-500 hover:text-zinc-300 shrink-0"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                          {showDropdown && typeof document !== "undefined" && (() => {
+                            const rect = inputRef.current?.getBoundingClientRect();
+                            if (!rect) return null;
+                            return createPortal(
+                              <div
+                                className="fixed z-[100] max-h-48 overflow-y-auto bg-popover border border-border rounded-lg shadow-lg"
+                                style={{
+                                  bottom: `${window.innerHeight - rect.top + 4}px`,
+                                  left: `${rect.left}px`,
+                                  width: `${Math.max(rect.width, 480)}px`,
+                                }}
+                              >
+                                {cwProductsQuery.isLoading ? (
+                                  <div className="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    Searching...
+                                  </div>
+                                ) : !cwProductsQuery.data?.length ? (
+                                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                                    {cwSearch ? "No CW products found" : "Type to search CW products"}
+                                  </div>
+                                ) : (
+                                  cwProductsQuery.data.map((cw) => (
+                                    <button
+                                      key={cw.id}
+                                      onClick={() => {
+                                        quickMapMutation.mutate({
+                                          vendorToolId: mappingTarget.toolId,
+                                          vendorProductKey: mappingTarget.productKey,
+                                          vendorProductName: mappingTarget.productName,
+                                          psaProductName: cw.description ?? cw.identifier,
+                                        });
+                                      }}
+                                      className="w-full px-3 py-2 text-left text-xs hover:bg-muted/50 transition-colors flex items-center gap-2"
+                                      title={`${cw.description ?? cw.identifier}${cw.category ? ` (${cw.category})` : ""}`}
+                                    >
+                                      <span className="text-zinc-200">{cw.description ?? cw.identifier}</span>
+                                      {cw.category && (
+                                        <span className="text-[10px] text-zinc-500 shrink-0">({cw.category})</span>
+                                      )}
+                                    </button>
+                                  ))
+                                )}
+                              </div>,
+                              document.body
+                            );
+                          })()}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setMappingTarget({
+                              toolId: p.toolId,
+                              productKey: p.productKey,
+                              productName: p.productName,
+                            });
+                            setCwSearch("");
+                          }}
+                          className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          <Link2 className="h-3 w-3" />
+                          Map to CW
+                        </button>
+                      )}
+                    </div>
+                    {/* Ignore / Unignore button */}
+                    <div className="flex justify-center">
+                      {!p.isMapped && (
+                        p.isIgnored ? (
+                          <button
+                            onClick={() => unignoreMutation.mutate({
+                              companyId,
+                              vendorToolId: p.toolId,
+                              productKey: p.productKey,
+                            })}
+                            title="Stop ignoring"
+                            className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => ignoreMutation.mutate({
+                              companyId,
+                              vendorToolId: p.toolId,
+                              productKey: p.productKey,
+                            })}
+                            title="Ignore this product"
+                            className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                          >
+                            <EyeOff className="h-3.5 w-3.5" />
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -562,6 +562,24 @@ export class ConnectWisePsaConnector implements IPsaConnector {
     }));
   }
 
+  async getCompanyTimeEntryHours(
+    companyPsaId: string,
+    dateStart: Date,
+    dateEnd: Date
+  ): Promise<number> {
+    const startIso = dateStart.toISOString().split("T")[0];
+    const endIso = dateEnd.toISOString().split("T")[0];
+    const entries = await this.client["request"]<CWTimeEntry[]>({
+      path: "/time/entries",
+      params: {
+        conditions: `company/id = ${parseInt(companyPsaId, 10)} AND dateEntered >= [${startIso}] AND dateEntered <= [${endIso}]`,
+        pageSize: 1000,
+        fields: "id,actualHours",
+      },
+    });
+    return entries.reduce((sum, e) => sum + (e.actualHours ?? 0), 0);
+  }
+
   // ─── Boards & Statuses ────────────────────────────────────
 
   async getBoards(): Promise<Array<{ id: string; name: string }>> {
