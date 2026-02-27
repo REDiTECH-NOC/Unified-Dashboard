@@ -14,10 +14,27 @@ import { z } from "zod";
 import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
+import { ConnectorError } from "../connectors/_base/errors";
 import type { NormalizedOrganization } from "../connectors/_interfaces/common";
 import type { ConnectWisePsaConnector } from "../connectors/connectwise/connector";
 import type { PrismaClient } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
+
+function classifySyncError(err: unknown): string {
+  if (err instanceof ConnectorError) {
+    if (err.statusCode === 401) return "Authentication failed — check API credentials";
+    if (err.statusCode === 403) return "CW permissions needed";
+    if (err.statusCode === 429) return "Rate limited by ConnectWise — try again shortly";
+    if (err.statusCode === 404) return "API endpoint not found — check CW version";
+    if (err.statusCode && err.statusCode >= 500) return `ConnectWise server error (${err.statusCode})`;
+    return err.message;
+  }
+  if (err instanceof Error) {
+    if (err.message.includes("timed out") || err.message.includes("timeout")) return "Request timed out";
+    return err.message;
+  }
+  return "Unknown error";
+}
 
 // ─── Sub-Entity Sync Helper ─────────────────────────────────
 // Syncs contacts, sites, configurations, and agreements for a single company.
@@ -26,9 +43,9 @@ import type { Prisma } from "@prisma/client";
 interface SubEntityCounts {
   contacts: { synced: number; created: number };
   sites: { synced: number; created: number };
-  configurations: { synced: number; created: number; skipped: boolean };
-  agreements: { synced: number; created: number; skipped: boolean };
-  additions: { synced: number; created: number; skipped: boolean };
+  configurations: { synced: number; created: number; skipped: boolean; error?: string };
+  agreements: { synced: number; created: number; skipped: boolean; error?: string };
+  additions: { synced: number; created: number; skipped: boolean; error?: string };
 }
 
 async function syncCompanySubEntities(
@@ -182,8 +199,10 @@ async function syncCompanySubEntities(
       page++;
     }
   } catch (err) {
-    console.error("[CW Sync] Configurations sync failed:", err);
+    const reason = classifySyncError(err);
+    console.error("[CW Sync] Configurations sync failed:", reason, err);
     counts.configurations.skipped = true;
+    counts.configurations.error = reason;
   }
 
   // ── Agreements (may be permission-blocked) ──
@@ -231,8 +250,10 @@ async function syncCompanySubEntities(
       page++;
     }
   } catch (err) {
-    console.error("[CW Sync] Agreements sync failed:", err);
+    const reason = classifySyncError(err);
+    console.error("[CW Sync] Agreements sync failed:", reason, err);
     counts.agreements.skipped = true;
+    counts.agreements.error = reason;
   }
 
   // ── Agreement Additions (billing line items) ──
@@ -559,8 +580,8 @@ export const companyRouter = router({
       companies: { synced: 0, created: 0, unmatched: 0, removed: 0 },
       contacts: { synced: 0, created: 0 },
       sites: { synced: 0, created: 0 },
-      configurations: { synced: 0, created: 0, skipped: false },
-      agreements: { synced: 0, created: 0, skipped: false },
+      configurations: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
+      agreements: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
     };
 
     for (const org of allCwCompanies) {
@@ -610,10 +631,16 @@ export const companyRouter = router({
       counts.sites.created += sub.sites.created;
       counts.configurations.synced += sub.configurations.synced;
       counts.configurations.created += sub.configurations.created;
-      if (sub.configurations.skipped) counts.configurations.skipped = true;
+      if (sub.configurations.skipped) {
+        counts.configurations.skipped = true;
+        counts.configurations.error ??= sub.configurations.error;
+      }
       counts.agreements.synced += sub.agreements.synced;
       counts.agreements.created += sub.agreements.created;
-      if (sub.agreements.skipped) counts.agreements.skipped = true;
+      if (sub.agreements.skipped) {
+        counts.agreements.skipped = true;
+        counts.agreements.error ??= sub.agreements.error;
+      }
     }
 
     // 5. Handle unmatched auto-synced companies
@@ -690,8 +717,8 @@ export const companyRouter = router({
         companies: { synced: 0, created: 0, failed: 0 },
         contacts: { synced: 0, created: 0 },
         sites: { synced: 0, created: 0 },
-        configurations: { synced: 0, created: 0, skipped: false },
-        agreements: { synced: 0, created: 0, skipped: false },
+        configurations: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
+        agreements: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
       };
 
       for (const psaId of input.psaCompanyIds) {
@@ -737,10 +764,16 @@ export const companyRouter = router({
           counts.sites.created += sub.sites.created;
           counts.configurations.synced += sub.configurations.synced;
           counts.configurations.created += sub.configurations.created;
-          if (sub.configurations.skipped) counts.configurations.skipped = true;
+          if (sub.configurations.skipped) {
+            counts.configurations.skipped = true;
+            counts.configurations.error ??= sub.configurations.error;
+          }
           counts.agreements.synced += sub.agreements.synced;
           counts.agreements.created += sub.agreements.created;
-          if (sub.agreements.skipped) counts.agreements.skipped = true;
+          if (sub.agreements.skipped) {
+            counts.agreements.skipped = true;
+            counts.agreements.error ??= sub.agreements.error;
+          }
         } catch {
           counts.companies.failed++;
         }

@@ -436,12 +436,12 @@ export function SyncSettingsCard({
                       <AlertCircle className="h-3 w-3" />
                       <span>
                         {syncResult.configurations.skipped &&
-                          "Configurations skipped (CW permissions needed)"}
+                          `Configurations skipped (${(syncResult.configurations as any).error || "unknown error"})`}
                         {syncResult.configurations.skipped &&
                           syncResult.agreements.skipped &&
                           " · "}
                         {syncResult.agreements.skipped &&
-                          "Agreements skipped (CW permissions needed)"}
+                          `Agreements skipped (${(syncResult.agreements as any).error || "unknown error"})`}
                       </span>
                     </div>
                   )}
