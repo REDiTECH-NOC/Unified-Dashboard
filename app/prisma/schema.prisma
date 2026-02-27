@@ -393,6 +393,7 @@ model Company {
   agreements               CompanyAgreement[]
   reconciliationSnapshots  ReconciliationSnapshot[]
   billingAssignments       CompanyBillingAssignment[]
+  billingIgnoredProducts   BillingIgnoredProduct[]
 
   @@index([name])
   @@index([status])
@@ -554,6 +555,20 @@ model CompanyBillingAssignment {
   @@unique([companyId, vendorProductId])
   @@index([companyId])
   @@index([vendorProductId])
+}
+
+// Per-company ignored vendor products — user chose to skip mapping these.
+model BillingIgnoredProduct {
+  id           String   @id @default(cuid())
+  companyId    String
+  vendorToolId String
+  productKey   String
+  createdAt    DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, vendorToolId, productKey])
+  @@index([companyId])
 }
 
 // Maps a vendor integration product/service to a PSA product name.

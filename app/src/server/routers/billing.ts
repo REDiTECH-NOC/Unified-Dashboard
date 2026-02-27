@@ -235,6 +235,66 @@ export const billingRouter = router({
       };
     }),
 
+  // ─── Per-Company Financial Stats ────────────────────────
+
+  getCompanyBillingStats: protectedProcedure
+    .input(z.object({ companyId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const company = await ctx.prisma.company.findUniqueOrThrow({
+        where: { id: input.companyId },
+        select: { id: true, psaSourceId: true },
+      });
+
+      // Revenue & cost from CW agreement additions
+      const additions = await ctx.prisma.agreementAddition.findMany({
+        where: {
+          agreement: { companyId: input.companyId, cancelledFlag: false },
+          cancelledFlag: false,
+          billCustomer: { not: "DoNotBill" },
+        },
+        select: { quantity: true, unitPrice: true, unitCost: true },
+      });
+
+      const monthlyRevenue = additions.reduce(
+        (sum, a) => sum + (a.unitPrice ?? 0) * a.quantity, 0
+      );
+      const monthlyCost = additions.reduce(
+        (sum, a) => sum + (a.unitCost ?? 0) * a.quantity, 0
+      );
+      const monthlyProfit = monthlyRevenue - monthlyCost;
+      const margin = monthlyRevenue > 0
+        ? Math.round((monthlyProfit / monthlyRevenue) * 10000) / 100
+        : 0;
+
+      // Ticket hours from CW time entries API
+      let hours30d = 0;
+      let hours12m = 0;
+      try {
+        const psa = (await ConnectorFactory.get("psa", ctx.prisma)) as ConnectWisePsaConnector;
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const twelveMonthsAgo = new Date(now);
+        twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
+
+        [hours30d, hours12m] = await Promise.all([
+          psa.getCompanyTimeEntryHours(company.psaSourceId, thirtyDaysAgo, now),
+          psa.getCompanyTimeEntryHours(company.psaSourceId, twelveMonthsAgo, now),
+        ]);
+      } catch {
+        // CW API unavailable — return 0s
+      }
+
+      return {
+        monthlyRevenue: Math.round(monthlyRevenue * 100) / 100,
+        monthlyCost: Math.round(monthlyCost * 100) / 100,
+        monthlyProfit: Math.round(monthlyProfit * 100) / 100,
+        margin,
+        ticketHours30d: Math.round(hours30d * 100) / 100,
+        ticketHours12m: Math.round(hours12m * 100) / 100,
+      };
+    }),
+
   // ─── Per-Company Reconciliation Detail ───────────────────
 
   getCompanyReconciliation: protectedProcedure
@@ -1240,6 +1300,14 @@ export const billingRouter = router({
         });
       }
 
+      // Fetch ignored products for this company
+      const ignoredProducts = await ctx.prisma.billingIgnoredProduct.findMany({
+        where: { companyId: input.companyId },
+      });
+      const ignoredSet = new Set(
+        ignoredProducts.map((ip) => `${ip.vendorToolId}:${ip.productKey}`)
+      );
+
       return vendorCounts.map((vc) => {
         const mapping = mappingLookup.get(`${vc.toolId}:${vc.productKey}`);
         return {
@@ -1249,6 +1317,7 @@ export const billingRouter = router({
           quantity: vc.count,
           unit: vc.unit,
           isMapped: !!mapping?.psaProductName,
+          isIgnored: ignoredSet.has(`${vc.toolId}:${vc.productKey}`),
           mappingId: mapping?.id ?? null,
           cwProductName: mapping?.psaProductName ?? null,
         };
@@ -1307,6 +1376,50 @@ export const billingRouter = router({
       });
 
       return mapping;
+    }),
+
+  /** Ignore an unmapped vendor product for a specific company */
+  ignoreVendorProduct: adminProcedure
+    .input(z.object({
+      companyId: z.string(),
+      vendorToolId: z.string(),
+      productKey: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.prisma.billingIgnoredProduct.upsert({
+        where: {
+          companyId_vendorToolId_productKey: {
+            companyId: input.companyId,
+            vendorToolId: input.vendorToolId,
+            productKey: input.productKey,
+          },
+        },
+        update: {},
+        create: {
+          companyId: input.companyId,
+          vendorToolId: input.vendorToolId,
+          productKey: input.productKey,
+        },
+      });
+      return { success: true };
+    }),
+
+  /** Un-ignore a previously ignored vendor product */
+  unignoreVendorProduct: adminProcedure
+    .input(z.object({
+      companyId: z.string(),
+      vendorToolId: z.string(),
+      productKey: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.prisma.billingIgnoredProduct.deleteMany({
+        where: {
+          companyId: input.companyId,
+          vendorToolId: input.vendorToolId,
+          productKey: input.productKey,
+        },
+      });
+      return { success: true };
     }),
 
   // ─── Sync Vendor Products from APIs ──────────────────────

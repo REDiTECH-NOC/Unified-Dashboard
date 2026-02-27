@@ -268,12 +268,6 @@ export const userRouter = router({
         update: { value: input as any },
         create: { userId: ctx.user.id, key: "dashboard.layout", value: input as any },
       });
-      await auditLog({
-        action: "user.dashboard_layout.saved",
-        category: "USER",
-        actorId: ctx.user.id,
-        detail: { moduleCount: input.items.length, version: input.version },
-      });
       return { success: true };
     }),
 
@@ -320,12 +314,6 @@ export const userRouter = router({
           })
         )
       );
-      await auditLog({
-        action: "user.ticket_preferences.saved",
-        category: "USER",
-        actorId: ctx.user.id,
-        detail: { keys: pairs.map(([k]) => k) },
-      });
       return { success: true };
     }),
 

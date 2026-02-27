@@ -155,8 +155,8 @@ export async function getVendorCountsForCompany(
           break;
         }
       }
-    } catch {
-      // Tool not configured or API error — skip silently
+    } catch (err) {
+      console.error(`[Billing] Vendor count error for ${mapping.toolId} (${mapping.externalId}):`, err instanceof Error ? err.message : err);
     }
   }
 
@@ -690,6 +690,11 @@ export async function reconcileCompany(
   // 2. Get all vendor counts for this company
   const vendorCounts = await getVendorCountsForCompany(companyId, prisma);
 
+  console.log(`[Billing] Reconcile ${company.name}: ${additions.length} additions, ${vendorCounts.length} vendor counts`);
+  if (vendorCounts.length > 0) {
+    console.log(`[Billing] Vendor counts:`, vendorCounts.map(vc => `${vc.toolId}:${vc.productKey}=${vc.count}`).join(", "));
+  }
+
   // 2b. Auto-create product assignments for discovered vendor-company links
   for (const vc of vendorCounts) {
     if (vc.count === 0) continue;
@@ -709,6 +714,8 @@ export async function reconcileCompany(
   const mappings = await prisma.billingProductMapping.findMany({
     where: { isActive: true },
   });
+
+  console.log(`[Billing] Active mappings: ${mappings.length}`, mappings.map(m => `${m.vendorToolId}:${m.vendorProductKey} → "${m.psaProductName}"`).join(", "));
 
   // 4. Create snapshot
   const snapshot = await prisma.reconciliationSnapshot.create({
