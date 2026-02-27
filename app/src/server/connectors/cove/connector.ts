@@ -9,6 +9,7 @@
  * are measured in hours, not seconds.
  */
 
+import { gunzipSync } from "node:zlib";
 import { redis } from "@/lib/redis";
 import type { ConnectorConfig, HealthCheckResult } from "../_base/types";
 import type {
@@ -687,15 +688,30 @@ export class CoveBackupConnector implements IBackupConnector {
           if (file.attributes.file_type === "screenshot") {
             screenshotUrl = fileUrl;
           } else if (file.attributes.file_type === "system_log") {
-            // Download and decode the system log (.info file = base64 JSON)
+            // Download and decode the system log (.info file — gzip-compressed JSON)
             try {
               const logResp = await fetch(fileUrl, {
                 signal: AbortSignal.timeout(15_000),
               });
               if (logResp.ok) {
-                const b64Text = await logResp.text();
-                const decoded = Buffer.from(b64Text, "base64").toString("utf-8");
-                const logData = JSON.parse(decoded) as CoveSystemLogInfo;
+                const rawBuf = Buffer.from(await logResp.arrayBuffer());
+                let jsonStr: string;
+
+                // Try gzip decompress first (Cove stores .info as gzipped JSON)
+                try {
+                  jsonStr = gunzipSync(rawBuf).toString("utf-8");
+                } catch {
+                  // Fallback: try as plain text or base64
+                  const text = rawBuf.toString("utf-8");
+                  try {
+                    JSON.parse(text);
+                    jsonStr = text;
+                  } catch {
+                    jsonStr = Buffer.from(text, "base64").toString("utf-8");
+                  }
+                }
+
+                const logData = JSON.parse(jsonStr) as CoveSystemLogInfo;
 
                 stoppedServices = logData.VmSystemInfo?.StoppedServicesWithAutostart ?? [];
                 systemEvents = (logData.VmSystemInfo?.SystemLogRecords ?? []).map((r) => ({
