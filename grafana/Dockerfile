@@ -1,4 +1,4 @@
-FROM grafana/grafana-oss:latest
+FROM grafana/grafana-oss:12.4.0
 
 # Copy provisioning config (datasources + dashboard provider)
 COPY provisioning/ /etc/grafana/provisioning/

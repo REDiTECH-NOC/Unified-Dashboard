@@ -143,7 +143,10 @@ export function useNotifications() {
       if (notification.linkUrl) {
         n.onclick = () => {
           window.focus();
-          window.location.href = notification.linkUrl!;
+          const url = notification.linkUrl!;
+          if (url.startsWith("/") || url.startsWith("https://")) {
+            window.location.href = url;
+          }
           n.close();
         };
       }
