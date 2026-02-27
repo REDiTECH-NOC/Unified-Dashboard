@@ -15,10 +15,41 @@ import { router, protectedProcedure, adminProcedure } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
 import { ConnectorError } from "../connectors/_base/errors";
+import { redis } from "@/lib/redis";
 import type { NormalizedOrganization } from "../connectors/_interfaces/common";
 import type { ConnectWisePsaConnector } from "../connectors/connectwise/connector";
 import type { PrismaClient } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
+
+// ─── Sync Progress (Redis-backed) ───────────────────────────
+const SYNC_PROGRESS_KEY = "cw:sync:progress";
+const SYNC_PROGRESS_TTL = 3600; // 1 hour
+
+interface SyncProgress {
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  completedAt?: string;
+  current: number;
+  total: number;
+  phase: string;
+  counts: {
+    companies: { synced: number; created: number; unmatched: number; removed: number };
+    contacts: { synced: number; created: number; skipped: boolean; error?: string };
+    sites: { synced: number; created: number; skipped: boolean; error?: string };
+    configurations: { synced: number; created: number; skipped: boolean; error?: string };
+    agreements: { synced: number; created: number; skipped: boolean; error?: string };
+  };
+  error?: string;
+}
+
+async function setSyncProgress(progress: SyncProgress) {
+  await redis.set(SYNC_PROGRESS_KEY, JSON.stringify(progress), "EX", SYNC_PROGRESS_TTL);
+}
+
+async function getSyncProgress(): Promise<SyncProgress | null> {
+  const raw = await redis.get(SYNC_PROGRESS_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
 
 function classifySyncError(err: unknown): string {
   if (err instanceof ConnectorError) {
@@ -545,174 +576,270 @@ export const companyRouter = router({
   // ─── Auto Sync ──────────────────────────────────────────────
 
   runAutoSync: adminProcedure.mutation(async ({ ctx }) => {
-    // 1. Load sync config
-    const configRow = await ctx.prisma.integrationConfig.findUnique({
-      where: { toolId: "connectwise" },
-    });
-    const raw = (configRow?.config as Record<string, unknown>) ?? {};
-    const statuses = (raw.syncStatuses as string[]) ?? [];
-    const types = (raw.syncTypes as string[]) ?? [];
-    const removalPolicy = (raw.removalPolicy as string) ?? "keep";
-    const removalDays = (raw.removalDays as number) ?? 30;
-
-    const psa = await ConnectorFactory.get("psa", ctx.prisma);
-    const connector = psa as ConnectWisePsaConnector;
-
-    // 2. Fetch ALL matching CW companies (paginated)
-    const allCwCompanies: NormalizedOrganization[] = [];
-    let page = 1;
-    const pageSize = 100;
-    let hasMore = true;
-
-    while (hasMore) {
-      const result = await psa.getCompanies(
-        {
-          statuses: statuses.length > 0 ? statuses : undefined,
-          types: types.length > 0 ? types : undefined,
-        },
-        page,
-        pageSize
-      );
-      allCwCompanies.push(...result.data);
-      hasMore = result.hasMore;
-      page++;
+    // Check if a sync is already running
+    const existing = await getSyncProgress();
+    if (existing?.status === "running") {
+      return { started: false, message: "Sync already in progress" };
     }
 
-    // 3. Build set of CW source IDs
-    const cwSourceIds = new Set(allCwCompanies.map((c) => c.sourceId));
+    // Capture user context before returning (ctx won't be available in background)
+    const userId = ctx.user.id;
+    const prisma = ctx.prisma as unknown as PrismaClient;
 
-    // 4. Upsert each CW company + sub-entities
-    const counts = {
-      companies: { synced: 0, created: 0, unmatched: 0, removed: 0 },
-      contacts: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
-      sites: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
-      configurations: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
-      agreements: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
-    };
-
-    for (const org of allCwCompanies) {
-      const fields = extractCompanyFields(org);
-      const existing = await ctx.prisma.company.findUnique({
-        where: { psaSourceId: org.sourceId },
-      });
-
-      let localId: string;
-
-      if (existing) {
-        await ctx.prisma.company.update({
-          where: { id: existing.id },
-          data: {
-            ...fields,
-            syncEnabled: true,
-            syncSource: "auto",
-            unmatchedSince: null,
-          },
-        });
-        localId = existing.id;
-        counts.companies.synced++;
-      } else {
-        const created = await ctx.prisma.company.create({
-          data: {
-            ...fields,
-            psaSourceId: org.sourceId,
-            syncEnabled: true,
-            syncSource: "auto",
-            unmatchedSince: null,
-          },
-        });
-        localId = created.id;
-        counts.companies.created++;
-      }
-
-      // Sync sub-entities
-      const sub = await syncCompanySubEntities(
-        ctx.prisma as unknown as PrismaClient,
-        connector,
-        localId,
-        org.sourceId
-      );
-      counts.contacts.synced += sub.contacts.synced;
-      counts.contacts.created += sub.contacts.created;
-      if (sub.contacts.skipped) {
-        counts.contacts.skipped = true;
-        counts.contacts.error ??= sub.contacts.error;
-      }
-      counts.sites.synced += sub.sites.synced;
-      counts.sites.created += sub.sites.created;
-      if (sub.sites.skipped) {
-        counts.sites.skipped = true;
-        counts.sites.error ??= sub.sites.error;
-      }
-      counts.configurations.synced += sub.configurations.synced;
-      counts.configurations.created += sub.configurations.created;
-      if (sub.configurations.skipped) {
-        counts.configurations.skipped = true;
-        counts.configurations.error ??= sub.configurations.error;
-      }
-      counts.agreements.synced += sub.agreements.synced;
-      counts.agreements.created += sub.agreements.created;
-      if (sub.agreements.skipped) {
-        counts.agreements.skipped = true;
-        counts.agreements.error ??= sub.agreements.error;
-      }
-    }
-
-    // 5. Handle unmatched auto-synced companies
-    const autoCompanies = await ctx.prisma.company.findMany({
-      where: { syncSource: "auto" },
-      select: { id: true, psaSourceId: true, unmatchedSince: true },
+    // Set initial progress
+    await setSyncProgress({
+      status: "running",
+      startedAt: new Date().toISOString(),
+      current: 0,
+      total: 0,
+      phase: "Loading config...",
+      counts: {
+        companies: { synced: 0, created: 0, unmatched: 0, removed: 0 },
+        contacts: { synced: 0, created: 0, skipped: false },
+        sites: { synced: 0, created: 0, skipped: false },
+        configurations: { synced: 0, created: 0, skipped: false },
+        agreements: { synced: 0, created: 0, skipped: false },
+      },
     });
 
-    const now = new Date();
+    // Fire and forget — sync runs in the background
+    void (async () => {
+      try {
+        // 1. Load sync config
+        const configRow = await prisma.integrationConfig.findUnique({
+          where: { toolId: "connectwise" },
+        });
+        const raw = (configRow?.config as Record<string, unknown>) ?? {};
+        const statuses = (raw.syncStatuses as string[]) ?? [];
+        const types = (raw.syncTypes as string[]) ?? [];
+        const removalPolicy = (raw.removalPolicy as string) ?? "keep";
+        const removalDays = (raw.removalDays as number) ?? 30;
 
-    for (const local of autoCompanies) {
-      if (!cwSourceIds.has(local.psaSourceId)) {
-        if (!local.unmatchedSince) {
-          // First time unmatched — mark timestamp + disable sync
-          await ctx.prisma.company.update({
-            where: { id: local.id },
-            data: { unmatchedSince: now, syncEnabled: false },
-          });
-          counts.companies.unmatched++;
-        } else if (removalPolicy === "remove_after_days") {
-          const daysSince = Math.floor(
-            (now.getTime() - local.unmatchedSince.getTime()) / (86400000)
+        const psa = await ConnectorFactory.get("psa", prisma);
+        const connector = psa as ConnectWisePsaConnector;
+
+        // 2. Fetch ALL matching CW companies (paginated)
+        const allCwCompanies: NormalizedOrganization[] = [];
+        let page = 1;
+        const pageSize = 100;
+        let hasMore = true;
+
+        await setSyncProgress({
+          status: "running",
+          startedAt: new Date().toISOString(),
+          current: 0,
+          total: 0,
+          phase: "Fetching companies from ConnectWise...",
+          counts: {
+            companies: { synced: 0, created: 0, unmatched: 0, removed: 0 },
+            contacts: { synced: 0, created: 0, skipped: false },
+            sites: { synced: 0, created: 0, skipped: false },
+            configurations: { synced: 0, created: 0, skipped: false },
+            agreements: { synced: 0, created: 0, skipped: false },
+          },
+        });
+
+        while (hasMore) {
+          const result = await psa.getCompanies(
+            {
+              statuses: statuses.length > 0 ? statuses : undefined,
+              types: types.length > 0 ? types : undefined,
+            },
+            page,
+            pageSize
           );
-          if (daysSince >= removalDays) {
-            await ctx.prisma.company.delete({ where: { id: local.id } });
-            counts.companies.removed++;
-          } else {
-            await ctx.prisma.company.update({
-              where: { id: local.id },
-              data: { syncEnabled: false },
-            });
-            counts.companies.unmatched++;
-          }
-        } else {
-          // "keep" policy — just disable sync
-          await ctx.prisma.company.update({
-            where: { id: local.id },
-            data: { syncEnabled: false },
-          });
-          counts.companies.unmatched++;
+          allCwCompanies.push(...result.data);
+          hasMore = result.hasMore;
+          page++;
         }
+
+        // 3. Build set of CW source IDs
+        const cwSourceIds = new Set(allCwCompanies.map((c) => c.sourceId));
+
+        // 4. Upsert each CW company + sub-entities
+        const counts = {
+          companies: { synced: 0, created: 0, unmatched: 0, removed: 0 },
+          contacts: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
+          sites: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
+          configurations: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
+          agreements: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
+        };
+
+        for (let i = 0; i < allCwCompanies.length; i++) {
+          const org = allCwCompanies[i];
+          const fields = extractCompanyFields(org);
+          const existingCompany = await prisma.company.findUnique({
+            where: { psaSourceId: org.sourceId },
+          });
+
+          let localId: string;
+
+          if (existingCompany) {
+            await prisma.company.update({
+              where: { id: existingCompany.id },
+              data: {
+                ...fields,
+                syncEnabled: true,
+                syncSource: "auto",
+                unmatchedSince: null,
+              },
+            });
+            localId = existingCompany.id;
+            counts.companies.synced++;
+          } else {
+            const created = await prisma.company.create({
+              data: {
+                ...fields,
+                psaSourceId: org.sourceId,
+                syncEnabled: true,
+                syncSource: "auto",
+                unmatchedSince: null,
+              },
+            });
+            localId = created.id;
+            counts.companies.created++;
+          }
+
+          // Sync sub-entities
+          const sub = await syncCompanySubEntities(prisma, connector, localId, org.sourceId);
+          counts.contacts.synced += sub.contacts.synced;
+          counts.contacts.created += sub.contacts.created;
+          if (sub.contacts.skipped) {
+            counts.contacts.skipped = true;
+            counts.contacts.error ??= sub.contacts.error;
+          }
+          counts.sites.synced += sub.sites.synced;
+          counts.sites.created += sub.sites.created;
+          if (sub.sites.skipped) {
+            counts.sites.skipped = true;
+            counts.sites.error ??= sub.sites.error;
+          }
+          counts.configurations.synced += sub.configurations.synced;
+          counts.configurations.created += sub.configurations.created;
+          if (sub.configurations.skipped) {
+            counts.configurations.skipped = true;
+            counts.configurations.error ??= sub.configurations.error;
+          }
+          counts.agreements.synced += sub.agreements.synced;
+          counts.agreements.created += sub.agreements.created;
+          if (sub.agreements.skipped) {
+            counts.agreements.skipped = true;
+            counts.agreements.error ??= sub.agreements.error;
+          }
+
+          // Update progress every company
+          if (i % 2 === 0 || i === allCwCompanies.length - 1) {
+            await setSyncProgress({
+              status: "running",
+              startedAt: new Date().toISOString(),
+              current: i + 1,
+              total: allCwCompanies.length,
+              phase: `Syncing ${org.name}...`,
+              counts,
+            });
+          }
+        }
+
+        // 5. Handle unmatched auto-synced companies
+        await setSyncProgress({
+          status: "running",
+          startedAt: new Date().toISOString(),
+          current: allCwCompanies.length,
+          total: allCwCompanies.length,
+          phase: "Processing unmatched companies...",
+          counts,
+        });
+
+        const autoCompanies = await prisma.company.findMany({
+          where: { syncSource: "auto" },
+          select: { id: true, psaSourceId: true, unmatchedSince: true },
+        });
+
+        const now = new Date();
+
+        for (const local of autoCompanies) {
+          if (!cwSourceIds.has(local.psaSourceId)) {
+            if (!local.unmatchedSince) {
+              await prisma.company.update({
+                where: { id: local.id },
+                data: { unmatchedSince: now, syncEnabled: false },
+              });
+              counts.companies.unmatched++;
+            } else if (removalPolicy === "remove_after_days") {
+              const daysSince = Math.floor(
+                (now.getTime() - local.unmatchedSince.getTime()) / (86400000)
+              );
+              if (daysSince >= removalDays) {
+                await prisma.company.delete({ where: { id: local.id } });
+                counts.companies.removed++;
+              } else {
+                await prisma.company.update({
+                  where: { id: local.id },
+                  data: { syncEnabled: false },
+                });
+                counts.companies.unmatched++;
+              }
+            } else {
+              await prisma.company.update({
+                where: { id: local.id },
+                data: { syncEnabled: false },
+              });
+              counts.companies.unmatched++;
+            }
+          }
+        }
+
+        // 6. Update lastSync
+        await prisma.integrationConfig.update({
+          where: { toolId: "connectwise" },
+          data: { lastSync: new Date() },
+        });
+
+        await auditLog({
+          action: "company.sync.auto",
+          category: "DATA",
+          actorId: userId,
+          detail: { ...counts, totalFromCW: allCwCompanies.length },
+        });
+
+        // Mark completed
+        await setSyncProgress({
+          status: "completed",
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          current: allCwCompanies.length,
+          total: allCwCompanies.length,
+          phase: "Sync complete",
+          counts,
+        });
+      } catch (err) {
+        console.error("[CW Sync] Background sync failed:", err);
+        const progress = await getSyncProgress();
+        await setSyncProgress({
+          status: "failed",
+          startedAt: progress?.startedAt ?? new Date().toISOString(),
+          current: progress?.current ?? 0,
+          total: progress?.total ?? 0,
+          phase: "Sync failed",
+          counts: progress?.counts ?? {
+            companies: { synced: 0, created: 0, unmatched: 0, removed: 0 },
+            contacts: { synced: 0, created: 0, skipped: false },
+            sites: { synced: 0, created: 0, skipped: false },
+            configurations: { synced: 0, created: 0, skipped: false },
+            agreements: { synced: 0, created: 0, skipped: false },
+          },
+          error: err instanceof Error ? err.message : "Unknown error",
+        });
       }
-    }
+    })();
 
-    // 6. Update lastSync
-    await ctx.prisma.integrationConfig.update({
-      where: { toolId: "connectwise" },
-      data: { lastSync: new Date() },
-    });
+    return { started: true };
+  }),
 
-    await auditLog({
-      action: "company.sync.auto",
-      category: "DATA",
-      actorId: ctx.user.id,
-      detail: { ...counts, totalFromCW: allCwCompanies.length },
-    });
+  // ─── Sync Progress (polled by UI) ────────────────────────────
 
-    return counts;
+  syncProgress: protectedProcedure.query(async () => {
+    return getSyncProgress();
   }),
 
   // ─── Manual Sync (selected companies) ───────────────────────
