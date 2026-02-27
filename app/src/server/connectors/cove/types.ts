@@ -200,9 +200,9 @@ export const HISTORY_STAT_FIELDS = ["0", "1", "2", "3", "4", "5", "7", "A"];
 /**
  * Source prefixes valid for EnumerateAccountHistoryStatistics.
  * The history API rejects some newer/specialized prefixes (V=VDR, Z=VSS MSSQL,
- * P=VSS SharePoint, Y=Oracle, L=MySQL) that work in EnumerateAccountStatistics.
+ * P=VSS SharePoint, Y=Oracle, L=MySQL, B=BMR) that work in EnumerateAccountStatistics.
  */
-export const HISTORY_SOURCE_PREFIXES = ["F", "S", "Q", "X", "N", "W", "H", "B", "G", "J"];
+export const HISTORY_SOURCE_PREFIXES = ["F", "S", "Q", "X", "N", "W", "H", "G", "J"];
 
 /**
  * Columns for session history queries (EnumerateAccountHistoryStatistics).
@@ -227,6 +227,120 @@ export const HISTORY_COLUMNS = [
  * This means the initial query returns everything needed for both table and expand view.
  * No separate detail fetch required.
  */
+// ─── Storage Node (Reporting API) ───────────────────────────────
+// The Cove portal uses a separate reporting API on storage nodes to get
+// per-file error details. These types model the undocumented storage node
+// JSON-RPC protocol discovered via HAR analysis.
+
+/** Response item from EnumerateAccountRemoteAccessEndpoints on the main API */
+export interface CoveRemoteAccessEndpoint {
+  /** Storage node base URL, e.g., "https://us-ch-0202-12.cloudbackup.management" */
+  Url: string;
+  /** Auth token for storage node calls (NOT a visa — simple bearer token) */
+  Token: string;
+  /** Account/device name string used in storage node queries */
+  AccountName: string;
+}
+
+/** JSON-RPC request for storage node (no visa field — uses token in params) */
+export interface StorageNodeJsonRpcRequest {
+  jsonrpc: "2.0";
+  id: string;
+  method: string;
+  params?: Record<string, unknown>;
+}
+
+/** JSON-RPC response from storage node */
+export interface StorageNodeJsonRpcResponse<T = unknown> {
+  jsonrpc: "2.0";
+  id: string;
+  visa?: string;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+  result?: T;
+}
+
+/** A single per-file error from QueryErrors on the storage node */
+export interface CoveStorageNodeError {
+  Code: number;
+  Count: number;
+  Filename: string;
+  Text: string;
+  Time: number;       // Unix timestamp (seconds)
+  SessionId: number;
+  Id: number;
+}
+
+/** Result wrapper from QueryErrors */
+export interface CoveQueryErrorsResult {
+  result: CoveStorageNodeError[];
+  totalRecordsCount?: number;
+}
+
+// ─── DRaaS REST API (Recovery Verification) ────────────────────
+// Separate REST API at /draas/actual-statistics/v1/ for recovery testing data.
+// Discovered via HAR analysis of the Cove portal's Recovery Verification tab.
+
+export interface CoveDraasColorbarEntry {
+  status: string;
+  session_id: string;
+  backup_session_timestamp: string;
+  recovery_session_timestamp: string;
+}
+
+/** Top-level attributes from /draas/actual-statistics/v1/dashboard/ */
+export interface CoveDraasStatistic {
+  plan_device_id: number;
+  backup_cloud_device_id: number;
+  backup_cloud_device_name: string;
+  backup_cloud_device_machine_name: string;
+  backup_cloud_partner_name: string;
+  current_recovery_status: string;
+  type: string;
+  recovery_target_type: string;
+  plan_name: string;
+  last_boot_test_status: string | null;
+  last_boot_test_backup_session_timestamp: number | null;
+  last_boot_test_recovery_session_timestamp: number | null;
+  last_recovery_duration_sec: number | null;
+  last_recovery_status: string | null;
+  last_recovery_session_id: string | null;
+  last_recovery_screenshot_presented: boolean;
+  last_recovery_errors_count: number;
+  device_boot_frequency: number;
+  colorbar: CoveDraasColorbarEntry[];
+  data_sources: string[];
+}
+
+/** File reference from /sessions/{id}/files/ */
+export interface CoveDraasSessionFile {
+  type: string;
+  id: string;
+  attributes: { file_type: string };
+}
+
+/** Decoded system log (.info) from S3 */
+export interface CoveSystemLogInfo {
+  BackupSessionTime: number;
+  VmBooted: boolean;
+  VmSystemInfo: {
+    MachineName: string;
+    StoppedServicesWithAutostart: string[];
+    SystemLogRecords: Array<{
+      EventID: number;
+      Level: string;
+      Message: string;
+      ProviderName: string;
+      TimeCreated: string;
+    }>;
+  };
+}
+
+// ─── Pre-built Column Sets (Device List) ─────────────────────────
+
 export const DEVICE_LIST_COLUMNS = [
   DEVICE_COLUMNS.ID,
   DEVICE_COLUMNS.NAME,

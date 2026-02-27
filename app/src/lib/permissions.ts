@@ -94,6 +94,11 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "cipp.manage",          label: "Manage via CIPP",          description: "Create/disable users, reset passwords, manage groups, offboard",              module: "CIPP",     defaultRoles: ["ADMIN", "MANAGER"] },
   { key: "cipp.security",        label: "CIPP Security Actions",    description: "Manage security alerts/incidents, device actions, LAPS, password resets",      module: "CIPP",     defaultRoles: ["ADMIN"] },
 
+  // ── Billing ──
+  { key: "billing.view",          label: "View Billing",             description: "Access billing reconciliation dashboard and data",         module: "Billing",       defaultRoles: ["ADMIN", "MANAGER"] },
+  { key: "billing.manage",        label: "Manage Billing",           description: "Run reconciliation, configure mappings, resolve items",    module: "Billing",       defaultRoles: ["ADMIN"] },
+  { key: "billing.adjust",        label: "Adjust PSA Quantities",    description: "Write-back quantity changes to ConnectWise PSA",           module: "Billing",       defaultRoles: ["ADMIN"] },
+
   // ── Quick Links ──
   { key: "quicklinks.manage",    label: "Manage Quick Links",       description: "Create, edit, and assign quick link groups and shortcuts", module: "Settings", defaultRoles: ["ADMIN"] },
 ];

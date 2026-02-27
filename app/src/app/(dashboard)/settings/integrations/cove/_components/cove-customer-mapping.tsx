@@ -265,7 +265,7 @@ export function CoveCustomerMapping() {
                             className="w-full px-2 py-1 text-sm bg-muted/50 border border-primary/50 rounded focus:outline-none focus:ring-1 focus:ring-primary"
                           />
                           {isDropdownOpen && (
-                            <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-popover border border-border rounded-lg shadow-lg">
+                            <div className="absolute z-50 bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto bg-popover border border-border rounded-lg shadow-lg">
                               {companies.length === 0 ? (
                                 <div className="px-3 py-2 text-xs text-muted-foreground">
                                   No clients found

@@ -188,6 +188,44 @@ export interface BackupSessionHistoryEntry {
   errorsCount: number | null;
 }
 
+/** Recovery verification / testing results for a backup device */
+export interface RecoveryVerification {
+  available: boolean;
+  bootStatus: "success" | "failed" | null;
+  recoveryStatus: string | null;
+  backupSessionTimestamp: string | null;
+  recoverySessionTimestamp: string | null;
+  recoveryDurationSeconds: number | null;
+  planName: string | null;
+  restoreFormat: string | null;
+  bootCheckFrequency: string | null;
+  screenshotUrl: string | null;
+  stoppedServices: string[];
+  systemEvents: Array<{
+    eventId: number;
+    level: string;
+    message: string;
+    provider: string;
+    timestamp: string;
+  }>;
+  colorbar: Array<{
+    status: string;
+    sessionId: string;
+    backupTimestamp: string;
+    recoveryTimestamp: string;
+  }>;
+}
+
+/** A single per-file error detail from a backup session */
+export interface BackupErrorDetail {
+  filename: string;
+  errorMessage: string;
+  errorCode: number;
+  occurrenceCount: number;
+  timestamp: string;       // ISO 8601
+  sessionId: string;
+}
+
 // ─── Filter Types ────────────────────────────────────────────────
 
 export interface BackupDeviceFilter {

@@ -14,6 +14,7 @@ import type { IPsaConnector } from "../connectors/_interfaces/psa";
 import {
   createNotification,
   resolveAllTicketRecipients,
+  resolveTicketOwner,
   detectTicketChanges,
   detectNewReply,
   cacheTicketState,
@@ -251,7 +252,32 @@ export const notificationInboxRouter = router({
         const rawTicket = ticket._raw as Record<string, any> | undefined;
 
         // Resolve ALL recipients (owner + resources)
-        const recipientUserIds = await resolveAllTicketRecipients(rawTicket, cwMembers);
+        const allRecipientUserIds = await resolveAllTicketRecipients(rawTicket, cwMembers);
+        if (allRecipientUserIds.length === 0) continue;
+
+        // Suppress self-notifications: resolve who last updated this ticket
+        // CW tickets have _info.updatedBy which is the member identifier
+        let actorUserId: string | null = null;
+        const updatedBy = rawTicket?._info?.updatedBy as string | undefined;
+        if (updatedBy) {
+          const member = cwMembers.find(
+            (m) => m.identifier.toLowerCase() === updatedBy.toLowerCase() ||
+                   m.name.toLowerCase() === updatedBy.toLowerCase()
+          );
+          if (member) {
+            actorUserId = await resolveTicketOwner(member.name, {
+              memberId: member.id,
+              memberIdentifier: member.identifier,
+            });
+          } else {
+            // Fallback: try resolving the updatedBy string directly
+            actorUserId = await resolveTicketOwner(updatedBy);
+          }
+        }
+
+        const recipientUserIds = actorUserId
+          ? allRecipientUserIds.filter((id) => id !== actorUserId)
+          : allRecipientUserIds;
         if (recipientUserIds.length === 0) continue;
 
         // Get cached state for comparison
@@ -339,7 +365,7 @@ export const notificationInboxRouter = router({
         await cacheTicketState(ticketId, currentState);
       }
 
-      console.log(`[ticket-poll] Checked ${tickets.length} tickets, created ${notificationCount} notifications`);
+      console.log(`[ticket-poll] Checked ${tickets.length} tickets, created ${notificationCount} notifications (self-action filtering enabled)`);
       return { skipped: false, notifications: notificationCount, ticketsChecked: tickets.length };
     } catch (err: any) {
       console.error("[ticket-poll] Error:", err?.message);

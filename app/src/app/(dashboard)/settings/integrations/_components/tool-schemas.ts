@@ -38,6 +38,7 @@ export const BUILT_TOOLS = new Set([
   "huntress",
   "avanan",
   "cove",
+  "pax8",
   "ai-provider",
 ]);
 
@@ -384,6 +385,34 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
       "with Administrator role. Copy the generated token immediately (it's only shown once). " +
       "The Partner Name is your company/customer name as shown in the portal. " +
       "The token is used as the password when authenticating with the Cove API.",
+  },
+
+  pax8: {
+    toolId: "pax8",
+    displayName: "Pax8",
+    description:
+      "Pax8 cloud distributor — subscription management, invoicing, and usage data " +
+      "for Microsoft 365, security, and SaaS licenses via OAuth2 API.",
+    fields: [
+      {
+        key: "clientId",
+        label: "Client ID",
+        type: "text",
+        placeholder: "Enter Pax8 OAuth2 client ID",
+        required: true,
+        helpText: "OAuth2 Client ID from Pax8 Developer Portal.",
+      },
+      {
+        key: "clientSecret",
+        label: "Client Secret",
+        type: "password",
+        placeholder: "Enter Pax8 OAuth2 client secret",
+        required: true,
+      },
+    ],
+    instructions:
+      "Log into the Pax8 Developer Portal (devx.pax8.com), create a new OAuth2 application, " +
+      "and copy the Client ID and Client Secret. The dashboard handles token exchange automatically.",
   },
 
   n8n: {

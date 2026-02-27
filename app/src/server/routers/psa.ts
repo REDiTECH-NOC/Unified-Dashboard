@@ -53,6 +53,76 @@ export const psaRouter = router({
       return psa.getTicketById(input.id);
     }),
 
+  /** Find open tickets related to an alert by company + hostname */
+  findRelatedTickets: protectedProcedure
+    .input(
+      z.object({
+        hostname: z.string().optional(),
+        organizationName: z.string().optional(),
+        toolId: z.string().optional(),
+        organizationSourceId: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      let cwCompanyId: string | null = null;
+      let matchedCompanyName: string | null = null;
+
+      // 1. Try CompanyIntegrationMapping (most reliable)
+      if (input.toolId && input.organizationSourceId) {
+        const mapping = await ctx.prisma.companyIntegrationMapping.findFirst({
+          where: {
+            toolId: input.toolId,
+            externalId: input.organizationSourceId,
+          },
+          include: { company: true },
+        });
+        if (mapping) {
+          cwCompanyId = mapping.company.psaSourceId;
+          matchedCompanyName = mapping.company.name;
+        }
+      }
+
+      // 2. Fallback: fuzzy match on company name
+      if (!cwCompanyId && input.organizationName) {
+        const company = await ctx.prisma.company.findFirst({
+          where: {
+            name: { contains: input.organizationName, mode: "insensitive" },
+            status: "Active",
+          },
+        });
+        if (company?.psaSourceId) {
+          cwCompanyId = company.psaSourceId;
+          matchedCompanyName = company.name;
+        }
+      }
+
+      if (!cwCompanyId) {
+        return { tickets: [], matchedCompanyId: null, matchedCompanyName: null };
+      }
+
+      // 3. Search open tickets for this company (optionally filtered by hostname)
+      const psa = await ConnectorFactory.get("psa", ctx.prisma);
+      const result = await psa.getTickets(
+        {
+          companyId: cwCompanyId,
+          searchTerm: input.hostname || undefined,
+        },
+        1,
+        15
+      );
+
+      // Filter out closed/resolved tickets
+      const openTickets = result.data.filter(
+        (t) => !["Closed", "Resolved", "Completed"].includes(t.status)
+      );
+
+      return {
+        tickets: openTickets.slice(0, 10),
+        matchedCompanyId: cwCompanyId,
+        matchedCompanyName,
+      };
+    }),
+
   createTicket: protectedProcedure
     .input(
       z.object({

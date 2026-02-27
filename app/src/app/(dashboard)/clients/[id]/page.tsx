@@ -28,7 +28,9 @@ import {
   Star,
   Server,
   AlertTriangle,
+  DollarSign,
 } from "lucide-react";
+import { ClientBillingTab } from "@/app/(dashboard)/billing/_components/client-billing-tab";
 
 export default function CompanyDetailPage() {
   const params = useParams();
@@ -334,6 +336,9 @@ export default function CompanyDetailPage() {
               </div>
             </section>
           )}
+
+          {/* Billing Reconciliation */}
+          <ClientBillingTab companyId={id} />
 
           {/* Sites */}
           {c.sites && c.sites.length > 0 && (

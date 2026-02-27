@@ -19,8 +19,9 @@ import { BlackpointConnector } from "./blackpoint/connector";
 import { CIPPConnector } from "./cipp/connector";
 import { AvananEmailSecurityConnector } from "./avanan/connector";
 import { CoveBackupConnector } from "./cove/connector";
+import { Pax8LicensingConnector } from "./pax8/connector";
 
-export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network" | "mdr" | "cipp" | "email_security" | "backup";
+export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network" | "mdr" | "cipp" | "email_security" | "backup" | "licensing";
 
 export interface ConnectorRegistration {
   category: ConnectorCategory;
@@ -72,7 +73,9 @@ export const CONNECTOR_REGISTRY: Record<string, ConnectorRegistration> = {
   blackpoint: {
     category: "mdr",
     defaultBaseUrl: "https://api.blackpointcyber.com",
-    rateLimitMax: 120,
+    // BP limits: Users 2,000/hr, Tenants 5,000/hr, Accounts 100,000/24hr
+    // 200/min = 12,000/hr — per-tenant lazy loading means fewer burst requests
+    rateLimitMax: 200,
     rateLimitWindowMs: 60_000,
     factory: (config) => new BlackpointConnector(config),
   },
@@ -97,5 +100,13 @@ export const CONNECTOR_REGISTRY: Record<string, ConnectorRegistration> = {
     rateLimitMax: 30,
     rateLimitWindowMs: 60_000,
     factory: (config) => new CoveBackupConnector(config),
+  },
+
+  pax8: {
+    category: "licensing",
+    defaultBaseUrl: "https://api.pax8.com/v1",
+    rateLimitMax: 900, // Official limit 1000/min, keep 10% buffer
+    rateLimitWindowMs: 60_000,
+    factory: (config) => new Pax8LicensingConnector(config),
   },
 };

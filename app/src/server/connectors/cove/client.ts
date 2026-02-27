@@ -19,7 +19,13 @@ import { ConnectorError, ConnectorAuthError } from "../_base/errors";
 import { RateLimiter } from "../_base/rate-limiter";
 import { retryWithBackoff } from "../_base/retry";
 import type { ConnectorConfig, HealthCheckResult } from "../_base/types";
-import type { CoveJsonRpcRequest, CoveJsonRpcResponse, CoveLoginResult } from "./types";
+import type {
+  CoveJsonRpcRequest,
+  CoveJsonRpcResponse,
+  CoveLoginResult,
+  StorageNodeJsonRpcRequest,
+  StorageNodeJsonRpcResponse,
+} from "./types";
 
 const API_URL = "https://api.backup.management/jsonapi";
 const VISA_TTL_SECONDS = 840; // 14 minutes (1-min buffer below 15-min expiry)
@@ -71,6 +77,50 @@ export class CoveClient {
         },
       }
     );
+  }
+
+  /**
+   * Execute multiple calls under a single lock acquisition.
+   * Avoids 2N Redis round-trips for lock acquire/release per call.
+   * Individual failures return null without breaking the batch.
+   */
+  async callBatch<T>(
+    calls: Array<{ method: string; params?: Record<string, unknown> }>,
+  ): Promise<Array<T | null>> {
+    if (calls.length === 0) return [];
+    if (calls.length === 1) {
+      const result = await this.call<T>(calls[0].method, calls[0].params);
+      return [result];
+    }
+
+    await this.rateLimiter.acquire();
+
+    // Extended lock TTL: ~1s per call + 10s buffer
+    const batchLockTtl = calls.length * 1000 + 10_000;
+    await this.acquireLockWithTtl(batchLockTtl);
+    try {
+      const results: Array<T | null> = [];
+      for (const { method, params } of calls) {
+        try {
+          results.push(await this.executeCall<T>(method, params));
+        } catch (err) {
+          if (err instanceof ConnectorAuthError) {
+            // Visa died mid-batch — clear and retry this one call
+            await redis.del(this.visaKey);
+            try {
+              results.push(await this.executeCall<T>(method, params));
+            } catch {
+              results.push(null);
+            }
+          } else {
+            results.push(null);
+          }
+        }
+      }
+      return results;
+    } finally {
+      await this.releaseLock();
+    }
   }
 
   /**
@@ -242,23 +292,164 @@ export class CoveClient {
     return Number(id);
   }
 
+  // ─── DRaaS REST API Calls ──────────────────────────────────────
+
+  private static readonly DRAAS_BASE = "https://api.backup.management/draas/actual-statistics/v1";
+
+  /**
+   * Make a GET request to the Cove DRaaS REST API.
+   * Auth: passes the current visa as Authorization Bearer header.
+   */
+  async draasGet<T>(path: string, queryParams?: Record<string, string>): Promise<T> {
+    await this.rateLimiter.acquire();
+    const visa = await this.getOrRefreshVisa();
+
+    const url = new URL(`${CoveClient.DRAAS_BASE}${path}`);
+    if (queryParams) {
+      for (const [k, v] of Object.entries(queryParams)) {
+        url.searchParams.set(k, v);
+      }
+    }
+
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/vnd.api+json",
+        "Authorization": `Bearer ${visa}`,
+      },
+      signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000),
+    });
+
+    if (!response.ok) {
+      throw new ConnectorError(
+        "cove",
+        `DRaaS GET ${path} HTTP ${response.status}: ${response.statusText}`,
+        response.status
+      );
+    }
+
+    return (await response.json()) as T;
+  }
+
+  /**
+   * Make a POST request to the Cove DRaaS REST API.
+   */
+  async draasPost<T>(path: string, body: unknown): Promise<T> {
+    await this.rateLimiter.acquire();
+    const visa = await this.getOrRefreshVisa();
+
+    const url = `${CoveClient.DRAAS_BASE}${path}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/vnd.api+json",
+        "Authorization": `Bearer ${visa}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000),
+    });
+
+    if (!response.ok) {
+      throw new ConnectorError(
+        "cove",
+        `DRaaS POST ${path} HTTP ${response.status}: ${response.statusText}`,
+        response.status
+      );
+    }
+
+    return (await response.json()) as T;
+  }
+
+  // ─── Storage Node Calls ────────────────────────────────────────
+
+  /**
+   * Execute a JSON-RPC call against a Cove storage node.
+   *
+   * Storage nodes use a different URL but still need the current visa.
+   * The device-specific auth token goes in params, visa goes at body level.
+   * No lock serialization needed since the storage node doesn't rotate visas.
+   */
+  async callStorageNode<T>(
+    storageNodeUrl: string,
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<T> {
+    await this.rateLimiter.acquire();
+
+    // Storage node requests need the current visa at body level
+    const visa = await this.getOrRefreshVisa();
+
+    const body = {
+      jsonrpc: "2.0" as const,
+      id: "jsonrpc",
+      method,
+      params,
+      visa,
+    };
+
+    const url = `${storageNodeUrl}/repserv_json`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000),
+    });
+
+    if (!response.ok) {
+      throw new ConnectorError(
+        "cove",
+        `Storage node HTTP ${response.status}: ${response.statusText}`,
+        response.status
+      );
+    }
+
+    const json = (await response.json()) as StorageNodeJsonRpcResponse<T>;
+
+    // Storage node may return a refreshed visa — save it to keep the chain alive
+    if (json.visa) {
+      await redis.set(this.visaKey, json.visa, "EX", VISA_TTL_SECONDS);
+    }
+
+    if (json.error) {
+      console.error(`[Cove] Storage node ${method} error:`, json.error);
+      throw new ConnectorError(
+        "cove",
+        `Storage node error ${json.error.code}: ${json.error.message}`
+      );
+    }
+
+    if (json.result === undefined || json.result === null) {
+      throw new ConnectorError("cove", `No result from storage node ${method}`);
+    }
+
+    return json.result;
+  }
+
   // ─── Lock Management ──────────────────────────────────────────
 
   private async acquireLock(): Promise<void> {
+    return this.acquireLockWithTtl(LOCK_TTL_MS);
+  }
+
+  private async acquireLockWithTtl(ttlMs: number): Promise<void> {
     const started = Date.now();
     while (Date.now() - started < LOCK_MAX_WAIT_MS) {
       const acquired = await redis.set(
         this.lockKey,
         "1",
         "PX",
-        LOCK_TTL_MS,
+        ttlMs,
         "NX"
       );
       if (acquired === "OK") return;
       await new Promise((r) => setTimeout(r, LOCK_RETRY_DELAY_MS));
     }
     // Timeout — force-acquire (stale lock cleanup)
-    await redis.set(this.lockKey, "1", "PX", LOCK_TTL_MS);
+    await redis.set(this.lockKey, "1", "PX", ttlMs);
   }
 
   private async releaseLock(): Promise<void> {

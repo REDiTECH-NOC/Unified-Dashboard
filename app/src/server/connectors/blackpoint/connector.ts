@@ -64,7 +64,8 @@ export class BlackpointConnector implements IMdrConnector {
   async getDetections(
     filter?: DetectionFilter,
     skip = 0,
-    take = 100
+    take = 100,
+    tenantId?: string
   ): Promise<PaginatedResponse<NormalizedThreat>> {
     const params: Record<string, string | number | boolean | undefined> = {
       skip,
@@ -79,14 +80,16 @@ export class BlackpointConnector implements IMdrConnector {
     const response = await this.client.requestBP<BPPaginatedResponse<BPAlertGroup>>({
       path: "/v1/alert-groups",
       params,
+      tenantId,
     });
 
     return toPaginated(response, mapAlertGroupToThreat);
   }
 
-  async getDetectionById(id: string): Promise<NormalizedThreat> {
+  async getDetectionById(id: string, tenantId?: string): Promise<NormalizedThreat> {
     const alertGroup = await this.client.requestBP<BPAlertGroup>({
       path: `/v1/alert-groups/${id}`,
+      tenantId,
     });
     return mapAlertGroupToThreat(alertGroup);
   }
@@ -94,16 +97,18 @@ export class BlackpointConnector implements IMdrConnector {
   async getDetectionAlerts(
     alertGroupId: string,
     skip = 0,
-    take = 100
+    take = 100,
+    tenantId?: string
   ): Promise<PaginatedResponse<NormalizedAlert>> {
     const response = await this.client.requestBP<BPPaginatedResponse<BPAlert>>({
       path: `/v1/alert-groups/${alertGroupId}/alerts`,
       params: { skip, take },
+      tenantId,
     });
     return toPaginated(response, mapAlertToNormalized);
   }
 
-  async getDetectionCount(filter?: DetectionFilter): Promise<number> {
+  async getDetectionCount(filter?: DetectionFilter, tenantId?: string): Promise<number> {
     const params: Record<string, string | number | boolean | undefined> = {};
     if (filter?.detectionType) params.detectionType = filter.detectionType;
     if (filter?.since) params.since = filter.since.toISOString();
@@ -111,13 +116,15 @@ export class BlackpointConnector implements IMdrConnector {
     const response = await this.client.requestBP<BPAlertGroupCount>({
       path: "/v1/alert-groups/count",
       params,
+      tenantId,
     });
     return response.count;
   }
 
   async getDetectionsByWeek(
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
+    tenantId?: string
   ): Promise<Array<{ date: Date; count: number }>> {
     const params: Record<string, string | undefined> = {};
     if (startDate) params.startDate = startDate.toISOString();
@@ -126,6 +133,7 @@ export class BlackpointConnector implements IMdrConnector {
     const response = await this.client.requestBP<BPAlertGroupsByWeek[]>({
       path: "/v1/alert-groups/alert-groups-by-week",
       params,
+      tenantId,
     });
     return response.map(item => ({
       date: new Date(item.date),
@@ -136,7 +144,8 @@ export class BlackpointConnector implements IMdrConnector {
   async getTopDetectionsByEntity(
     startDate?: Date,
     endDate?: Date,
-    limit = 10
+    limit = 10,
+    tenantId?: string
   ): Promise<Array<{ name: string; count: number }>> {
     const params: Record<string, string | number | undefined> = { limit };
     if (startDate) params.startDate = startDate.toISOString();
@@ -145,13 +154,15 @@ export class BlackpointConnector implements IMdrConnector {
     return this.client.requestBP<BPTopDetectionsByEntity[]>({
       path: "/v1/alert-groups/top-detections-by-entity",
       params,
+      tenantId,
     });
   }
 
   async getTopDetectionsByThreat(
     startDate?: Date,
     endDate?: Date,
-    limit = 10
+    limit = 10,
+    tenantId?: string
   ): Promise<Array<{ name: string; count: number; percentage: number }>> {
     const params: Record<string, string | number | undefined> = { limit };
     if (startDate) params.startDate = startDate.toISOString();
@@ -160,6 +171,7 @@ export class BlackpointConnector implements IMdrConnector {
     return this.client.requestBP<BPTopDetectionsByThreat[]>({
       path: "/v1/alert-groups/top-detections-by-threat",
       params,
+      tenantId,
     });
   }
 
@@ -169,38 +181,50 @@ export class BlackpointConnector implements IMdrConnector {
 
   async getAssets(
     filter?: AssetFilter,
-    skip = 0,
-    take = 100
+    page = 1,
+    pageSize = 100,
+    tenantId?: string
   ): Promise<PaginatedResponse<NormalizedDevice>> {
-    const params: Record<string, string | number | boolean | undefined> = { skip, take };
-    if (filter?.assetClass) params.assetClass = filter.assetClass;
+    const params: Record<string, string | number | boolean | undefined> = {
+      page,
+      pageSize,
+      class: filter?.assetClass ?? "DEVICE", // "class" is REQUIRED per API spec
+    };
     if (filter?.search) params.search = filter.search;
-    if (filter?.sortByColumn) params.sortByColumn = filter.sortByColumn;
-    if (filter?.sortDirection) params.sortDirection = filter.sortDirection;
+    if (filter?.sortByColumn) params.sortBy = filter.sortByColumn;
+    if (filter?.sortDirection) params.sortOrder = filter.sortDirection;
 
-    const response = await this.client.requestBP<BPPaginatedResponse<BPAsset>>({
+    const response = await this.client.requestBP<BPPagePaginatedResponse<BPAsset>>({
       path: "/v1/assets",
       params,
-      tenantId: filter?.tenantId,
+      tenantId: tenantId ?? filter?.tenantId,
     });
-    return toPaginated(response, mapAssetToDevice);
+    return {
+      data: response.data.map(mapAssetToDevice),
+      hasMore: response.meta.currentPage < response.meta.totalPages,
+      nextCursor: response.meta.currentPage < response.meta.totalPages ? response.meta.currentPage + 1 : undefined,
+      totalCount: response.meta.totalItems,
+    };
   }
 
-  async getAssetById(id: string): Promise<NormalizedDevice> {
+  async getAssetById(id: string, tenantId?: string): Promise<NormalizedDevice> {
     const asset = await this.client.requestBP<BPAsset>({
       path: `/v1/assets/${id}`,
+      tenantId,
     });
     return mapAssetToDevice(asset);
   }
 
   async getAssetRelationships(
     assetId: string,
-    skip = 0,
-    take = 100
-  ): Promise<BPPaginatedResponse<BPAssetRelationship>> {
-    return this.client.requestBP<BPPaginatedResponse<BPAssetRelationship>>({
+    page = 1,
+    pageSize = 100,
+    tenantId?: string
+  ): Promise<BPPagePaginatedResponse<BPAssetRelationship>> {
+    return this.client.requestBP<BPPagePaginatedResponse<BPAssetRelationship>>({
       path: `/v1/assets/${assetId}/relationships`,
-      params: { skip, take },
+      params: { page, pageSize },
+      tenantId,
     });
   }
 
@@ -209,14 +233,29 @@ export class BlackpointConnector implements IMdrConnector {
   // =========================================================================
 
   async getTenants(
-    skip = 0,
-    take = 100
+    page = 1,
+    pageSize = 100
   ): Promise<PaginatedResponse<NormalizedOrganization>> {
-    const response = await this.client.requestBP<BPPaginatedResponse<BPTenant>>({
+    // Tenant endpoint uses page/pageSize pagination with { data, meta } response
+    const response = await this.client.requestBP<BPPagePaginatedResponse<BPTenant>>({
       path: "/v1/tenants",
-      params: { skip, take },
+      params: { page, pageSize },
     });
-    return toPaginated(response, mapTenantToOrganization);
+    return {
+      data: response.data.map(mapTenantToOrganization),
+      hasMore: response.meta.currentPage < response.meta.totalPages,
+      nextCursor: response.meta.currentPage < response.meta.totalPages ? response.meta.currentPage + 1 : undefined,
+      totalCount: response.meta.totalItems,
+    };
+  }
+
+  /** Get raw tenant list (IDs + names) for multi-tenant queries */
+  async getTenantIds(): Promise<Array<{ id: string; name: string }>> {
+    const response = await this.client.requestBP<BPPagePaginatedResponse<BPTenant>>({
+      path: "/v1/tenants",
+      params: { page: 1, pageSize: 200 },
+    });
+    return response.data.map(t => ({ id: t.id, name: t.name }));
   }
 
   async getTenantById(accountId: string, tenantId: string): Promise<BPTenant> {
@@ -287,10 +326,17 @@ export class BlackpointConnector implements IMdrConnector {
   // =========================================================================
 
   async getMs365Connections(tenantId?: string): Promise<BPMs365Connection[]> {
-    return this.client.requestBP<BPMs365Connection[]>({
+    // This endpoint returns CC_Customer { ms365DefensePackages: [] }
+    // tenantId is a QUERY parameter (required), NOT x-tenant-id header
+    const customer = await this.client.requestBP<{
+      id?: string;
+      name?: string;
+      ms365DefensePackages?: BPMs365Connection[];
+    }>({
       path: "/v1/cloud/ms365/customer",
-      tenantId,
+      params: tenantId ? { tenantId } : undefined,
     });
+    return customer.ms365DefensePackages ?? [];
   }
 
   async getMs365ConnectionById(connectionId: string): Promise<BPMs365Connection> {
@@ -299,10 +345,15 @@ export class BlackpointConnector implements IMdrConnector {
     });
   }
 
-  async getMs365ApprovedCountries(connectionId: string): Promise<BPIsoCountry[]> {
-    return this.client.requestBP<BPIsoCountry[]>({
+  async getMs365ApprovedCountries(connectionId: string, tenantId?: string): Promise<BPIsoCountry[]> {
+    // Returns CC_Ms365DefensePackage with authorizedCountries nested
+    const pkg = await this.client.requestBP<{
+      authorizedCountries?: BPIsoCountry[];
+    }>({
       path: `/v1/cloud/ms365/connections/${connectionId}/iso-country`,
+      params: tenantId ? { tenantId } : undefined,
     });
+    return pkg.authorizedCountries ?? [];
   }
 
   async approveMs365Country(connectionId: string, isoCountryCode: string): Promise<void> {
@@ -324,11 +375,15 @@ export class BlackpointConnector implements IMdrConnector {
   async getMs365Users(
     connectionId: string,
     skip = 0,
-    take = 100
+    take = 100,
+    tenantId?: string
   ): Promise<BPPaginatedResponse<BPMs365User>> {
+    // tenantId is REQUIRED as query param per API spec
+    const params: Record<string, string | number> = { skip, take };
+    if (tenantId) params.tenantId = tenantId;
     return this.client.requestBP<BPPaginatedResponse<BPMs365User>>({
       path: `/v1/cloud/ms365/connections/${connectionId}/users`,
-      params: { skip, take },
+      params,
     });
   }
 
@@ -522,31 +577,34 @@ export class BlackpointConnector implements IMdrConnector {
   // =========================================================================
 
   async getVulnerabilities(
-    skip = 0,
-    take = 100,
+    page = 1,
+    pageSize = 100,
     tenantId?: string
-  ): Promise<BPPaginatedResponse<BPVulnerability>> {
-    return this.client.requestBP<BPPaginatedResponse<BPVulnerability>>({
+  ): Promise<BPPagePaginatedResponse<BPVulnerability>> {
+    return this.client.requestBP<BPPagePaginatedResponse<BPVulnerability>>({
       path: "/v1/vulnerability-management/vulnerabilities",
-      params: { skip, take },
+      params: { page, pageSize },
       tenantId,
     });
   }
 
-  async getVulnerabilityById(id: string): Promise<BPVulnerability> {
+  async getVulnerabilityById(id: string, tenantId?: string): Promise<BPVulnerability> {
     return this.client.requestBP<BPVulnerability>({
       path: `/v1/vulnerability-management/vulnerabilities/${id}`,
+      tenantId,
     });
   }
 
   async getVulnerabilityAssets(
     vulnId: string,
-    skip = 0,
-    take = 100
-  ): Promise<BPPaginatedResponse<BPAsset>> {
-    return this.client.requestBP<BPPaginatedResponse<BPAsset>>({
+    page = 1,
+    pageSize = 100,
+    tenantId?: string
+  ): Promise<BPPagePaginatedResponse<BPAsset>> {
+    return this.client.requestBP<BPPagePaginatedResponse<BPAsset>>({
       path: `/v1/vulnerability-management/vulnerabilities/${vulnId}/assets`,
-      params: { skip, take },
+      params: { page, pageSize },
+      tenantId,
     });
   }
 
@@ -572,15 +630,22 @@ export class BlackpointConnector implements IMdrConnector {
     });
   }
 
-  async getVulnerabilitySeverityStats(): Promise<BPSeverityCount[]> {
-    return this.client.requestBP<BPSeverityCount[]>({
+  async getVulnerabilitySeverityStats(tenantId?: string): Promise<BPSeverityCount[]> {
+    // Response is { data: { severity: count, ... } } — unwrap the envelope
+    const response = await this.client.requestBP<{ data: Record<string, number> }>({
       path: "/v1/vulnerability-management/vulnerabilities/stats/count-by-severity",
+      tenantId,
     });
+    return Object.entries(response.data ?? response).map(([severity, count]) => ({
+      severity,
+      count: typeof count === "number" ? count : 0,
+    }));
   }
 
-  async getVulnerabilityTenantStats(): Promise<BPTenantVulnCount[]> {
+  async getVulnerabilityTenantStats(tenantId?: string): Promise<BPTenantVulnCount[]> {
     return this.client.requestBP<BPTenantVulnCount[]>({
       path: "/v1/vulnerability-management/vulnerabilities/stats/count-by-tenant",
+      tenantId,
     });
   }
 
@@ -652,10 +717,11 @@ export class BlackpointConnector implements IMdrConnector {
   // Vulnerability Management — Scans
   // =========================================================================
 
-  async getScans(skip = 0, take = 100): Promise<BPPaginatedResponse<BPScan>> {
-    return this.client.requestBP<BPPaginatedResponse<BPScan>>({
+  async getScans(page = 1, pageSize = 100, tenantId?: string): Promise<BPPagePaginatedResponse<BPScan>> {
+    return this.client.requestBP<BPPagePaginatedResponse<BPScan>>({
       path: "/v1/vulnerability-management/scans",
-      params: { skip, take },
+      params: { page, pageSize },
+      tenantId,
     });
   }
 
@@ -762,19 +828,24 @@ export class BlackpointConnector implements IMdrConnector {
   // =========================================================================
 
   async getScansAndSchedules(
-    skip = 0,
-    take = 100
-  ): Promise<BPPaginatedResponse<BPScanAndSchedule>> {
-    return this.client.requestBP<BPPaginatedResponse<BPScanAndSchedule>>({
+    page = 1,
+    pageSize = 100,
+    tenantId?: string
+  ): Promise<BPPagePaginatedResponse<BPScanAndSchedule>> {
+    return this.client.requestBP<BPPagePaginatedResponse<BPScanAndSchedule>>({
       path: "/v1/vulnerability-management/scans-and-schedules",
-      params: { skip, take },
+      params: { page, pageSize },
+      tenantId,
     });
   }
 
-  async getScansAndSchedulesStats(): Promise<Record<string, unknown>> {
-    return this.client.requestBP<Record<string, unknown>>({
+  async getScansAndSchedulesStats(tenantId?: string): Promise<Record<string, number>> {
+    // Response is { data: { completed, darkweb, external, failed, local, network } }
+    const response = await this.client.requestBP<{ data: Record<string, number> }>({
       path: "/v1/vulnerability-management/scans-and-schedules/stats",
+      tenantId,
     });
+    return response.data ?? (response as unknown as Record<string, number>);
   }
 
   async bulkDeleteScansAndSchedules(body: Record<string, unknown>): Promise<void> {

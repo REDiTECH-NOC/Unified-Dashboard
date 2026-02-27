@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import {
   ChevronRight, ChevronDown, Building2, User, LayoutGrid,
   Clock, Loader2, CalendarDays, Users, FileText, MessageSquare, Info,
+  PanelRightOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PriorityDot, PRIORITY_CONFIG, PRIORITY_TO_CW, type Priority } from "./priority-badge";
@@ -13,6 +14,7 @@ import { TicketNotesThread } from "./ticket-notes-thread";
 import { TicketTimeEntry } from "./ticket-time-entry";
 import { TicketStopwatch } from "./ticket-stopwatch";
 import { GRID_COLS, GRID_COLS_ACTIONS } from "./grid-layout";
+import { useTicketBubbles } from "@/contexts/ticket-bubble-context";
 import type { TicketHub } from "./use-ticket-hub";
 
 export interface TicketRowData {
@@ -54,6 +56,7 @@ function statusColor(status: string) {
 }
 
 export function TicketRow({ ticket, expanded, onToggle, showQuickActions = false, hub }: TicketRowProps) {
+  const { openTicket } = useTicketBubbles();
   return (
     <div className={cn("transition-colors", expanded && "bg-muted/5")}>
       {/* Row header */}
@@ -84,7 +87,14 @@ export function TicketRow({ ticket, expanded, onToggle, showQuickActions = false
           {hub.relative(ticket.updatedAt ?? ticket.createdAt)}
         </span>
         {showQuickActions && (
-          <span onClick={(e) => e.stopPropagation()}>
+          <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => openTicket(ticket.sourceId)}
+              className="p-1 rounded hover:bg-muted/30 text-muted-foreground/50 hover:text-primary transition-colors"
+              title="Pop out ticket"
+            >
+              <PanelRightOpen className="h-3.5 w-3.5" />
+            </button>
             <TicketStopwatch ticketId={ticket.sourceId} compact onLogTime={(hours) => {
               hub.addTime.mutate({ ticketId: ticket.sourceId, hoursWorked: hours });
             }} />

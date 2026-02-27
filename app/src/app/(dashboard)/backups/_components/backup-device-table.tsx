@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Server,
@@ -21,6 +21,10 @@ import {
   CheckCircle2,
   ShieldCheck,
   Info,
+  Camera,
+  Activity,
+  XCircle,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ColorBar28Day } from "./color-bar";
@@ -225,13 +229,17 @@ function ActiveSourceIcons({ dataSources }: { dataSources: BackupDataSource[] })
 
 /* ─── Expanded Detail — Tabbed View ──────────────────────── */
 
-function DeviceExpandedDetail({ device }: { device: BackupDevice }) {
+function DeviceExpandedDetail({ device, covePartnerId }: { device: BackupDevice; covePartnerId: number | null }) {
   const [activeTab, setActiveTab] = useState<ExpandTab>("overview");
   const dataSources = (device.dataSources ?? []).filter(
     (ds) => ds.type !== "total"
   );
   const totalErrors = dataSources.reduce((sum, ds) => sum + (ds.errorsCount ?? 0), 0);
-  const coveDeviceUrl = `https://backup.management/#/accounts/${device.sourceId}`;
+  const coveBaseUrl = covePartnerId
+    ? `https://backup.management/#/backup/overview/view/${covePartnerId}(panel:device-properties/${device.sourceId}`
+    : null;
+  const coveDeviceUrl = coveBaseUrl ? `${coveBaseUrl}/summary)` : null;
+  const coveErrorsUrl = coveBaseUrl ? `${coveBaseUrl}/errors)` : null;
 
   const tabs: { id: ExpandTab; label: string; icon: React.ElementType }[] = [
     { id: "overview", label: "Overview", icon: Info },
@@ -264,16 +272,18 @@ function DeviceExpandedDetail({ device }: { device: BackupDevice }) {
           );
         })}
         <div className="flex-1" />
-        <a
-          href={coveDeviceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 transition-colors pb-2"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <ExternalLink className="h-3 w-3" />
-          Open in Cove
-        </a>
+        {coveDeviceUrl && (
+          <a
+            href={coveDeviceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 transition-colors pb-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="h-3 w-3" />
+            Open in Cove
+          </a>
+        )}
       </div>
 
       {/* Tab content */}
@@ -285,7 +295,7 @@ function DeviceExpandedDetail({ device }: { device: BackupDevice }) {
           <HistoryTab device={device} dataSources={dataSources} coveUrl={coveDeviceUrl} />
         )}
         {activeTab === "errors" && (
-          <ErrorsTab device={device} dataSources={dataSources} totalErrors={totalErrors} coveUrl={coveDeviceUrl} />
+          <ErrorsTab device={device} dataSources={dataSources} totalErrors={totalErrors} coveUrl={coveErrorsUrl} />
         )}
         {activeTab === "recovery" && (
           <RecoveryTab device={device} dataSources={dataSources} coveUrl={coveDeviceUrl} />
@@ -459,7 +469,7 @@ function HistoryTab({
 }: {
   device: BackupDevice;
   dataSources: BackupDataSource[];
-  coveUrl: string;
+  coveUrl: string | null;
 }) {
   const history = trpc.backup.getDeviceHistory.useQuery(
     { deviceId: device.sourceId, days: 30 },
@@ -655,8 +665,14 @@ function ErrorsTab({
   device: BackupDevice;
   dataSources: BackupDataSource[];
   totalErrors: number;
-  coveUrl: string;
+  coveUrl: string | null;
 }) {
+  // Fetch per-file error details from storage node
+  const errorDetails = trpc.backup.getDeviceErrors.useQuery(
+    { deviceId: device.sourceId },
+    { staleTime: 5 * 60 * 1000, enabled: totalErrors > 0 }
+  );
+
   // Fetch session history to show error timeline
   const history = trpc.backup.getDeviceHistory.useQuery(
     { deviceId: device.sourceId, days: 30 },
@@ -690,11 +706,25 @@ function ErrorsTab({
       {/* Current session error summary */}
       {sourcesWithErrors.length > 0 && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-red-400" />
-            <span className="text-sm font-medium text-zinc-200">
-              {totalErrors} error{totalErrors !== 1 ? "s" : ""} in last session
-            </span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-400" />
+              <span className="text-sm font-medium text-zinc-200">
+                {totalErrors} error{totalErrors !== 1 ? "s" : ""} in last session
+              </span>
+            </div>
+            {coveUrl && (
+              <a
+                href={coveUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                View error details in Cove
+              </a>
+            )}
           </div>
           <div className="space-y-1.5">
             {sourcesWithErrors.map((ds) => {
@@ -728,6 +758,80 @@ function ErrorsTab({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Per-file error details from storage node */}
+      {errorDetails.isLoading && totalErrors > 0 && (
+        <div className="flex items-center gap-2 py-3 text-xs text-zinc-500">
+          <div className="animate-spin h-3 w-3 border border-zinc-600 border-t-zinc-300 rounded-full" />
+          Loading per-file error details...
+        </div>
+      )}
+
+      {errorDetails.isError && (
+        <div className="flex items-center gap-2 py-3 text-xs text-amber-400/70">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          Could not load per-file error details.{" "}
+          {coveUrl && (
+            <a
+              href={coveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-teal-400 hover:text-teal-300 underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View in Cove
+            </a>
+          )}
+        </div>
+      )}
+
+      {errorDetails.data && errorDetails.data.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-red-400" />
+            <span className="text-sm font-medium text-zinc-200">
+              Affected Files ({errorDetails.data.length}{errorDetails.data.length >= 500 ? "+" : ""})
+            </span>
+          </div>
+          <div className="overflow-x-auto max-h-[400px] overflow-y-auto rounded-lg border border-zinc-800/50">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-zinc-900/95 backdrop-blur-sm">
+                <tr className="text-zinc-500 border-b border-zinc-800">
+                  <th className="text-left py-1.5 px-3 font-medium">File Path</th>
+                  <th className="text-left py-1.5 px-3 font-medium">Error</th>
+                  <th className="text-right py-1.5 px-3 font-medium">Count</th>
+                  <th className="text-left py-1.5 px-3 font-medium">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {errorDetails.data.map((err, idx) => (
+                  <tr
+                    key={`${err.sessionId}-${idx}`}
+                    className="border-b border-zinc-800/30 hover:bg-zinc-800/20 transition-colors"
+                  >
+                    <td className="py-1.5 px-3 text-zinc-300 max-w-[300px]">
+                      <span className="block truncate" title={err.filename}>
+                        {err.filename}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-3 text-red-300/80 max-w-[250px]">
+                      <span className="block truncate" title={err.errorMessage}>
+                        {err.errorMessage}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-3 text-right text-red-400 font-medium tabular-nums">
+                      {err.occurrenceCount}
+                    </td>
+                    <td className="py-1.5 px-3 text-zinc-400 whitespace-nowrap">
+                      {formatSessionTimestamp(err.timestamp)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -812,27 +916,53 @@ function ErrorsTab({
         )}
       </div>
 
-      <div className="flex items-center gap-2 pt-1 text-[11px] text-zinc-500">
-        <Info className="h-3.5 w-3.5 shrink-0" />
-        <span>
-          For detailed error messages and affected files,{" "}
-          <a
-            href={coveUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-teal-400 hover:text-teal-300"
-            onClick={(e) => e.stopPropagation()}
-          >
-            view in Cove
-          </a>
-          .
-        </span>
-      </div>
+      {coveUrl ? (
+        <a
+          href={coveUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 pt-1 px-3 py-2 rounded-lg bg-zinc-800/40 hover:bg-zinc-800/70 transition-colors group"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="h-3.5 w-3.5 text-teal-400 group-hover:text-teal-300 shrink-0" />
+          <span className="text-[11px] text-zinc-400 group-hover:text-zinc-300">
+            View full error context in Cove portal
+          </span>
+        </a>
+      ) : (
+        <div className="flex items-center gap-2 pt-1 text-[11px] text-zinc-500">
+          <Info className="h-3.5 w-3.5 shrink-0" />
+          <span>Additional error context is available in the Cove portal.</span>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ─── Recovery Tab ────────────────────────────────────────── */
+
+function formatDraasTimestamp(ts: string | null): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function formatDraasDuration(seconds: number | null): string {
+  if (seconds == null) return "—";
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m < 60) return `${m}m ${s}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
 
 function RecoveryTab({
   device,
@@ -841,7 +971,7 @@ function RecoveryTab({
 }: {
   device: BackupDevice;
   dataSources: BackupDataSource[];
-  coveUrl: string;
+  coveUrl: string | null;
 }) {
   // Show recovery readiness — last successful backup per source
   const sourcesWithSuccess = dataSources.filter(
@@ -851,9 +981,211 @@ function RecoveryTab({
     (ds) => ds.lastSuccessfulTimestamp == null
   );
 
+  // Recovery verification data (DRaaS)
+  const recovery = trpc.backup.getRecoveryVerification.useQuery(
+    { deviceId: device.sourceId },
+    { retry: 1, staleTime: 10 * 60_000 }
+  );
+
   return (
     <div className="space-y-4">
-      {/* Recovery readiness header */}
+      {/* ── Recovery Verification (DRaaS) ─────────────────────── */}
+      {recovery.isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-xs text-zinc-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading recovery verification…
+        </div>
+      ) : recovery.data?.available ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-teal-400" />
+            <span className="text-sm font-medium text-zinc-200">Recovery Testing Verification</span>
+          </div>
+
+          {/* Boot screenshot + details grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Screenshot */}
+            {recovery.data.screenshotUrl && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                  <Camera className="h-3 w-3" />
+                  Boot Screenshot
+                </div>
+                <div className="rounded-lg overflow-hidden border border-zinc-700/50 bg-black">
+                  <img
+                    src={recovery.data.screenshotUrl}
+                    alt="Recovery boot screenshot"
+                    className="w-full h-auto"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Boot + Recovery details */}
+            <div className="space-y-3">
+              {/* Boot details card */}
+              <div className="rounded-lg bg-zinc-800/40 border border-zinc-700/30 p-3 space-y-2">
+                <div className="text-xs font-medium text-zinc-300">Boot Details</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                  <div className="text-zinc-500">Boot Status</div>
+                  <div>
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium",
+                        recovery.data.bootStatus === "success"
+                          ? "bg-green-950/60 text-green-400 border border-green-800/40"
+                          : "bg-red-950/60 text-red-400 border border-red-800/40"
+                      )}
+                    >
+                      {recovery.data.bootStatus === "success" ? (
+                        <CheckCircle2 className="h-3 w-3" />
+                      ) : (
+                        <XCircle className="h-3 w-3" />
+                      )}
+                      {recovery.data.bootStatus === "success" ? "Success" : "Failed"}
+                    </span>
+                  </div>
+                  <div className="text-zinc-500">Boot Check Frequency</div>
+                  <div className="text-zinc-300">{recovery.data.bootCheckFrequency ?? "—"}</div>
+                  <div className="text-zinc-500">Plan Name</div>
+                  <div className="text-zinc-300">{recovery.data.planName ?? "—"}</div>
+                  <div className="text-zinc-500">Restore Format</div>
+                  <div className="text-zinc-300">{recovery.data.restoreFormat ?? "—"}</div>
+                </div>
+              </div>
+
+              {/* Recovery details card */}
+              <div className="rounded-lg bg-zinc-800/40 border border-zinc-700/30 p-3 space-y-2">
+                <div className="text-xs font-medium text-zinc-300">Recovery Session</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                  <div className="text-zinc-500">Recovery Status</div>
+                  <div className={cn(
+                    "font-medium",
+                    recovery.data.recoveryStatus?.toLowerCase() === "completed" ? "text-green-400" : "text-zinc-300"
+                  )}>
+                    {recovery.data.recoveryStatus ?? "—"}
+                  </div>
+                  <div className="text-zinc-500">Backup Session</div>
+                  <div className="text-zinc-300">
+                    {formatDraasTimestamp(recovery.data.backupSessionTimestamp)}
+                  </div>
+                  <div className="text-zinc-500">Recovery Session</div>
+                  <div className="text-zinc-300">
+                    {formatDraasTimestamp(recovery.data.recoverySessionTimestamp)}
+                  </div>
+                  <div className="text-zinc-500">Duration</div>
+                  <div className="text-zinc-300">
+                    {formatDraasDuration(recovery.data.recoveryDurationSeconds)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Recovery colorbar — past session history */}
+          {recovery.data.colorbar.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-xs text-zinc-400">Recovery History</div>
+              <div className="flex gap-0.5">
+                {recovery.data.colorbar.map((entry, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "h-5 flex-1 rounded-sm",
+                      entry.status.toLowerCase().includes("success")
+                        ? "bg-green-600"
+                        : entry.status.toLowerCase().includes("fail")
+                          ? "bg-red-600"
+                          : "bg-zinc-600"
+                    )}
+                    title={`${entry.status} — Backup: ${formatDraasTimestamp(entry.backupTimestamp)}, Recovery: ${formatDraasTimestamp(entry.recoveryTimestamp)}`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Stopped services */}
+          {recovery.data.stoppedServices.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs text-amber-400">
+                <AlertTriangle className="h-3 w-3" />
+                Stopped Autostart Services ({recovery.data.stoppedServices.length})
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {recovery.data.stoppedServices.map((svc) => (
+                  <span
+                    key={svc}
+                    className="px-2 py-0.5 rounded bg-amber-950/30 border border-amber-800/30 text-[11px] text-amber-300/80 font-mono"
+                  >
+                    {svc}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* System events table */}
+          {recovery.data.systemEvents.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                <Activity className="h-3 w-3" />
+                System Events During Recovery ({recovery.data.systemEvents.length})
+              </div>
+              <div className="overflow-x-auto max-h-[300px] overflow-y-auto rounded-lg border border-zinc-700/30">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-zinc-900">
+                    <tr className="text-zinc-500 border-b border-zinc-800">
+                      <th className="text-left py-1.5 px-2 font-medium w-[60px]">Level</th>
+                      <th className="text-left py-1.5 px-2 font-medium w-[140px]">Created</th>
+                      <th className="text-left py-1.5 px-2 font-medium w-[70px]">Event ID</th>
+                      <th className="text-left py-1.5 px-2 font-medium w-[130px]">Provider</th>
+                      <th className="text-left py-1.5 px-2 font-medium">Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recovery.data.systemEvents.map((evt, i) => (
+                      <tr key={i} className="border-b border-zinc-800/30 hover:bg-zinc-800/20">
+                        <td className="py-1 px-2">
+                          <span
+                            className={cn(
+                              "text-[11px] font-medium",
+                              evt.level === "Error" && "text-red-400",
+                              evt.level === "Warning" && "text-amber-400",
+                              evt.level === "Information" && "text-blue-400",
+                              !["Error", "Warning", "Information"].includes(evt.level) && "text-zinc-400"
+                            )}
+                          >
+                            {evt.level}
+                          </span>
+                        </td>
+                        <td className="py-1 px-2 text-zinc-400 whitespace-nowrap">
+                          {evt.timestamp ? formatDraasTimestamp(evt.timestamp) : "—"}
+                        </td>
+                        <td className="py-1 px-2 text-zinc-400 tabular-nums">{evt.eventId}</td>
+                        <td className="py-1 px-2 text-zinc-400 truncate max-w-[130px]" title={evt.provider}>
+                          {evt.provider}
+                        </td>
+                        <td className="py-1 px-2 text-zinc-300 truncate max-w-[400px]" title={evt.message}>
+                          {evt.message}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : recovery.isError ? (
+        <div className="flex items-center gap-2 py-2 text-xs text-zinc-500">
+          <Info className="h-3.5 w-3.5" />
+          Could not load recovery verification data.
+        </div>
+      ) : null}
+
+      {/* ── Recovery Readiness (backup sources) ──────────────────── */}
       <div className="flex items-center gap-2">
         <ShieldCheck className="h-4 w-4 text-teal-400" />
         <span className="text-sm font-medium text-zinc-200">Recovery Readiness</span>
@@ -981,15 +1313,19 @@ function RecoveryTab({
         <Info className="h-3.5 w-3.5 shrink-0" />
         <span>
           To initiate a restore or run recovery testing,{" "}
-          <a
-            href={coveUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-teal-400 hover:text-teal-300"
-            onClick={(e) => e.stopPropagation()}
-          >
-            open in Cove
-          </a>
+          {coveUrl ? (
+            <a
+              href={coveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-teal-400 hover:text-teal-300"
+              onClick={(e) => e.stopPropagation()}
+            >
+              open in Cove
+            </a>
+          ) : (
+            <span className="text-zinc-400">open in Cove portal</span>
+          )}
           .
         </span>
       </div>
@@ -1014,13 +1350,35 @@ function MetaField({ label, value }: { label: string; value: string | null | und
 interface BackupDeviceTableProps {
   devices: BackupDevice[];
   isLoading: boolean;
+  initialExpandedId?: string;
 }
 
 export function BackupDeviceTable({
   devices,
   isLoading,
+  initialExpandedId,
 }: BackupDeviceTableProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(initialExpandedId ?? null);
+  const scrolledRef = useRef(false);
+
+  // Cove portal URLs require partner ID
+  const partnerId = trpc.backup.getCovePartnerId.useQuery(undefined, {
+    retry: 1,
+    staleTime: 10 * 60_000,
+  });
+
+  // Auto-scroll to the initially expanded device once data loads
+  useEffect(() => {
+    if (initialExpandedId && devices.length > 0 && !scrolledRef.current) {
+      scrolledRef.current = true;
+      setExpandedId(initialExpandedId);
+      // Give DOM a tick to render the row, then scroll
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`backup-device-${initialExpandedId}`);
+        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+  }, [initialExpandedId, devices.length]);
 
   if (isLoading) {
     return (
@@ -1066,14 +1424,18 @@ export function BackupDeviceTable({
         return (
           <div
             key={device.sourceId}
+            id={`backup-device-${device.sourceId}`}
             className={cn(
               "border-b border-zinc-800/50 transition-colors",
               isExpanded ? "bg-zinc-900/50" : "hover:bg-zinc-900/30"
             )}
           >
-            <button
-              className="w-full grid grid-cols-[32px_80px_1.5fr_1fr_70px_42px_80px_80px_minmax(140px,1fr)_100px_32px] gap-1 items-center text-left py-2.5 px-1"
+            <div
+              role="button"
+              tabIndex={0}
+              className="w-full grid grid-cols-[32px_80px_1.5fr_1fr_70px_42px_80px_80px_minmax(140px,1fr)_100px_32px] gap-1 items-center text-left py-2.5 px-1 cursor-pointer"
               onClick={() => setExpandedId(isExpanded ? null : device.sourceId)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpandedId(isExpanded ? null : device.sourceId); }}
             >
               {/* Expand arrow */}
               <div className="flex items-center justify-center">
@@ -1139,7 +1501,9 @@ export function BackupDeviceTable({
               {/* Open in Cove */}
               <div className="flex items-center justify-center">
                 <a
-                  href={`https://backup.management/#/accounts/${device.sourceId}`}
+                  href={partnerId.data
+                    ? `https://backup.management/#/backup/overview/view/${partnerId.data}(panel:device-properties/${device.sourceId}/summary)`
+                    : "https://backup.management"}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-zinc-600 hover:text-teal-400 transition-colors"
@@ -1149,9 +1513,9 @@ export function BackupDeviceTable({
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               </div>
-            </button>
+            </div>
             {/* Expanded detail — uses device data directly */}
-            {isExpanded && <DeviceExpandedDetail device={device} />}
+            {isExpanded && <DeviceExpandedDetail device={device} covePartnerId={partnerId.data ?? null} />}
           </div>
         );
       })}
