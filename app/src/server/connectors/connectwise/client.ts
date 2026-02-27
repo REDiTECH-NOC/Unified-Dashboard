@@ -49,10 +49,10 @@ export class ConnectWiseClient extends BaseHttpClient {
         if (op === "like") {
           parts.push(`${field} like "%${value}%"`);
         } else {
-          parts.push(`${field}${op}"${value}"`);
+          parts.push(`${field} ${op} "${value}"`);
         }
       } else {
-        parts.push(`${field}${op}${value}`);
+        parts.push(`${field} ${op} ${value}`);
       }
     }
     return parts.length > 0 ? parts.join(" AND ") : undefined;

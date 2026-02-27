@@ -71,14 +71,20 @@ export default function ClientsPage() {
   // ── Filter state ──
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [typeFilter, setTypeFilter] = useState<string>("");
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
   // ── Data ──
+  const companyTypes = trpc.company.listTypes.useQuery(undefined, {
+    staleTime: 300_000,
+  });
+
   const companies = trpc.company.list.useQuery(
     {
       searchTerm: searchTerm || undefined,
       status: statusFilter || undefined,
+      type: typeFilter || undefined,
       page,
       pageSize,
     },
@@ -100,10 +106,11 @@ export default function ClientsPage() {
   }, [data, totalCount]);
 
   // ── Filter reset ──
-  const hasFilters = searchTerm || statusFilter;
+  const hasFilters = searchTerm || statusFilter || typeFilter;
   function clearFilters() {
     setSearchTerm("");
     setStatusFilter("");
+    setTypeFilter("");
     setPage(1);
   }
 
@@ -188,6 +195,25 @@ export default function ClientsPage() {
           ))}
         </div>
 
+        {/* Type filter */}
+        {companyTypes.data && companyTypes.data.length > 0 && (
+          <select
+            value={typeFilter}
+            onChange={(e) => {
+              setTypeFilter(e.target.value);
+              setPage(1);
+            }}
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="">All Types</option>
+            {companyTypes.data.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        )}
+
         {hasFilters && (
           <button
             onClick={clearFilters}
@@ -203,7 +229,7 @@ export default function ClientsPage() {
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span>
             <span className="font-medium text-foreground">{stats.total}</span>{" "}
-            total
+            {hasFilters ? "matching" : "total"}
           </span>
           <span className="text-border">|</span>
           <span>
