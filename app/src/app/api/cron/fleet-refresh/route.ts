@@ -12,6 +12,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { refreshFleetData } from "@/server/services/fleet-refresh";
+import { auditLog } from "@/lib/audit";
 
 /** Timing-safe comparison of two secret strings */
 function timingSafeCompare(a: string, b: string): boolean {
@@ -36,5 +37,10 @@ export async function POST(request: Request) {
   }
 
   const result = await refreshFleetData(prisma);
+  await auditLog({
+    action: "cron.fleet_refresh.executed",
+    category: "SYSTEM",
+    detail: result as unknown as Record<string, unknown>,
+  });
   return NextResponse.json(result);
 }

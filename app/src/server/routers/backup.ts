@@ -11,6 +11,7 @@ import { ConnectorFactory } from "../connectors/factory";
 import type { BackupErrorDetail, RecoveryVerification } from "../connectors/_interfaces/backup";
 import { redis } from "@/lib/redis";
 import { cachedQuery } from "@/lib/query-cache";
+import { auditLog } from "@/lib/audit";
 
 const BACKUP_STALE = 10 * 60_000; // 10 min
 
@@ -217,6 +218,13 @@ export const backupRouter = router({
           note: input.note,
           updatedBy: ctx.user.id,
         },
+      });
+      await auditLog({
+        action: "backup.customer_note.updated",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `cove-customer:${input.covePartnerId}`,
+        detail: { covePartnerId: input.covePartnerId, noteLength: input.note.length },
       });
       return result;
     }),

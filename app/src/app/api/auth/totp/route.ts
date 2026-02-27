@@ -42,6 +42,13 @@ export async function GET() {
   // Generate QR code locally — NEVER send secrets to third-party services
   const qrDataUrl = await QRCode.toDataURL(otpauthUri, { width: 200, margin: 1 });
 
+  await auditLog({
+    action: "auth.totp.setup_initiated",
+    category: "SECURITY",
+    actorId: session.user.id,
+    detail: { email: user.email },
+  });
+
   return NextResponse.json({ secret, otpauthUri, qrDataUrl });
 }
 
@@ -81,6 +88,12 @@ export async function POST(req: NextRequest) {
   });
 
   if (!valid) {
+    await auditLog({
+      action: "auth.totp.verification_failed",
+      category: "SECURITY",
+      actorId: session.user.id,
+      outcome: "failure",
+    });
     return NextResponse.json({ error: "Invalid code" }, { status: 400 });
   }
 

@@ -461,11 +461,20 @@ export const threecxRouter = router({
         : { id: "unknown", name: "unknown", ok: false, error: "Promise rejected" }
     );
 
-    return {
+    const summary = {
       success: settled.filter((r) => r.ok).length,
       failed: settled.filter((r) => !r.ok).length,
       results: settled,
     };
+
+    await auditLog({
+      action: "threecx.instances.refresh_all",
+      category: "INTEGRATION",
+      actorId: ctx.user.id,
+      detail: { total: instances.length, online: summary.success, offline: summary.failed },
+    });
+
+    return summary;
   }),
 
   // ─── Monitoring (Read-Only) ────────────────────────────────

@@ -202,7 +202,10 @@ export function CoveCustomerMapping() {
           </div>
 
           {/* Rows */}
-          <div className="max-h-[600px] overflow-y-auto divide-y divide-border/50">
+          <div className={cn(
+            "divide-y divide-border/50",
+            linkingId ? "overflow-visible" : "max-h-[600px] overflow-y-auto"
+          )}>
             {filtered.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                 No customers found
@@ -265,7 +268,7 @@ export function CoveCustomerMapping() {
                             className="w-full px-2 py-1 text-sm bg-muted/50 border border-primary/50 rounded focus:outline-none focus:ring-1 focus:ring-primary"
                           />
                           {isDropdownOpen && (
-                            <div className="absolute z-50 bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto bg-popover border border-border rounded-lg shadow-lg">
+                            <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-popover border border-border rounded-lg shadow-lg">
                               {companies.length === 0 ? (
                                 <div className="px-3 py-2 text-xs text-muted-foreground">
                                   No clients found

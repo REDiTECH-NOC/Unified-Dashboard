@@ -280,7 +280,7 @@ export class ConnectWisePsaConnector implements IPsaConnector {
     let childConditions: string | undefined;
     if (filter?.types?.length) {
       childConditions = filter.types
-        .map((t) => `types/name="${t}"`)
+        .map((t) => `types/name = "${t}"`)
         .join(" or ");
     }
 
@@ -345,7 +345,7 @@ export class ConnectWisePsaConnector implements IPsaConnector {
     const configs = await this.client["request"]<CWConfiguration[]>({
       path: "/company/configurations",
       params: {
-        conditions: `company/id=${companyId}`,
+        conditions: `company/id = ${companyId}`,
         page,
         pageSize,
         orderBy: "name asc",
@@ -362,7 +362,7 @@ export class ConnectWisePsaConnector implements IPsaConnector {
     const agreements = await this.client["request"]<CWAgreement[]>({
       path: "/finance/agreements",
       params: {
-        conditions: `company/id=${companyId}`,
+        conditions: `company/id = ${companyId}`,
         page,
         pageSize,
         orderBy: "name asc",
@@ -440,8 +440,8 @@ export class ConnectWisePsaConnector implements IPsaConnector {
     page = 1,
     pageSize = 25
   ): Promise<PaginatedResponse<NormalizedContact>> {
-    const filters: Record<string, { value: string; op?: string } | undefined> = {};
-    if (companyId) filters["company/id"] = { value: companyId };
+    const filters: Record<string, { value: string | number; op?: string } | undefined> = {};
+    if (companyId) filters["company/id"] = { value: parseInt(companyId, 10) };
     if (searchTerm) filters["firstName"] = { value: searchTerm, op: "like" };
 
     const conditions = this.client.buildConditions(filters);

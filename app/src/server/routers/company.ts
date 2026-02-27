@@ -20,6 +20,8 @@ import type { NormalizedOrganization } from "../connectors/_interfaces/common";
 import type { ConnectWisePsaConnector } from "../connectors/connectwise/connector";
 import type { PrismaClient } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
+import { batchMatch, type MatchCandidate } from "@/lib/fuzzy-match";
+import { ConnectorNotConfiguredError } from "../connectors/_base/errors";
 
 // ─── Sync Progress (Redis-backed) ───────────────────────────
 const SYNC_PROGRESS_KEY = "cw:sync:progress";
@@ -344,12 +346,119 @@ async function syncCompanySubEntities(
   return counts;
 }
 
+/**
+ * Refresh ONLY agreements + additions for a single company from the CW API.
+ * Used by the billing reconciliation to ensure CW-side data is fresh
+ * before comparing against live vendor counts.
+ */
+export async function refreshCompanyAgreements(
+  prisma: PrismaClient,
+  companyId: string
+): Promise<{ agreements: number; additions: number }> {
+  const company = await prisma.company.findUniqueOrThrow({
+    where: { id: companyId },
+    select: { psaSourceId: true },
+  });
+
+  const connector = (await ConnectorFactory.get("psa", prisma)) as ConnectWisePsaConnector;
+
+  let agreementCount = 0;
+  let additionCount = 0;
+
+  // ── Agreements ──
+  const syncedAgreements: Array<{ cwId: string; localId: string }> = [];
+  let page = 1;
+  let hasMore = true;
+  while (hasMore) {
+    const result = await connector.getCompanyAgreements(company.psaSourceId, page, 100);
+    for (const agr of result.data) {
+      const existing = await prisma.companyAgreement.findUnique({
+        where: { psaSourceId: String(agr.id) },
+      });
+
+      const data = {
+        name: agr.name,
+        type: agr.type?.name || null,
+        startDate: agr.startDate ? new Date(agr.startDate) : null,
+        endDate: agr.endDate ? new Date(agr.endDate) : null,
+        cancelledFlag: agr.cancelledFlag ?? false,
+        noEndingDateFlag: agr.noEndingDateFlag ?? false,
+        billAmount: agr.billAmount ?? null,
+        billCycle: agr.billCycle?.name || null,
+        lastSyncedAt: new Date(),
+      };
+
+      let localId: string;
+      if (existing) {
+        await prisma.companyAgreement.update({ where: { id: existing.id }, data });
+        localId = existing.id;
+      } else {
+        const created = await prisma.companyAgreement.create({
+          data: { ...data, companyId, psaSourceId: String(agr.id) },
+        });
+        localId = created.id;
+      }
+      agreementCount++;
+      if (!agr.cancelledFlag) {
+        syncedAgreements.push({ cwId: String(agr.id), localId });
+      }
+    }
+    hasMore = result.hasMore;
+    page++;
+  }
+
+  // ── Agreement Additions ──
+  for (const agr of syncedAgreements) {
+    let addPage = 1;
+    let addHasMore = true;
+    while (addHasMore) {
+      const addResult = await connector.getAgreementAdditions(agr.cwId, addPage, 100);
+      for (const add of addResult.data) {
+        const existing = await prisma.agreementAddition.findUnique({
+          where: { psaSourceId: String(add.id) },
+        });
+
+        const addData = {
+          productId: add.product?.id ? String(add.product.id) : null,
+          productName: add.product?.description || add.description || "Unknown Product",
+          description: add.description || null,
+          quantity: add.quantity ?? 0,
+          unitPrice: add.unitPrice ?? null,
+          unitCost: add.unitCost ?? null,
+          effectiveDate: add.effectiveDate ? new Date(add.effectiveDate) : null,
+          endDate: add.cancelledDate ? new Date(add.cancelledDate) : null,
+          cancelledFlag: !!add.cancelledDate,
+          billCustomer: add.billCustomer || null,
+          taxableFlag: add.taxableFlag ?? false,
+          lastSyncedAt: new Date(),
+        };
+
+        if (existing) {
+          await prisma.agreementAddition.update({ where: { id: existing.id }, data: addData });
+        } else {
+          await prisma.agreementAddition.create({
+            data: { ...addData, agreementId: agr.localId, psaSourceId: String(add.id) },
+          });
+        }
+        additionCount++;
+      }
+      addHasMore = addResult.hasMore;
+      addPage++;
+    }
+  }
+
+  return { agreements: agreementCount, additions: additionCount };
+}
+
 // Extract company fields from a NormalizedOrganization
 function extractCompanyFields(org: NormalizedOrganization) {
   const raw = org._raw as Record<string, unknown> | undefined;
   const identifier =
     raw && typeof raw.identifier === "string" ? raw.identifier : undefined;
-  const typeName = (raw?.types as Array<{ name?: string }> | undefined)?.[0]?.name ?? null;
+  const typeNames = (raw?.types as Array<{ name?: string }> | undefined)
+    ?.map((t) => t.name)
+    .filter(Boolean) ?? [];
+  const typeName = typeNames.length > 0 ? typeNames.join(", ") : null;
 
   return {
     name: org.name,
@@ -365,6 +474,95 @@ function extractCompanyFields(org: NormalizedOrganization) {
     country: org.address?.country,
     lastSyncedAt: new Date(),
   };
+}
+
+// ─── Vendor Integration Auto-Matching ─────────────────────────
+const VENDOR_TOOLS = ["cove", "ninjaone", "sentinelone"] as const;
+
+async function fetchVendorOrgs(
+  toolId: string,
+  prisma: PrismaClient
+): Promise<Array<{ id: string; name: string }>> {
+  switch (toolId) {
+    case "cove": {
+      const backup = await ConnectorFactory.get("backup", prisma);
+      const customers = await backup.getCustomers();
+      return customers.map((c) => ({ id: c.sourceId, name: c.name }));
+    }
+    case "ninjaone": {
+      const rmm = await ConnectorFactory.get("rmm", prisma);
+      const orgs = await rmm.getOrganizations();
+      return orgs.map((o) => ({ id: o.sourceId, name: o.name }));
+    }
+    case "sentinelone": {
+      const edr = await ConnectorFactory.get("edr", prisma);
+      const sites = await edr.getSites();
+      return sites.map((s) => ({ id: s.id, name: s.name }));
+    }
+    default:
+      return [];
+  }
+}
+
+/**
+ * Auto-match companies to vendor tool accounts (Cove, NinjaOne, SentinelOne).
+ * Creates CompanyIntegrationMapping records for confident fuzzy matches.
+ * Runs after CW company sync so billing/reconciliation can find vendor data.
+ */
+async function autoMatchVendorIntegrations(prisma: PrismaClient) {
+  const companies = await prisma.company.findMany({
+    where: { syncEnabled: true },
+    select: { id: true, name: true },
+  });
+  const candidates: MatchCandidate[] = companies.map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
+
+  for (const toolId of VENDOR_TOOLS) {
+    try {
+      const externalOrgs = await fetchVendorOrgs(toolId, prisma);
+      if (externalOrgs.length === 0) continue;
+
+      // Get existing mappings to skip already-matched
+      const existing = await prisma.companyIntegrationMapping.findMany({
+        where: { toolId },
+        select: { externalId: true, companyId: true },
+      });
+      const mappedExternal = new Set(existing.map((m) => m.externalId));
+      const mappedCompany = new Set(existing.map((m) => m.companyId));
+
+      const unmatched = externalOrgs.filter((o) => !mappedExternal.has(o.id));
+      if (unmatched.length === 0) continue;
+
+      const results = batchMatch(unmatched, candidates);
+
+      for (const match of results.matched) {
+        if (mappedCompany.has(match.companyId)) continue;
+        await prisma.companyIntegrationMapping.create({
+          data: {
+            companyId: match.companyId,
+            toolId,
+            externalId: match.externalId,
+            externalName: match.externalName,
+            matchMethod: "auto",
+            matchScore: match.score,
+          },
+        });
+        mappedCompany.add(match.companyId);
+      }
+
+      if (results.matched.length > 0) {
+        console.log(
+          `[CW Sync] Auto-matched ${results.matched.length} companies to ${toolId}`
+        );
+      }
+    } catch (err) {
+      // Skip tools that aren't configured
+      if (err instanceof ConnectorNotConfiguredError) continue;
+      console.error(`[CW Sync] Vendor matching failed for ${toolId}:`, err);
+    }
+  }
 }
 
 export const companyRouter = router({
@@ -390,7 +588,7 @@ export const companyRouter = router({
         where.status = input.status;
       }
       if (input.type) {
-        where.type = input.type;
+        where.type = { contains: input.type, mode: "insensitive" };
       }
 
       const [companies, totalCount] = await Promise.all([
@@ -417,13 +615,21 @@ export const companyRouter = router({
     }),
 
   listTypes: protectedProcedure.query(async ({ ctx }) => {
-    const types = await ctx.prisma.company.findMany({
+    const rows = await ctx.prisma.company.findMany({
       where: { type: { not: null } },
       select: { type: true },
       distinct: ["type"],
-      orderBy: { type: "asc" },
     });
-    return types.map((t) => t.type!).filter(Boolean);
+    // Types can be comma-separated ("Client, Non-Profit") — split and dedupe
+    const all = new Set<string>();
+    for (const r of rows) {
+      if (!r.type) continue;
+      for (const t of r.type.split(",")) {
+        const trimmed = t.trim();
+        if (trimmed) all.add(trimmed);
+      }
+    }
+    return [...all].sort();
   }),
 
   getById: protectedProcedure
@@ -816,6 +1022,17 @@ export const companyRouter = router({
           detail: { ...counts, totalFromCW: allCwCompanies.length },
         });
 
+        // 7. Auto-match vendor integrations (Cove, NinjaOne, SentinelOne, etc.)
+        await setSyncProgress({
+          status: "running",
+          startedAt: new Date().toISOString(),
+          current: allCwCompanies.length,
+          total: allCwCompanies.length,
+          phase: "Auto-matching vendor integrations...",
+          counts,
+        });
+        await autoMatchVendorIntegrations(prisma);
+
         // Mark completed
         await setSyncProgress({
           status: "completed",
@@ -846,6 +1063,13 @@ export const companyRouter = router({
         });
       }
     })();
+
+    await auditLog({
+      action: "company.sync.auto_started",
+      category: "INTEGRATION",
+      actorId: userId,
+      detail: { mode: "auto" },
+    });
 
     return { started: true };
   }),
