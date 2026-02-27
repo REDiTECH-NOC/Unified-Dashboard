@@ -144,8 +144,17 @@ export function useNotifications() {
         n.onclick = () => {
           window.focus();
           const url = notification.linkUrl!;
-          if (url.startsWith("/") || url.startsWith("https://")) {
-            window.location.href = url;
+          if (url.startsWith("/")) {
+            window.location.assign(new URL(url, window.location.origin).href);
+          } else {
+            try {
+              const parsed = new URL(url);
+              if (parsed.protocol === "https:") {
+                window.location.assign(parsed.href);
+              }
+            } catch {
+              // Invalid URL — ignore
+            }
           }
           n.close();
         };
