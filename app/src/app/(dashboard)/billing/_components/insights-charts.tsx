@@ -156,6 +156,8 @@ const VENDOR_COLORS: Record<string, string> = {
   SentinelOne: CHART_COLORS.purple,
   Cove: CHART_COLORS.teal,
   Pax8: "#f97316", // orange-500
+  Blackpoint: "#ef4444", // red-500
+  Avanan: "#06b6d4", // cyan-500
   Other: "#52525b", // zinc-600
 };
 

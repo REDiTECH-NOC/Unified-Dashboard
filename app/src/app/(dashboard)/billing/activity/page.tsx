@@ -22,6 +22,9 @@ const VENDOR_LABELS: Record<string, { label: string; color: string }> = {
   ninjaone: { label: "NinjaOne", color: "text-blue-400" },
   sentinelone: { label: "SentinelOne", color: "text-purple-400" },
   cove: { label: "Cove", color: "text-teal-400" },
+  pax8: { label: "Pax8", color: "text-orange-400" },
+  blackpoint: { label: "Blackpoint", color: "text-red-400" },
+  avanan: { label: "Avanan", color: "text-cyan-400" },
 };
 
 const ACTION_CONFIG: Record<string, { label: string; color: string; bg: string; icon: typeof Check }> = {
@@ -46,6 +49,9 @@ const VENDOR_FILTERS = [
   { value: "ninjaone", label: "NinjaOne" },
   { value: "sentinelone", label: "SentinelOne" },
   { value: "cove", label: "Cove" },
+  { value: "pax8", label: "Pax8" },
+  { value: "blackpoint", label: "Blackpoint" },
+  { value: "avanan", label: "Avanan" },
 ];
 
 function formatDate(date: Date | string): string {

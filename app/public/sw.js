@@ -51,6 +51,9 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Skip cross-origin requests — only cache same-origin assets
+  if (url.origin !== self.location.origin) return;
+
   // Static assets (JS, CSS, images, fonts): stale-while-revalidate
   if (
     request.destination === "script" ||

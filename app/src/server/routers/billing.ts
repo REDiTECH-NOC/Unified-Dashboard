@@ -11,6 +11,7 @@ import { ConnectorFactory } from "../connectors/factory";
 import type { ConnectWisePsaConnector } from "../connectors/connectwise/connector";
 import type { SentinelOneEdrConnector } from "../connectors/sentinelone/connector";
 import type { Pax8LicensingConnector } from "../connectors/pax8/connector";
+import type { AvananEmailSecurityConnector } from "../connectors/avanan/connector";
 import { auditLog } from "@/lib/audit";
 import {
   reconcileCompany,
@@ -131,7 +132,7 @@ export const billingRouter = router({
     const mappings = await ctx.prisma.companyIntegrationMapping.findMany({
       where: {
         companyId: { in: companyIds },
-        toolId: { in: ["ninjaone", "sentinelone", "cove", "pax8"] },
+        toolId: { in: ["ninjaone", "sentinelone", "cove", "pax8", "blackpoint", "avanan"] },
       },
       select: { companyId: true, toolId: true },
     });
@@ -269,7 +270,7 @@ export const billingRouter = router({
       const integrationMappings = await ctx.prisma.companyIntegrationMapping.findMany({
         where: {
           companyId: input.companyId,
-          toolId: { in: ["ninjaone", "sentinelone", "cove", "pax8"] },
+          toolId: { in: ["ninjaone", "sentinelone", "cove", "pax8", "blackpoint", "avanan"] },
         },
       });
 
@@ -919,6 +920,14 @@ export const billingRouter = router({
             { productKey: "workstation_backup", productName: "Cove Workstation Backup", unit: "devices" },
             { productKey: "m365_backup", productName: "Cove M365 Backup", unit: "tenants" },
           ],
+          blackpoint: [
+            { productKey: "response_compliance", productName: "Blackpoint Response + Compliance", unit: "devices" },
+            { productKey: "endpoint_mdr_essentials", productName: "Blackpoint Endpoint MDR Essentials", unit: "devices" },
+            { productKey: "cloud_mdr_essentials", productName: "Blackpoint Cloud MDR Essentials", unit: "devices" },
+            { productKey: "cloud_endpoint_mdr_essentials", productName: "Blackpoint Cloud & Endpoint MDR Essentials", unit: "devices" },
+            { productKey: "core", productName: "Blackpoint Core", unit: "devices" },
+            { productKey: "standard", productName: "Blackpoint Standard", unit: "devices" },
+          ],
         };
 
         // Pax8: auto-discover from live subscriptions instead of static defaults
@@ -954,6 +963,35 @@ export const billingRouter = router({
             }
           } catch {
             // Pax8 not configured — no products to seed
+          }
+        } else if (input.toolId === "avanan") {
+          // Avanan: auto-discover packages from live tenant data
+          try {
+            const emailSec = (await ConnectorFactory.getByToolId<"email_security">("avanan", ctx.prisma)) as AvananEmailSecurityConnector;
+            const tenants = await emailSec.listTenants();
+            const packageMap = new Map<string, string>();
+            for (const t of tenants) {
+              if (t.isDeleted || !t.packageCodeName) continue;
+              if (!packageMap.has(t.packageCodeName)) {
+                packageMap.set(t.packageCodeName, t.packageName || t.packageCodeName);
+              }
+            }
+            for (const [codeName, displayName] of Array.from(packageMap)) {
+              const key = codeName.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+              await ctx.prisma.billingVendorProduct.upsert({
+                where: { vendorToolId_productKey: { vendorToolId: "avanan", productKey: key } },
+                update: {},
+                create: {
+                  vendorToolId: "avanan",
+                  productKey: key,
+                  productName: displayName,
+                  unit: "users",
+                  isAutoDiscovered: true,
+                },
+              });
+            }
+          } catch {
+            // Avanan not configured — no products to seed
           }
         } else {
           const toSeed = defaults[input.toolId] ?? [];
@@ -1088,7 +1126,7 @@ export const billingRouter = router({
 
       // Fetch all existing product mappings to check mapping status
       const existingMappings = await ctx.prisma.billingProductMapping.findMany({
-        where: { vendorToolId: { in: ["ninjaone", "sentinelone", "cove", "pax8"] } },
+        where: { vendorToolId: { in: ["ninjaone", "sentinelone", "cove", "pax8", "blackpoint", "avanan"] } },
       });
 
       const mappingLookup = new Map<string, { id: string; psaProductName: string | null }>();
@@ -1297,6 +1335,63 @@ export const billingRouter = router({
       // Pax8 not configured
     }
 
+    // Blackpoint: all known editions (API doesn't expose edition per tenant)
+    {
+      const bpEditions = [
+        { productKey: "response_compliance", productName: "Blackpoint Response + Compliance", unit: "devices" },
+        { productKey: "endpoint_mdr_essentials", productName: "Blackpoint Endpoint MDR Essentials", unit: "devices" },
+        { productKey: "cloud_mdr_essentials", productName: "Blackpoint Cloud MDR Essentials", unit: "devices" },
+        { productKey: "cloud_endpoint_mdr_essentials", productName: "Blackpoint Cloud & Endpoint MDR Essentials", unit: "devices" },
+        { productKey: "core", productName: "Blackpoint Core", unit: "devices" },
+        { productKey: "standard", productName: "Blackpoint Standard", unit: "devices" },
+      ];
+      for (const bp of bpEditions) {
+        const existing = await ctx.prisma.billingVendorProduct.findUnique({
+          where: { vendorToolId_productKey: { vendorToolId: "blackpoint", productKey: bp.productKey } },
+        });
+        if (!existing) {
+          await ctx.prisma.billingVendorProduct.create({
+            data: { vendorToolId: "blackpoint", ...bp, isAutoDiscovered: true },
+          });
+          created.push(`blackpoint:${bp.productKey}`);
+        }
+      }
+    }
+
+    // Avanan: discover package types from tenant data
+    try {
+      const emailSec = (await ConnectorFactory.getByToolId<"email_security">("avanan", ctx.prisma)) as import("../connectors/avanan/connector").AvananEmailSecurityConnector;
+      const tenants = await emailSec.listTenants();
+      const packageSet = new Map<string, string>();
+      for (const t of tenants) {
+        if (t.packageCodeName && !t.isDeleted) {
+          const key = t.packageCodeName.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+          if (!packageSet.has(key)) {
+            packageSet.set(key, t.packageName || t.packageCodeName);
+          }
+        }
+      }
+      for (const [key, name] of Array.from(packageSet)) {
+        const existing = await ctx.prisma.billingVendorProduct.findUnique({
+          where: { vendorToolId_productKey: { vendorToolId: "avanan", productKey: key } },
+        });
+        if (!existing) {
+          await ctx.prisma.billingVendorProduct.create({
+            data: {
+              vendorToolId: "avanan",
+              productKey: key,
+              productName: `Avanan ${name}`,
+              unit: "users",
+              isAutoDiscovered: true,
+            },
+          });
+          created.push(`avanan:${key}`);
+        }
+      }
+    } catch {
+      // Avanan not configured
+    }
+
     await auditLog({
       actorId: ctx.user.id,
       action: "BILLING_SYNC_VENDOR_PRODUCTS",
@@ -1317,14 +1412,24 @@ export const billingRouter = router({
           ctx.prisma
         )) as ConnectWisePsaConnector;
         const result = await psa.getProducts(1, 50, input.searchTerm);
-        return result.data.map((p) => ({
-          id: p.id,
-          identifier: p.identifier,
-          description: p.description,
-          category: p.category?.name,
-          price: p.price,
-          cost: p.cost,
-        }));
+        // CW catalog returns the same product multiple times (Agreement, Inventory, etc. types).
+        // Deduplicate by description (display name) so users see each product once.
+        const seen = new Set<string>();
+        return result.data
+          .filter((p) => {
+            const key = (p.description ?? p.identifier ?? String(p.id)).toLowerCase().trim();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .map((p) => ({
+            id: p.id,
+            identifier: p.identifier,
+            description: p.description,
+            category: p.category?.name,
+            price: p.price,
+            cost: p.cost,
+          }));
       } catch {
         return [];
       }
@@ -1582,6 +1687,8 @@ export const billingRouter = router({
       else if (lowerName.includes("sentinelone") || lowerName.includes("s1")) vendor = "SentinelOne";
       else if (lowerName.includes("cove")) vendor = "Cove";
       else if (lowerName.includes("pax8") || lowerName.includes("microsoft 365") || lowerName.includes("m365")) vendor = "Pax8";
+      else if (lowerName.includes("blackpoint")) vendor = "Blackpoint";
+      else if (lowerName.includes("avanan") || lowerName.includes("harmony") || lowerName.includes("check point")) vendor = "Avanan";
       vendorMap.set(vendor, (vendorMap.get(vendor) ?? 0) + rev);
     }
 

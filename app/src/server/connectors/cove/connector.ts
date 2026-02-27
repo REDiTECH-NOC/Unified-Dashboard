@@ -686,7 +686,17 @@ export class CoveBackupConnector implements IBackupConnector {
           if (!fileUrl) continue;
 
           if (file.attributes.file_type === "screenshot") {
-            screenshotUrl = fileUrl;
+            // Fetch image server-side and return as base64 data URL to avoid CSP/SW issues
+            try {
+              const imgResp = await fetch(fileUrl, { signal: AbortSignal.timeout(15_000) });
+              if (imgResp.ok) {
+                const imgBuf = Buffer.from(await imgResp.arrayBuffer());
+                const contentType = imgResp.headers.get("content-type") || "image/png";
+                screenshotUrl = `data:${contentType};base64,${imgBuf.toString("base64")}`;
+              }
+            } catch (imgErr) {
+              console.error("[Cove] Failed to fetch recovery screenshot:", imgErr);
+            }
           } else if (file.attributes.file_type === "system_log") {
             // Download and decode the system log (.info file — gzip-compressed JSON)
             try {
@@ -734,10 +744,24 @@ export class CoveBackupConnector implements IBackupConnector {
     }
 
     // Step 3: Build normalized result
-    const bootFreqMap: Record<number, string> = {
-      0: "Each recovery session",
-      1: "Every other session",
-      2: "Every 3rd session",
+    // device_boot_frequency: 0-2 are session-based enums, larger values are seconds-based intervals
+    const formatBootFrequency = (val: number): string => {
+      if (val === 0) return "Each recovery session";
+      if (val === 1) return "Every other session";
+      if (val === 2) return "Every 3rd session";
+      // Large values are seconds (86400 = 24h = daily)
+      if (val >= 86400) {
+        const days = Math.round(val / 86400);
+        if (days === 1) return "Daily";
+        if (days === 7) return "Weekly";
+        if (days >= 28 && days <= 31) return "Monthly";
+        return `Every ${days} days`;
+      }
+      if (val >= 3600) {
+        const hours = Math.round(val / 3600);
+        return `Every ${hours} hour${hours > 1 ? "s" : ""}`;
+      }
+      return `Every ${val + 1} sessions`;
     };
 
     const result: RecoveryVerification = {
@@ -753,7 +777,7 @@ export class CoveBackupConnector implements IBackupConnector {
       recoveryDurationSeconds: stats.last_recovery_duration_sec,
       planName: stats.plan_name,
       restoreFormat: stats.recovery_target_type,
-      bootCheckFrequency: bootFreqMap[stats.device_boot_frequency] ?? `Every ${stats.device_boot_frequency + 1} sessions`,
+      bootCheckFrequency: formatBootFrequency(stats.device_boot_frequency),
       screenshotUrl,
       stoppedServices,
       systemEvents,
@@ -770,6 +794,46 @@ export class CoveBackupConnector implements IBackupConnector {
     await redis.set(key, JSON.stringify(envelope), "EX", 2 * 60 * 60);
 
     return result;
+  }
+
+  // ─── Bulk Recovery-Enabled Devices (DRaaS) ────────────────────
+
+  /**
+   * Fetch all devices that have DRaaS recovery testing or standby configured.
+   * Single bulk query — no per-device filter. Returns device ID → type/status map.
+   */
+  async getRecoveryEnabledDevices(): Promise<
+    Array<{ deviceId: string; type: string; status: string; planName: string; targetType: string }>
+  > {
+    const key = `cove:draas-devices:${this.config.toolId}`;
+    const cached = await this.cacheGet<Array<{ deviceId: string; type: string; status: string; planName: string; targetType: string }>>(key);
+
+    if (cached && this.isFresh(cached.cachedAt, 30 * 60)) {
+      return cached.data;
+    }
+
+    try {
+      const resp = await this.client.draasGet<{
+        data: Array<{ type: string; id: string; attributes: CoveDraasStatistic }>;
+      }>("/dashboard/", {
+        "filter[type.in]": "RECOVERY_TESTING,SELF_HOSTED,AZURE_SELF_HOSTED,ESXI_SELF_HOSTED",
+      });
+
+      const result = (resp.data ?? []).map((d) => ({
+        deviceId: String(d.attributes.backup_cloud_device_id),
+        type: d.attributes.type,
+        status: d.attributes.current_recovery_status ?? "unknown",
+        planName: d.attributes.plan_name ?? "",
+        targetType: d.attributes.recovery_target_type ?? "",
+      }));
+
+      const envelope = { data: result, cachedAt: Date.now() };
+      await redis.set(key, JSON.stringify(envelope), "EX", 2 * 60 * 60);
+      return result;
+    } catch (err) {
+      console.error("[Cove] DRaaS bulk device query error:", err);
+      return [];
+    }
   }
 
   // ─── Health Check ──────────────────────────────────────────────

@@ -35,7 +35,7 @@ const STRIP_RESPONSE_HEADERS = new Set([
 export function createProxyHandler(config: ProxyConfig) {
   return async function handler(
     req: NextRequest,
-    { params }: { params: { path?: string[] } }
+    { params }: { params: Promise<{ path?: string[] }> }
   ) {
     // 1. Auth check
     const session = await auth();
@@ -50,7 +50,8 @@ export function createProxyHandler(config: ProxyConfig) {
     }
 
     // 3. Build upstream URL (path is undefined for optional catch-all root)
-    const path = (params.path || []).join("/");
+    const { path: pathSegments } = await params;
+    const path = (pathSegments || []).join("/");
     const search = req.nextUrl.search;
     const upstreamUrl = `${config.upstreamUrl}/${path}${search}`;
 

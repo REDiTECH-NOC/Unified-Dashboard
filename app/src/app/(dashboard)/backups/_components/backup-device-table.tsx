@@ -229,7 +229,7 @@ function ActiveSourceIcons({ dataSources }: { dataSources: BackupDataSource[] })
 
 /* ─── Expanded Detail — Tabbed View ──────────────────────── */
 
-function DeviceExpandedDetail({ device, covePartnerId }: { device: BackupDevice; covePartnerId: number | null }) {
+function DeviceExpandedDetail({ device, covePartnerId, recoveryInfo }: { device: BackupDevice; covePartnerId: number | null; recoveryInfo?: { type: string; planName: string; targetType: string } }) {
   const [activeTab, setActiveTab] = useState<ExpandTab>("overview");
   const dataSources = (device.dataSources ?? []).filter(
     (ds) => ds.type !== "total"
@@ -289,7 +289,7 @@ function DeviceExpandedDetail({ device, covePartnerId }: { device: BackupDevice;
       {/* Tab content */}
       <div className="px-6 py-4">
         {activeTab === "overview" && (
-          <OverviewTab device={device} dataSources={dataSources} />
+          <OverviewTab device={device} dataSources={dataSources} recoveryInfo={recoveryInfo} />
         )}
         {activeTab === "history" && (
           <HistoryTab device={device} dataSources={dataSources} coveUrl={coveDeviceUrl} />
@@ -310,9 +310,11 @@ function DeviceExpandedDetail({ device, covePartnerId }: { device: BackupDevice;
 function OverviewTab({
   device,
   dataSources,
+  recoveryInfo,
 }: {
   device: BackupDevice;
   dataSources: BackupDataSource[];
+  recoveryInfo?: { type: string; planName: string; targetType: string };
 }) {
   const storageInfo = STORAGE_STATUS_COLORS[device.storageStatus ?? ""] ?? {
     label: device.storageStatus ?? "—",
@@ -347,6 +349,17 @@ function OverviewTab({
           <span className={storageInfo.color}>{storageInfo.label}</span>
         </div>
       </div>
+
+      {/* Recovery info — shown when device has DRaaS recovery configured */}
+      {recoveryInfo && (
+        <div className="mb-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
+          <h4 className="text-xs font-semibold text-zinc-300 mb-2 uppercase tracking-wider">Recovery</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-2 text-xs">
+            <MetaField label="Recovery Plan" value={recoveryInfo.planName} />
+            <MetaField label="Recovery Type" value={recoveryInfo.targetType} />
+          </div>
+        </div>
+      )}
 
       {/* Per-source data table */}
       {dataSources.length === 0 ? (
@@ -1367,6 +1380,32 @@ export function BackupDeviceTable({
     staleTime: 10 * 60_000,
   });
 
+  // Bulk fetch devices with DRaaS recovery verification enabled
+  const recoveryDevices = trpc.backup.getRecoveryEnabledDevices.useQuery(undefined, {
+    retry: 1,
+    staleTime: 30 * 60_000,
+  });
+  // Split DRaaS results: recovery verification (any type) vs DR standby (SELF_HOSTED types)
+  // Also build a lookup map for plan name / target type per device
+  const { recoveryDeviceIds, standbyDeviceIds, recoveryInfoMap } = useMemo(() => {
+    if (!recoveryDevices.data) return { recoveryDeviceIds: new Set<string>(), standbyDeviceIds: new Set<string>(), recoveryInfoMap: new Map<string, { type: string; planName: string; targetType: string }>() };
+    const recovery = new Set<string>();
+    const standby = new Set<string>();
+    const infoMap = new Map<string, { type: string; planName: string; targetType: string }>();
+    for (const d of recoveryDevices.data) {
+      recovery.add(d.deviceId);
+      if (d.type !== "RECOVERY_TESTING") {
+        standby.add(d.deviceId);
+      }
+      // Keep first entry per device (or the standby entry if present)
+      const existing = infoMap.get(d.deviceId);
+      if (!existing || d.type !== "RECOVERY_TESTING") {
+        infoMap.set(d.deviceId, { type: d.type, planName: d.planName, targetType: d.targetType });
+      }
+    }
+    return { recoveryDeviceIds: recovery, standbyDeviceIds: standby, recoveryInfoMap: infoMap };
+  }, [recoveryDevices.data]);
+
   // Auto-scroll to the initially expanded device once data loads
   useEffect(() => {
     if (initialExpandedId && devices.length > 0 && !scrolledRef.current) {
@@ -1401,13 +1440,19 @@ export function BackupDeviceTable({
   return (
     <div className="overflow-x-auto">
       {/* Header */}
-      <div className="grid grid-cols-[32px_80px_1.5fr_1fr_70px_42px_80px_80px_minmax(140px,1fr)_100px_32px] gap-1 items-center text-zinc-400 border-b border-zinc-800 text-xs py-2.5 px-1">
+      <div className="grid grid-cols-[32px_80px_1.5fr_1fr_70px_42px_28px_28px_80px_80px_minmax(140px,1fr)_100px_32px] gap-1 items-center text-zinc-400 border-b border-zinc-800 text-xs py-2.5 px-1">
         <div />
         <div className="font-medium">Status</div>
         <div className="font-medium">Device</div>
         <div className="font-medium">Customer</div>
         <div className="font-medium">Sources</div>
         <div className="font-medium">Type</div>
+        <div className="flex items-center justify-center" title="Recovery Verification">
+          <ShieldCheck className="h-3.5 w-3.5" />
+        </div>
+        <div className="flex items-center justify-center" title="DR Standby Image">
+          <Server className="h-3.5 w-3.5" />
+        </div>
         <div className="font-medium">Last Backup</div>
         <div className="font-medium">Since OK</div>
         <div className="font-medium">28-Day History</div>
@@ -1433,7 +1478,7 @@ export function BackupDeviceTable({
             <div
               role="button"
               tabIndex={0}
-              className="w-full grid grid-cols-[32px_80px_1.5fr_1fr_70px_42px_80px_80px_minmax(140px,1fr)_100px_32px] gap-1 items-center text-left py-2.5 px-1 cursor-pointer"
+              className="w-full grid grid-cols-[32px_80px_1.5fr_1fr_70px_42px_28px_28px_80px_80px_minmax(140px,1fr)_100px_32px] gap-1 items-center text-left py-2.5 px-1 cursor-pointer"
               onClick={() => setExpandedId(isExpanded ? null : device.sourceId)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpandedId(isExpanded ? null : device.sourceId); }}
             >
@@ -1475,6 +1520,18 @@ export function BackupDeviceTable({
               <div className="flex items-center justify-center">
                 <TypeIcon className="h-3.5 w-3.5 text-zinc-500" />
               </div>
+              {/* Recovery Verification */}
+              <div className="flex items-center justify-center">
+                {recoveryDeviceIds.has(device.sourceId) && (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                )}
+              </div>
+              {/* DR Standby */}
+              <div className="flex items-center justify-center">
+                {standbyDeviceIds.has(device.sourceId) && (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                )}
+              </div>
               {/* Last Backup */}
               <div className="text-xs text-zinc-400 truncate">
                 {formatRelativeTime(device.lastSessionTimestamp)}
@@ -1515,7 +1572,7 @@ export function BackupDeviceTable({
               </div>
             </div>
             {/* Expanded detail — uses device data directly */}
-            {isExpanded && <DeviceExpandedDetail device={device} covePartnerId={partnerId.data ?? null} />}
+            {isExpanded && <DeviceExpandedDetail device={device} covePartnerId={partnerId.data ?? null} recoveryInfo={recoveryInfoMap.get(device.sourceId)} />}
           </div>
         );
       })}
