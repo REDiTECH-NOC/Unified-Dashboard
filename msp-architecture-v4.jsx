@@ -45,34 +45,35 @@ const COLORS = {
 };
 
 // ── ALL 20 TOOL INTEGRATIONS ──
+// status: "built" = connector + router deployed, "partial" = connector built but UI in progress, "planned" = not started
 const tools = [
   // Security & Endpoint Protection
-  { id: "sentinelone", name: "SentinelOne", category: "EDR", group: "Security", color: COLORS.red, icon: "🛡️", apiType: "REST API", dataPoints: ["Threat data", "Agent health", "Incidents", "Forensics", "Quarantine"] },
-  { id: "blackpoint", name: "Blackpoint Compass One", category: "MDR/SOC/ITDR", group: "Security", color: COLORS.red, icon: "🔒", apiType: "Webhook + API", dataPoints: ["MDR alerts", "365 ITDR", "Vuln scans", "Threat intel", "Response actions"] },
-  { id: "avanan", name: "Avanan", category: "Email Security", group: "Security", color: COLORS.orange, icon: "📧", apiType: "REST API", dataPoints: ["Email threats", "Phishing blocks", "Quarantine", "DLP events"] },
-  { id: "dnsfilter", name: "DNS Filter", category: "DNS Filtering", group: "Security", color: COLORS.orange, icon: "🌐", apiType: "REST API", dataPoints: ["DNS blocks", "Policy violations", "Categories", "Threat logs"] },
-  { id: "huntress", name: "Huntress SAT", category: "Security Training", group: "Security", color: COLORS.orange, icon: "🎣", apiType: "REST API", dataPoints: ["Phishing sim results", "Training completion", "Risk scores", "Campaigns"] },
+  { id: "sentinelone", name: "SentinelOne", category: "EDR", group: "Security", color: COLORS.red, icon: "🛡️", apiType: "REST API", status: "built", dataPoints: ["Threat data", "Agent health", "Incidents", "Forensics", "Quarantine", "Isolate/Unisolate", "Deep Visibility", "18+ API endpoints"] },
+  { id: "blackpoint", name: "Blackpoint Compass One", category: "MDR/SOC/ITDR", group: "Security", color: COLORS.red, icon: "🔒", apiType: "REST API (Bearer JWT)", status: "built", dataPoints: ["MDR alerts", "365 ITDR", "Vuln scans", "Threat intel", "Response actions", "100+ endpoints across 16 API categories", "60+ tRPC procedures", "Multi-tenant (x-tenant-id)"] },
+  { id: "avanan", name: "Avanan", category: "Email Security", group: "Security", color: COLORS.orange, icon: "📧", apiType: "REST API (SmartAPI)", status: "built", dataPoints: ["Email threats", "Phishing blocks", "Quarantine", "DLP events", "MSP multi-tenant", "User management", "38 tRPC routes", "Full SmartAPI coverage"] },
+  { id: "dnsfilter", name: "DNS Filter", category: "DNS Filtering", group: "Security", color: COLORS.orange, icon: "🌐", apiType: "REST API", status: "built", dataPoints: ["DNS blocks", "Policy violations", "Query logs", "Roaming clients", "Domain lookup", "Org-to-client mapping", "18 tRPC procedures", "5-tab dashboard"] },
+  { id: "huntress", name: "Huntress SAT", category: "Security Training", group: "Security", color: COLORS.orange, icon: "🎣", apiType: "REST API", status: "planned", dataPoints: ["Phishing sim results", "Training completion", "Risk scores", "Campaigns"] },
   // Identity & Access
-  { id: "duo", name: "Duo MFA", category: "MFA", group: "Identity", color: COLORS.green, icon: "🔑", apiType: "Admin API", dataPoints: ["Auth logs", "Bypass events", "Enrollment %", "Device trust"] },
-  { id: "autoelevate", name: "AutoElevate", category: "PAM", group: "Identity", color: COLORS.purple, icon: "⬆️", apiType: "REST API", dataPoints: ["Elevation requests", "Approvals", "Denials", "Rules"] },
-  { id: "quickpass", name: "Quickpass", category: "Password Rotation", group: "Identity", color: COLORS.purple, icon: "🪪", apiType: "REST API", dataPoints: ["Verification events", "Password resets", "Identity checks"] },
+  { id: "duo", name: "Duo MFA", category: "MFA", group: "Identity", color: COLORS.green, icon: "🔑", apiType: "Admin API", status: "planned", dataPoints: ["Auth logs", "Bypass events", "Enrollment %", "Device trust"] },
+  { id: "autoelevate", name: "AutoElevate", category: "PAM", group: "Identity", color: COLORS.purple, icon: "⬆️", apiType: "REST API", status: "planned", dataPoints: ["Elevation requests", "Approvals", "Denials", "Rules"] },
+  { id: "quickpass", name: "Quickpass", category: "Password Rotation", group: "Identity", color: COLORS.purple, icon: "🪪", apiType: "REST API", status: "planned", dataPoints: ["Verification events", "Password resets", "Identity checks"] },
   // RMM & Operations
-  { id: "ninjaone", name: "NinjaRMM", category: "RMM", group: "Operations", color: COLORS.green, icon: "🖥️", apiType: "REST API", dataPoints: ["Device status", "Patch compliance", "Alerts", "Scripts", "AV status"] },
-  { id: "connectwise", name: "ConnectWise PSA", category: "PSA/Ticketing", group: "Operations", color: COLORS.accent, icon: "🎫", apiType: "REST API", dataPoints: ["Tickets", "Time entries", "Billing", "SLAs", "Projects"] },
-  { id: "cipp", name: "CIPP", category: "365 Management", group: "Operations", color: COLORS.accent, icon: "☁️", apiType: "REST API", dataPoints: ["Tenant health", "Secure Score", "Licenses", "GDAP management"] },
+  { id: "ninjaone", name: "NinjaRMM", category: "RMM", group: "Operations", color: COLORS.green, icon: "🖥️", apiType: "REST API", status: "built", dataPoints: ["Device status", "Patch compliance", "Alerts", "Scripts", "AV status", "Software inventory", "Windows services", "15+ endpoints"] },
+  { id: "connectwise", name: "ConnectWise PSA", category: "PSA/Ticketing", group: "Operations", color: COLORS.accent, icon: "🎫", apiType: "REST API", status: "built", dataPoints: ["Tickets (CRUD + notes)", "Time entries", "Companies/Contacts", "Boards/Statuses", "Members", "Billing agreements", "15+ endpoints", "Auto CW member matching"] },
+  { id: "cipp", name: "CIPP", category: "365 Management", group: "Operations", color: COLORS.accent, icon: "☁️", apiType: "REST API (OAuth 2.0)", status: "built", dataPoints: ["Tenant health", "Secure Score", "Licenses", "GDAP management", "User management"] },
   // Backup & Recovery
-  { id: "cove", name: "Cove Backups", category: "Server/Workstation Backup", group: "Backup", color: COLORS.cyan, icon: "💾", apiType: "REST API", dataPoints: ["Backup status", "Job history", "Failure alerts", "Storage usage"] },
-  { id: "dropsuite", name: "Dropsuite", category: "365 Backup", group: "Backup", color: COLORS.cyan, icon: "📦", apiType: "REST API", dataPoints: ["Mailbox backup", "OneDrive backup", "SharePoint backup", "Restore logs"] },
+  { id: "cove", name: "Cove Backups", category: "Server/Workstation Backup", group: "Backup", color: COLORS.cyan, icon: "💾", apiType: "JSON-RPC API", status: "built", dataPoints: ["Backup status", "Job history", "Failure alerts", "Storage usage", "Recovery verification", "Device details", "Portal URL linking"] },
+  { id: "dropsuite", name: "Dropsuite", category: "365 Backup", group: "Backup", color: COLORS.cyan, icon: "📦", apiType: "REST API", status: "built", dataPoints: ["Mailbox backup", "OneDrive backup", "SharePoint backup", "Org summary cards", "Per-org table", "Client mapping"] },
   // Documentation & Knowledge
-  { id: "itglue", name: "IT Glue", category: "Documentation", group: "Knowledge", color: COLORS.cyan, icon: "📋", apiType: "REST API", dataPoints: ["Configs", "Passwords (MFA-gated)", "Contacts", "Assets", "Diagrams"] },
-  { id: "sharepoint", name: "SharePoint & OneNote", category: "Internal Knowledge", group: "Knowledge", color: COLORS.purple, icon: "📓", apiType: "Graph API", dataPoints: ["Runbooks", "SOPs", "KB articles", "Procedures", "Process docs"] },
-  { id: "keeper", name: "Keeper", category: "Password Manager", group: "Identity", color: COLORS.yellow, icon: "🔐", apiType: "REST API", dataPoints: ["Client vaults (read-only)", "Shared folders", "Breach reports"] },
+  { id: "itglue", name: "IT Glue", category: "Documentation", group: "Knowledge", color: COLORS.cyan, icon: "📋", apiType: "REST API", status: "built", dataPoints: ["Configs", "Passwords (MFA-gated)", "TOTP codes", "Contacts", "Assets", "Flexible assets", "15+ endpoints"] },
+  { id: "sharepoint", name: "SharePoint & OneNote", category: "Internal Knowledge", group: "Knowledge", color: COLORS.purple, icon: "📓", apiType: "Graph API", status: "planned", dataPoints: ["Runbooks", "SOPs", "KB articles", "Procedures", "Process docs"] },
+  { id: "keeper", name: "Keeper", category: "Password Manager", group: "Identity", color: COLORS.yellow, icon: "🔐", apiType: "REST API", status: "planned", dataPoints: ["Client vaults (read-only)", "Shared folders", "Breach reports"] },
   // Networking
-  { id: "unifi", name: "Unifi", category: "Switches/APs", group: "Network", color: COLORS.green, icon: "📡", apiType: "REST API (local)", dataPoints: ["Device status", "Client count", "Throughput", "AP health", "Alerts"] },
-  { id: "watchguard", name: "WatchGuard", category: "Firewalls", group: "Network", color: COLORS.red, icon: "🔥", apiType: "REST API", dataPoints: ["VPN status", "Threat logs", "Interface health", "Tunnel status"] },
+  { id: "unifi", name: "Unifi", category: "Switches/APs", group: "Network", color: COLORS.green, icon: "📡", apiType: "REST API (Cloud + Local)", status: "built", dataPoints: ["Device status", "Client count", "Throughput", "AP health", "Alerts", "Site Manager API", "Network Server API", "~75 endpoints"] },
+  { id: "watchguard", name: "WatchGuard", category: "Firewalls", group: "Network", color: COLORS.red, icon: "🔥", apiType: "REST API", status: "planned", dataPoints: ["VPN status", "Threat logs", "Interface health", "Tunnel status"] },
   // Business & Licensing
-  { id: "pax8", name: "PAX8", category: "Licensing", group: "Business", color: COLORS.yellow, icon: "🏷️", apiType: "REST API", dataPoints: ["License counts", "Subscriptions", "Billing data", "Product catalog"] },
-  { id: "threecx", name: "3CX", category: "Phone System + PBX Management", group: "Business", color: COLORS.pink, icon: "📞", apiType: "API + Webhooks + WebSocket", dataPoints: ["Call logs", "Queue stats", "Voicemails + transcription", "Presence + ring groups", "SMS alerts to on-call techs", "Emergency VM → auto-ticket", "Real-time caller intelligence (screen pop)", "Multi-PBX dashboard (per-customer)", "Trunk status + SIP health", "PBX quick access (admin URL + IT Glue creds)"] },
+  { id: "pax8", name: "PAX8", category: "Licensing", group: "Business", color: COLORS.yellow, icon: "🏷️", apiType: "REST API", status: "built", dataPoints: ["License counts", "Subscriptions", "Billing data", "Product catalog", "Vendor cost matching"] },
+  { id: "threecx", name: "3CX", category: "Phone System + PBX Management", group: "Business", color: COLORS.pink, icon: "📞", apiType: "API + Webhooks + WebSocket", status: "built", dataPoints: ["Call logs", "Queue stats", "Active calls", "Trunk status + SIP health", "Multi-PBX dashboard (per-customer)", "System status + telemetry", "Extension management", "12 tRPC procedures", "Multi-instance management", "AES-256-GCM encrypted credentials"] },
 ];
 
 const toolGroups = [
@@ -156,7 +157,14 @@ const tiers = [
 ];
 
 // ── SHARED COMPONENTS ──
-const ToolCard = ({ tool, isSelected, onClick }) => (
+const ToolCard = ({ tool, isSelected, onClick }) => {
+  const statusConfig = {
+    built: { label: "BUILT", color: COLORS.green, bg: `${COLORS.green}18` },
+    partial: { label: "IN PROGRESS", color: COLORS.orange, bg: `${COLORS.orange}18` },
+    planned: { label: "PLANNED", color: COLORS.textMuted, bg: `${COLORS.textMuted}18` },
+  };
+  const st = statusConfig[tool.status] || statusConfig.planned;
+  return (
   <div onClick={onClick} style={{
     background: isSelected ? COLORS.cardHover : COLORS.card,
     border: `1px solid ${isSelected ? tool.color : COLORS.border}`,
@@ -166,6 +174,7 @@ const ToolCard = ({ tool, isSelected, onClick }) => (
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
       <span style={{ fontSize: 16 }}>{tool.icon}</span>
       <span style={{ fontWeight: 700, color: COLORS.textPrimary, fontSize: 11.5 }}>{tool.name}</span>
+      <span style={{ fontSize: 7, fontWeight: 800, color: st.color, background: st.bg, padding: "1px 5px", borderRadius: 3, letterSpacing: "0.06em", marginLeft: "auto" }}>{st.label}</span>
     </div>
     <div style={{ display: "inline-block", fontSize: 9, fontWeight: 600, color: tool.color, background: `${tool.color}18`, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>{tool.category}</div>
     {isSelected && (
@@ -179,7 +188,8 @@ const ToolCard = ({ tool, isSelected, onClick }) => (
       </div>
     )}
   </div>
-);
+  );
+};
 
 const TierSection = ({ tier, isActive, onClick }) => (
   <div onClick={onClick} style={{
@@ -839,7 +849,7 @@ const ArchitectureView = ({ selectedTool, setSelectedTool, activeTier, setActive
   const platCols = r.isMobile ? 1 : r.isTablet ? 2 : 3;
   return (
   <div>
-    <SectionHeader title="Tool Integrations (20)" subtitle="Click any tool to see API details and data points — grouped by function" />
+    <SectionHeader title="Tool Integrations (20)" subtitle="15 of 20 connectors built and deployed — click any tool to see API details and data points" />
 
     {toolGroups.map(group => {
       const groupTools = tools.filter(t => t.group === group.key);
@@ -1685,7 +1695,7 @@ const AIAssistantView = () => {
 // ── INFRASTRUCTURE & COST VIEW (AZURE PAAS) ──
 const InfraView = () => {
   const azureResources = [
-    { component: "Azure Container Apps (4 containers)", spec: "Next.js + n8n + workers + Grafana", monthly: "$40–75", note: "Auto-scaling, managed networking" },
+    { component: "Azure Container Apps (5 containers)", spec: "Next.js + PostgreSQL + Redis + n8n + Grafana", monthly: "$40–75", note: "Auto-scaling, managed networking, SSL" },
     { component: "Azure Database for PostgreSQL", spec: "Flexible Server, 2 vCores, 4GB + pgvector", monthly: "$50–80", note: "Managed backups, HA available" },
     { component: "Azure Cache for Redis", spec: "Basic C0 — event queue + sessions", monthly: "$15–25", note: "Managed, encrypted, persistent" },
     { component: "Azure OpenAI (Tiered)", spec: "GPT-4o (complex) + GPT-4o-mini (lookups)", monthly: "$50–100", note: "Tiered routing + caching + budgets — was $150–300 without guardrails" },
@@ -1698,7 +1708,7 @@ const InfraView = () => {
 
   return (
     <div>
-      <SectionHeader title="Azure PaaS Infrastructure — Docker Portable" subtitle="Fully managed Azure services now — same Docker containers run self-hosted if needed later" />
+      <SectionHeader title="Azure PaaS Infrastructure — Docker Portable" subtitle="Live at dashboard.reditech.com + dev server at 10.0.1.225 — same Docker containers run anywhere" />
 
       {/* Azure Resources */}
       <div style={{ background: `${COLORS.accent}08`, border: `1px solid ${COLORS.accent}25`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
@@ -1723,23 +1733,23 @@ const InfraView = () => {
         <div style={{ fontSize: 10, fontWeight: 700, color: COLORS.green, letterSpacing: "0.08em", marginBottom: 10 }}>🐳 DOCKER PORTABILITY — SAME CONTAINERS, ANY HOST</div>
         <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 12 }}>
           <div style={{ background: `${COLORS.accent}10`, border: `1px solid ${COLORS.accent}20`, borderRadius: 8, padding: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.accent, marginBottom: 6 }}>Azure Path (Current)</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.accent, marginBottom: 6 }}>Azure Path (Production — LIVE)</div>
             <div style={{ fontSize: 10, color: COLORS.textSecondary, lineHeight: 1.6 }}>
-              Bicep templates → Azure Container Apps{"\n"}
-              4 containers: Next.js + n8n + workers + Grafana{"\n"}
+              GitHub Actions → ACR → Azure Container Apps{"\n"}
+              dashboard.reditech.com with managed SSL{"\n"}
               Azure PostgreSQL + Redis + Key Vault{"\n"}
               Auto-scaling, managed backups, HA{"\n"}
-              GitHub Actions → ACR → Container Apps
+              5 secrets in Key Vault via managed identity
             </div>
           </div>
           <div style={{ background: `${COLORS.green}10`, border: `1px solid ${COLORS.green}20`, borderRadius: 8, padding: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.green, marginBottom: 6 }}>Self-Hosted Path (Portable)</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.green, marginBottom: 6 }}>Self-Hosted Path (Dev Server — LIVE)</div>
             <div style={{ fontSize: 10, color: COLORS.textSecondary, lineHeight: 1.6 }}>
-              docker-compose.yml → Any Linux server{"\n"}
-              4 containers: Next.js + n8n + workers + Grafana{"\n"}
-              PostgreSQL 16 + pgvector + Redis 7{"\n"}
+              docker-compose.yml → dev server @ 10.0.1.225{"\n"}
+              5 containers: Next.js + PostgreSQL + Redis + n8n + Grafana{"\n"}
               Same Dockerfile, same images{"\n"}
-              Only connection strings change
+              Only connection strings change{"\n"}
+              Used for dev/testing before Azure deploy
             </div>
           </div>
         </div>
@@ -1768,7 +1778,7 @@ const InfraView = () => {
       {/* Total Cost */}
       <div style={{ background: `${COLORS.purple}08`, border: `1px solid ${COLORS.purple}25`, borderRadius: 10, padding: 14, textAlign: "center" }}>
         <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.accent }}>~$175 – $310<span style={{ fontSize: 12, color: COLORS.textMuted }}>/month</span></div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.textPrimary, marginTop: 4 }}>Estimated Total Azure Cost (4 containers incl. Grafana + AI with guardrails)</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.textPrimary, marginTop: 4 }}>Estimated Total Azure Cost (5 containers + AI with guardrails)</div>
         <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 2 }}>AI costs reduced 70–80% via tiered models + caching + budgets — offset by $4,000/year (~$333/mo) partner credits</div>
         <div style={{ fontSize: 10, fontWeight: 600, color: COLORS.green, marginTop: 4 }}>Net cost with credits: $0/month — credits fully cover estimated usage</div>
       </div>
@@ -1780,141 +1790,122 @@ const InfraView = () => {
 const DatabaseView = () => {
   const tables = [
     {
-      name: "clients", color: COLORS.accent, icon: "🏢",
-      columns: ["id (UUID, PK)", "name", "connectwise_id", "ninja_org_id", "s1_site_id", "itglue_org_id", "cipp_tenant_id", "pax8_customer_id", "duo_account_id", "created_at"],
-      desc: "Central client registry — maps to all tool-specific tenant/org IDs for cross-vendor reconciliation"
+      name: "Company", color: COLORS.accent, icon: "🏢", built: true,
+      columns: ["id (UUID, PK)", "name", "psaSourceId (CW company ID)", "status (active/inactive)", "phone", "website", "territory", "syncedAt", "created_at"],
+      desc: "Central company registry — imported from ConnectWise PSA, source of truth for cross-tool mapping"
     },
     {
-      name: "users", color: COLORS.yellow, icon: "👤",
-      columns: ["id (UUID, PK)", "entra_oid", "email", "display_name", "role (Tech/Manager/Admin/Client)", "client_id (FK, nullable)", "last_login"],
-      desc: "Platform users authenticated via Entra ID SSO"
+      name: "CompanyIntegrationMapping", color: COLORS.accent, icon: "🔗", built: true,
+      columns: ["id (UUID, PK)", "companyId (FK)", "toolId", "externalId", "externalName", "matchMethod (auto/manual)", "matchConfidence", "verifiedAt"],
+      desc: "Maps companies to tool-specific org IDs (Ninja, S1, ITGlue, CIPP, etc.) — Levenshtein fuzzy matching"
     },
     {
-      name: "unified_alerts", color: COLORS.red, icon: "🚨",
+      name: "User", color: COLORS.yellow, icon: "👤", built: true,
+      columns: ["id (UUID, PK)", "entraOid", "email", "name", "role (ADMIN/USER/MANAGER/CLIENT)", "authMethod (ENTRA/LOCAL)", "passwordHash", "totpSecret", "totpEnabled", "mustSetupTotp", "last_login"],
+      desc: "Platform users — Entra SSO + local glass-break admin with TOTP"
+    },
+    {
+      name: "UserPermission", color: COLORS.yellow, icon: "🔐", built: true,
+      columns: ["id (UUID, PK)", "userId (FK)", "permissionKey", "granted (BOOL)", "grantedBy", "grantedAt"],
+      desc: "Per-user permission overrides — 25 permissions across 10 modules, overrides role defaults"
+    },
+    {
+      name: "PermissionRole", color: COLORS.yellow, icon: "👥", built: true,
+      columns: ["id (UUID, PK)", "name", "description", "permissions (TEXT[])", "createdBy", "createdAt"],
+      desc: "Named permission roles — assignable to users, most permissive wins"
+    },
+    {
+      name: "unified_alerts", color: COLORS.red, icon: "🚨", built: false,
       columns: ["id (UUID, PK)", "source (enum: 20 tools)", "source_alert_id", "client_id (FK)", "device_id (FK)", "severity (1-5)", "status", "title", "raw_data (JSONB)", "cw_ticket_id", "created_at"],
-      desc: "Normalized alerts from all tools — single triage queue"
+      desc: "Normalized alerts from all tools — single triage queue (planned)"
     },
     {
-      name: "tickets", color: COLORS.accent, icon: "🎫",
-      columns: ["id (UUID, PK)", "connectwise_id", "client_id (FK)", "summary", "status", "priority", "board", "assigned_to", "created_at", "updated_at"],
-      desc: "ConnectWise ticket mirror for cross-referencing"
+      name: "AuditEvent", color: COLORS.orange, icon: "📝", built: true,
+      columns: ["id (BIGSERIAL, PK)", "timestamp", "actorId (FK)", "actorRole", "action", "category (AUTH/USER/SECURITY/INTEGRATION/SYSTEM/API/DATA)", "resourceType", "resourceId", "detail (JSONB)", "ipAddress", "outcome (SUCCESS/FAILURE/ERROR)"],
+      desc: "Immutable append-only audit log — categorized, 7-year retention, retention config"
     },
     {
-      name: "devices", color: COLORS.green, icon: "🖥️",
-      columns: ["id (UUID, PK)", "client_id (FK)", "hostname", "ninja_id", "s1_agent_id", "os", "last_seen", "status"],
-      desc: "Unified device registry across NinjaRMM + SentinelOne"
+      name: "AuditRetentionConfig", color: COLORS.orange, icon: "⚙️", built: true,
+      columns: ["id (UUID, PK)", "category", "retentionDays", "archiveEnabled", "updatedBy", "updatedAt"],
+      desc: "Per-category retention settings — configurable in Settings → Audit"
     },
     {
-      name: "audit_events", color: COLORS.orange, icon: "📝",
-      columns: ["id (BIGSERIAL, PK)", "timestamp", "actor_id (FK)", "actor_role", "action", "resource_type", "resource_id", "client_id", "detail (JSONB)", "ip_address", "outcome"],
-      desc: "Immutable append-only audit log — 7-year retention"
+      name: "InAppNotification", color: COLORS.orange, icon: "🔔", built: true,
+      columns: ["id (UUID, PK)", "userId (FK)", "type", "title", "body", "metadata (JSONB)", "readAt", "createdAt"],
+      desc: "In-app notifications — real-time SSE delivery, sonner toasts, NotificationBell"
     },
     {
-      name: "ai_conversations", color: COLORS.pink, icon: "💬",
-      columns: ["id (UUID, PK)", "user_id (FK)", "agent_type", "messages (JSONB)", "functions_called (JSONB)", "created_at"],
-      desc: "AI chat history with function call tracking"
+      name: "NotificationPreference", color: COLORS.orange, icon: "📨", built: true,
+      columns: ["id (UUID, PK)", "userId (FK)", "notificationType", "emailEnabled", "teamsEnabled", "smsEnabled", "config (JSONB)"],
+      desc: "Per-user notification channel preferences — 10 notification types"
     },
     {
-      name: "ai_embeddings", color: COLORS.purple, icon: "🧠",
+      name: "Monitor", color: COLORS.green, icon: "📡", built: true,
+      columns: ["id (UUID, PK)", "name", "type (HTTP/TCP/PING/DNS)", "url", "interval", "timeout", "maxRetries", "config (JSONB)", "status (UP/DOWN/PENDING/PAUSED)", "active", "companyId (FK, nullable)"],
+      desc: "Native uptime monitoring — HTTP/TCP/Ping/DNS, per-client grouping, replaces Uptime Kuma"
+    },
+    {
+      name: "Heartbeat", color: COLORS.green, icon: "💓", built: true,
+      columns: ["id (UUID, PK)", "monitorId (FK)", "status (UP/DOWN/PENDING)", "responseTime", "statusCode", "message", "certInfo (JSONB)", "createdAt"],
+      desc: "Monitor check results — response time, SSL cert info, status history for charts"
+    },
+    {
+      name: "ThreecxInstance", color: COLORS.pink, icon: "🏢", built: true,
+      columns: ["id (UUID, PK)", "companyId (FK)", "name", "fqdn", "extension", "encryptedPassword", "status", "lastHealthCheck", "config (JSONB)"],
+      desc: "Customer 3CX PBX instances — AES-256-GCM encrypted creds, multi-instance monitoring"
+    },
+    {
+      name: "threecx_calls", color: COLORS.pink, icon: "📲", built: false,
+      columns: ["id (UUID, PK)", "instance_id (FK)", "direction (in/out)", "caller_number", "callee_number", "matched_client_id (FK)", "duration_sec", "recording_url", "cw_ticket_id (FK, nullable)", "created_at"],
+      desc: "Call log for caller intelligence — phone match, screen pop delivery (planned)"
+    },
+    {
+      name: "ReconciliationSnapshot", color: COLORS.yellow, icon: "📊", built: true,
+      columns: ["id (UUID, PK)", "companyId (FK)", "snapshotData (JSONB)", "discrepancies (JSONB)", "status", "createdAt"],
+      desc: "Billing reconciliation snapshots — CW agreements vs vendor product counts"
+    },
+    {
+      name: "AiProvider", color: COLORS.pink, icon: "🤖", built: true,
+      columns: ["id (UUID, PK)", "name", "type (AZURE_OPENAI/OPENAI/CUSTOM)", "config (JSONB)", "isDefault", "enabled"],
+      desc: "AI provider configuration — Azure OpenAI, OpenAI, or custom (Ollama/vLLM)"
+    },
+    {
+      name: "AiModel", color: COLORS.pink, icon: "🧠", built: true,
+      columns: ["id (UUID, PK)", "providerId (FK)", "modelId", "displayName", "capabilities (TEXT[])", "costPer1kInput", "costPer1kOutput"],
+      desc: "AI model registry — tracks available models per provider with cost estimates"
+    },
+    {
+      name: "AiFunctionConfig", color: COLORS.pink, icon: "⚡", built: true,
+      columns: ["id (UUID, PK)", "functionName (UNIQUE)", "modelId (FK)", "systemPrompt", "maxTokens", "temperature"],
+      desc: "Per-function AI config — which model handles each agent function"
+    },
+    {
+      name: "IntegrationConfig", color: COLORS.green, icon: "🔌", built: true,
+      columns: ["id (UUID, PK)", "toolId (UNIQUE)", "displayName", "category", "credentialFields (JSONB)", "connectionStatus", "lastHealthCheck", "lastSync", "configMetadata (JSONB)", "updatedBy", "updatedAt"],
+      desc: "API credential management — per-tool health checks, encrypted storage, admin-configurable"
+    },
+    {
+      name: "UserPreference", color: COLORS.accent, icon: "🎨", built: true,
+      columns: ["id (UUID, PK)", "userId (FK)", "key (VARCHAR, UNIQUE per user)", "value (JSONB)", "updatedAt"],
+      desc: "Per-user customization — dashboard layout, timezone, table density, sidebar state"
+    },
+    {
+      name: "ai_embeddings", color: COLORS.purple, icon: "🧠", built: false,
       columns: ["id (UUID, PK)", "source (IT Glue/OneNote/SharePoint)", "source_id", "content (TEXT)", "embedding (vector(1536))", "metadata (JSONB)", "indexed_at"],
-      desc: "pgvector embeddings for RAG knowledge base"
-    },
-    {
-      name: "backup_status", color: COLORS.cyan, icon: "💾",
-      columns: ["id (UUID, PK)", "source (Cove/Dropsuite)", "client_id (FK)", "device_name", "last_backup", "status", "size_gb"],
-      desc: "Backup health from Cove + Dropsuite"
-    },
-    {
-      name: "network_devices", color: COLORS.green, icon: "📡",
-      columns: ["id (UUID, PK)", "client_id (FK)", "source (Unifi/WatchGuard)", "device_type", "hostname", "ip", "status", "last_seen"],
-      desc: "Network infrastructure from Unifi + WatchGuard"
-    },
-    {
-      name: "on_call_schedules", color: COLORS.pink, icon: "📅",
-      columns: ["id (UUID, PK)", "user_id (FK)", "start_time", "end_time", "recurrence (weekly/biweekly/custom)", "phone_number", "teams_channel", "substitute_user_id (FK, nullable)", "escalation_order (INT)", "escalation_timeout_min (INT)", "active"],
-      desc: "On-call rotation with substitutions + escalation — primary → secondary → manager after timeout"
-    },
-    {
-      name: "notification_rules", color: COLORS.orange, icon: "🔔",
-      columns: ["id (UUID, PK)", "name", "trigger_type (alert/ticket/voicemail/schedule)", "severity_filter", "tool_filter", "client_filter", "channels (JSONB: teams/sms/email)", "schedule_type (daily/oncall/always)", "escalation_chain (JSONB)", "cooldown_min", "active"],
-      desc: "Granular notification rules — customizable per severity, tool, client, schedule, and channel"
-    },
-    {
-      name: "notification_log", color: COLORS.orange, icon: "📨",
-      columns: ["id (UUID, PK)", "rule_id (FK)", "alert_id (FK, nullable)", "channel (teams/sms/email)", "recipient_user_id (FK)", "sent_at", "acknowledged_at", "escalated", "escalation_level"],
-      desc: "Tracks every outbound notification — acknowledged/escalated status for escalation engine"
-    },
-    {
-      name: "voicemail_events", color: COLORS.pink, icon: "📞",
-      columns: ["id (UUID, PK)", "threecx_call_id", "caller_number", "caller_name", "matched_client_id (FK)", "matched_contact", "transcription (TEXT)", "cw_ticket_id", "notified_tech_id (FK)", "created_at"],
-      desc: "Emergency voicemails — OpenAI transcription, caller identified via PSA lookup, auto-ticketed"
-    },
-    {
-      name: "threecx_instances", color: COLORS.pink, icon: "🏢",
-      columns: ["id (UUID, PK)", "client_id (FK)", "instance_name", "admin_url", "api_credential_ref (Key Vault)", "itglue_credential_id (nullable)", "status (online/offline/degraded)", "last_health_check", "trunk_status (JSONB)", "config (JSONB)", "created_at"],
-      desc: "Customer 3CX PBX instances — multi-instance monitoring, health checks, admin quick access via IT Glue creds"
-    },
-    {
-      name: "threecx_calls", color: COLORS.pink, icon: "📲",
-      columns: ["id (UUID, PK)", "instance_id (FK)", "direction (in/out)", "caller_number", "callee_number", "matched_client_id (FK, nullable)", "matched_contact", "duration_sec", "recording_url", "cw_ticket_id (FK, nullable)", "answered_by_user_id (FK, nullable)", "screenpop_delivered (BOOL)", "created_at"],
-      desc: "Call log for caller intelligence — phone match, screen pop delivery, post-call ticket linking"
-    },
-    {
-      name: "threecx_extensions", color: COLORS.pink, icon: "📞",
-      columns: ["id (UUID, PK)", "instance_id (FK)", "extension_number", "user_id (FK, nullable)", "display_name", "status (registered/offline)", "updated_at"],
-      desc: "Tech-to-extension mapping — links 3CX extensions to platform users for caller intelligence routing"
-    },
-    {
-      name: "client_product_map", color: COLORS.yellow, icon: "🔗",
-      columns: ["id (UUID, PK)", "client_id (FK)", "vendor (PAX8/CW/Ninja/etc)", "vendor_product_id", "product_name", "licensed_qty", "actual_qty", "unit_type (device/user/mailbox)", "monthly_cost", "last_synced"],
-      desc: "Contract reconciliation — maps vendor products to clients with licensed vs. actual counts (future: replaces Gradient MSP)"
-    },
-    {
-      name: "product_catalog", color: COLORS.yellow, icon: "📦",
-      columns: ["id (UUID, PK)", "vendor", "vendor_product_id", "normalized_name", "category", "unit_type", "unit_price", "billing_cycle"],
-      desc: "Unified product catalog across vendors — normalized names for cross-vendor matching"
-    },
-    {
-      name: "ai_usage_log", color: COLORS.pink, icon: "📈",
-      columns: ["id (BIGSERIAL, PK)", "user_id (FK)", "function_name", "model_used (gpt-4o/gpt-4o-mini)", "input_tokens", "output_tokens", "total_tokens", "estimated_cost", "cache_hit (BOOL)", "latency_ms", "created_at"],
-      desc: "Per-request AI usage tracking — feeds usage dashboard, budget enforcement, and monthly reports"
-    },
-    {
-      name: "ai_budget_config", color: COLORS.cyan, icon: "💰",
-      columns: ["id (UUID, PK)", "scope (global/user)", "user_id (FK, nullable)", "daily_token_limit", "monthly_token_limit", "requests_per_hour", "concurrent_sessions", "soft_limit_pct (default 80)", "enabled (BOOL)", "updated_by", "updated_at"],
-      desc: "Token budgets and rate limits — per-user overrides optional, admin-configurable"
-    },
-    {
-      name: "ai_model_config", color: COLORS.orange, icon: "🤖",
-      columns: ["id (UUID, PK)", "function_name (UNIQUE)", "default_model", "override_model (nullable)", "override_reason", "updated_by", "updated_at"],
-      desc: "Admin-configurable model routing — override which model handles each AI function"
-    },
-    {
-      name: "integration_config", color: COLORS.green, icon: "🔌",
-      columns: ["id (UUID, PK)", "tool_id (UNIQUE)", "display_name", "category", "credential_ref (Key Vault secret name)", "connection_status (connected/error/degraded/unconfigured)", "last_health_check", "last_sync", "config_metadata (JSONB: base_url, webhook_path)", "updated_by", "updated_at"],
-      desc: "API credential management — per-tool connection status, health checks, Key Vault references, admin-configurable"
-    },
-    {
-      name: "user_preferences", color: COLORS.accent, icon: "🎨",
-      columns: ["id (UUID, PK)", "user_id (FK, UNIQUE per key)", "key (VARCHAR)", "value (JSONB)", "updated_at"],
-      desc: "Per-user UI customization — widget layout, pinned clients, default page, table density, sidebar state"
-    },
-    {
-      name: "user_feature_flags", color: COLORS.yellow, icon: "🏷️",
-      columns: ["id (UUID, PK)", "user_id (FK)", "flag_name (kb_write/rate_override/etc)", "value (JSONB)", "enabled (BOOL)", "updated_by", "updated_at"],
-      desc: "Per-user permission overrides — KB Write access, custom rate limits, feature toggles"
+      desc: "pgvector embeddings for RAG knowledge base (planned)"
     },
   ];
 
   return (
     <div>
-      <SectionHeader title="Unified Database Schema" subtitle="PostgreSQL 16 + pgvector — Prisma ORM with type-safe queries — all tables multi-tenant via client_id" />
+      <SectionHeader title="Unified Database Schema" subtitle="PostgreSQL 16 + pgvector — Prisma ORM with type-safe queries — all tables multi-tenant via companyId" />
       <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr 1fr", "1fr 1fr"), gap: 10 }}>
         {tables.map((table, i) => (
           <div key={i} style={{ background: COLORS.card, border: `1px solid ${table.color}25`, borderRadius: 10, padding: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
               <span style={{ fontSize: 14 }}>{table.icon}</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: table.color, fontFamily: "monospace" }}>{table.name}</span>
+              {table.built !== undefined && <span style={{ fontSize: 7, fontWeight: 800, color: table.built ? COLORS.green : COLORS.textMuted, background: table.built ? `${COLORS.green}18` : `${COLORS.textMuted}18`, padding: "1px 5px", borderRadius: 3, marginLeft: "auto" }}>{table.built ? "BUILT" : "PLANNED"}</span>}
             </div>
             <div style={{ fontSize: 10, color: COLORS.textSecondary, marginBottom: 8, lineHeight: 1.4 }}>{table.desc}</div>
             <div style={{ background: `${table.color}06`, borderRadius: 6, padding: 8 }}>
@@ -2189,18 +2180,20 @@ const SecurityView = () => {
 const TechStackView = () => {
   const stack = [
     { category: "Frontend", color: COLORS.accent, items: [
-      { name: "Next.js 14+", desc: "App Router — full-stack React framework with SSR + API routes" },
+      { name: "Next.js 15 (App Router)", desc: "Full-stack React framework with SSR + API routes — upgraded from 14 to 15.5.12" },
       { name: "React 18", desc: "Component library with hooks, Suspense, streaming" },
       { name: "TypeScript", desc: "End-to-end type safety across frontend + backend" },
       { name: "Tailwind CSS", desc: "Utility-first styling with dark theme" },
       { name: "shadcn/ui", desc: "High-quality UI components (Radix + Tailwind)" },
       { name: "Tremor + Recharts", desc: "Built-in dashboards — KPI charts, trend lines, bar/area/pie charts (replaces BrightGauge)" },
+      { name: "react-grid-layout", desc: "Drag-and-drop dashboard module system with resize + persist" },
+      { name: "PWA (Service Worker)", desc: "Installable on mobile/desktop, offline fallback, network-first caching" },
     ]},
     { category: "Backend API", color: COLORS.purple, items: [
-      { name: "tRPC v11", desc: "End-to-end type-safe API — no REST boilerplate" },
-      { name: "Auth.js (NextAuth v5)", desc: "Entra ID OIDC provider with RBAC role mapping" },
+      { name: "tRPC v11", desc: "End-to-end type-safe API — no REST boilerplate — 30+ routers" },
+      { name: "Auth.js (NextAuth v5 beta.30)", desc: "Dual auth: Entra ID SSO + local glass-break admin with TOTP" },
       { name: "Prisma ORM", desc: "Type-safe database queries with auto-generated types" },
-      { name: "ioredis", desc: "Redis client for event queue, sessions, rate limiting" },
+      { name: "ioredis", desc: "Redis client — SWR caching, sessions, rate limiting, connector cache" },
     ]},
     { category: "Database & Storage", color: COLORS.cyan, items: [
       { name: "PostgreSQL 16", desc: "Azure Flexible Server — relational + JSONB for flexibility" },
@@ -2208,25 +2201,25 @@ const TechStackView = () => {
       { name: "Prisma Migrate", desc: "Forward-only numbered migrations with audit table support" },
     ]},
     { category: "AI & ML", color: COLORS.pink, items: [
-      { name: "Azure OpenAI (GPT-4o)", desc: "Chat completions + function calling for all AI agents" },
+      { name: "OpenAI SDK (provider-agnostic)", desc: "Azure OpenAI / OpenAI / Custom (Ollama, vLLM) — configurable in Settings → AI" },
+      { name: "GPT-4o + GPT-4o-mini", desc: "Tiered model routing — complex tasks vs. simple lookups" },
       { name: "text-embedding-3-small", desc: "1536-dim embeddings for RAG knowledge index" },
-      { name: "@azure/openai SDK", desc: "Official Azure SDK with managed identity auth" },
     ]},
     { category: "Infrastructure", color: COLORS.orange, items: [
-      { name: "Azure Container Apps", desc: "Managed Docker containers — auto-scaling, ingress, TLS" },
-      { name: "Azure Key Vault", desc: "Centralized secrets management — no keys in code" },
-      { name: "Bicep", desc: "Azure-native IaC — simpler than Terraform for Azure-only" },
-      { name: "Docker", desc: "Containerized everything — portable to any host" },
+      { name: "Azure Container Apps", desc: "Managed Docker containers — auto-scaling, ingress, managed SSL" },
+      { name: "Azure Key Vault", desc: "5 secrets stored — DB URL, Redis, NextAuth, Entra, glassbreak" },
+      { name: "Bicep + docker-compose.yml", desc: "Azure IaC + self-hosted path maintained side-by-side" },
+      { name: "Docker (5 containers)", desc: "Next.js app + PostgreSQL + Redis + n8n + Grafana" },
     ]},
     { category: "Orchestration & CI/CD", color: COLORS.green, items: [
       { name: "n8n", desc: "Visual workflow builder for API polling + webhook routing" },
-      { name: "GitHub Actions", desc: "CI/CD: lint → test → build → push → deploy → health check" },
-      { name: "Azure Container Registry", desc: "Private Docker image storage for deployments" },
+      { name: "GitHub Actions", desc: "CI/CD: auto-build + deploy on push to main — 3 secrets in GitHub" },
+      { name: "Azure Container Registry", desc: "Private Docker image storage (reditechacr)" },
     ]},
-    { category: "Analytics & Reporting", color: COLORS.orange, items: [
-      { name: "Grafana (4th container)", desc: "Advanced analytics — iframe embedded, ad-hoc queries, custom dashboards for power users" },
-      { name: "Tremor", desc: "React dashboard components — bar, area, donut, KPI cards, spark charts" },
-      { name: "Recharts", desc: "Composable chart library — trend lines, time series, stacked bar charts" },
+    { category: "Analytics & Monitoring", color: COLORS.orange, items: [
+      { name: "Grafana (4th container)", desc: "Advanced analytics — iframe embedded, ad-hoc queries, custom dashboards" },
+      { name: "Native Uptime Monitoring", desc: "HTTP/TCP/Ping/DNS monitoring built-in — replaces Uptime Kuma" },
+      { name: "Tremor + Recharts", desc: "KPI charts, trend lines, bar/area/pie — embedded in every page" },
     ]},
   ];
 
@@ -2250,143 +2243,197 @@ const TechStackView = () => {
   );
 };
 
-// ── ROADMAP (6 PHASES) ──
+// ── ROADMAP (7 PHASES) ──
 const PhaseView = () => {
+  // task status: "done" = ✅, "progress" = 🔨, "planned" = ⬜
   const phases = [
-    { phase: "Phase 1", title: "Foundation + Entra SSO", weeks: "Weeks 1–3", color: COLORS.accent, tasks: [
-      "GitHub repo with branch protection (main → production, develop → staging)",
-      "Bicep templates for all Azure resources (Container Apps, PostgreSQL, Redis, Key Vault, ACR)",
-      "Dockerfile + docker-compose.dev.yml for local development",
-      "GitHub Actions CI/CD pipeline → Azure Container Apps auto-deploy",
-      "Next.js app with App Router, Tailwind, shadcn/ui — dark mode only (no light theme)",
-      "Auth.js + Entra ID OIDC + PKCE with 4 RBAC groups",
-      "Prisma schema: users, clients, audit_events, integration_config tables",
-      "Immutable audit logging service (Layer 0 — from day 1)",
-      "Dashboard shell with sidebar navigation",
-      "Settings → Integrations: API credential management for all 20 tools",
-      "Per-tool credential forms with Test Connection + Key Vault storage",
-      "Connection health monitoring (5-min health checks, status indicators)",
+    { phase: "Phase 1", title: "Foundation + Entra SSO", weeks: "Weeks 1–3", color: COLORS.accent, status: "done", tasks: [
+      { text: "GitHub repo with branch protection (main → production, develop → staging)", done: true },
+      { text: "Bicep templates for Azure resources + docker-compose.yml (5 containers)", done: true },
+      { text: "Production Dockerfile (multi-stage: deps → builder → runner, node:20-alpine)", done: true },
+      { text: "GitHub Actions CI/CD pipeline → ACR → Azure Container Apps auto-deploy", done: true },
+      { text: "Next.js 15 app with App Router, Tailwind, shadcn/ui — dark mode only", done: true },
+      { text: "Dual auth: Entra ID SSO (OIDC + PKCE) + glass-break local admin with TOTP", done: true },
+      { text: "In-app RBAC: Admin, User, Manager, Client — 25 permissions across 10 modules", done: true },
+      { text: "Prisma schema: users, audit_events, integration_config, user_preferences, user_feature_flags, user_permissions", done: true },
+      { text: "Immutable audit logging from Day 1 — categorized (AUTH, USER, SECURITY, INTEGRATION, SYSTEM, API, DATA)", done: true },
+      { text: "Audit log page with category/outcome filters, color-coded icons, infinite scroll", done: true },
+      { text: "Dashboard shell with sidebar navigation + modular dashboard (drag-drop, resize)", done: true },
+      { text: "Settings → Integrations: API credential management for all 20 tools", done: true },
+      { text: "Per-tool credential forms with Test Connection + Key Vault storage", done: true },
+      { text: "Connection health monitoring (5-min health checks, status indicators)", done: true },
+      { text: "Settings → Users: user list, role badges, permission overrides, activity log", done: true },
+      { text: "Permission roles: assignable named roles with permission sets, most permissive wins", done: true },
+      { text: "Settings → Branding: dynamic logo + company name", done: true },
+      { text: "PWA: installable on mobile/desktop, offline fallback, service worker caching", done: true },
+      { text: "Azure Key Vault integration (rcc-vault-prod) — 5 secrets via managed identity", done: true },
+      { text: "Session validation against database (5-min revalidation, role/permission sync)", done: true },
+      { text: "Local Docker deployment on dev server + Azure production at dashboard.reditech.com", done: true },
     ]},
-    { phase: "Phase 2", title: "Core Integrations", weeks: "Weeks 4–6", color: COLORS.red, tasks: [
-      "Base connector class: auth, retry, rate limiting, error handling",
-      "NinjaRMM connector — device status, alerts, patch compliance",
-      "ConnectWise PSA connector — tickets, time entries, companies/contacts",
-      "SentinelOne connector — threats, agent health, incidents",
-      "Blackpoint connector — MDR alerts via webhook + API polling",
-      "Unified alert schema + normalizer (Layer 3)",
-      "Severity scoring engine (cross-tool signal analysis)",
-      "Client correlation service (ConnectWise → tool tenant IDs)",
-      "n8n container with polling workflows + Redis event queue",
-      "Alert triage dashboard page (Layer 4)",
+    { phase: "Phase 2", title: "Core Integrations", weeks: "Weeks 4–6", color: COLORS.red, status: "progress", tasks: [
+      { text: "Modular connector architecture: BaseHttpClient + category interfaces (IPsa, IRmm, IEdr, etc.)", done: true },
+      { text: "Connector factory + registry: reads IntegrationConfig from DB → instantiates correct connector", done: true },
+      { text: "NinjaRMM connector (15+ endpoints): devices, alerts, orgs, software, patches, services", done: true },
+      { text: "ConnectWise PSA connector (15+ endpoints): tickets CRUD, companies, contacts, time entries, boards, members", done: true },
+      { text: "SentinelOne EDR connector (18+ endpoints): threats, agents, isolate/unisolate/scan, Deep Visibility", done: true },
+      { text: "Blackpoint CompassOne connector (100+ endpoints, 16 API categories, 60+ tRPC procedures)", done: true },
+      { text: "IT Glue Documentation connector (15+ endpoints): orgs, flexible assets, passwords/TOTP, configs", done: true },
+      { text: "Avanan Email Security connector (full SmartAPI, MSP multi-tenant, 38 tRPC routes)", done: true },
+      { text: "CIPP 365 Management connector (OAuth 2.0 client credentials, tenant health/licenses)", done: true },
+      { text: "Company table + PSA import — bulk import, single import, sync from ConnectWise", done: true },
+      { text: "Cross-tool org matching — Levenshtein fuzzy match (90% threshold) + manual fallback", done: true },
+      { text: "CW member → User auto-matching by email (case-insensitive) on login", done: true },
+      { text: "Server-side stale-while-revalidate caching via Redis for all alert routers", done: true },
+      { text: "Alert triage page with merged BP+S1 alerts (hostname correlation), multi-source filters", done: true },
+      { text: "Ticket bubble overlay system — persistent floating tickets across all pages", done: true },
+      { text: "Alert-to-ticket matching (findRelatedTickets endpoint)", done: true },
+      { text: "Unified alert schema + severity scoring engine", done: false },
+      { text: "n8n workflows + Redis event queue (polling automation)", done: false },
+      { text: "SentinelOne quick actions UI: Isolate, Unquarantine, Create Rule, Full Scan", done: false },
+      { text: "VirusTotal hash lookup integration for S1 threat alerts", done: false },
     ]},
-    { phase: "Phase 3", title: "AI Foundation + Cost Management", weeks: "Weeks 7–9", color: COLORS.pink, tasks: [
-      "Azure OpenAI provisioned (GPT-4o + GPT-4o-mini + text-embedding-3-small)",
-      "AI agent orchestrator with function calling",
-      "AI functions: create_ticket, search_tickets, search_alerts, lookup_device, lookup_user",
-      "AI functions: create_document, update_document (KB Write — per-user gated)",
-      "Tiered model routing — GPT-4o for complex tasks, GPT-4o-mini for simple lookups",
-      "Admin model config UI — Settings → AI Models, override per function",
-      "Per-user feature flags system (KB Write, rate limit overrides, feature toggles)",
-      "Token budget enforcer — per-user daily + monthly team limits (Redis-tracked)",
-      "Per-user rate limiting — requests/hour, concurrent sessions, cooldown",
-      "Redis prompt caching — 5-min TTL for lookups, 0 for mutations",
-      "AI usage tracking — log every request: tokens, model, cost, cache hit",
-      "AI usage dashboard — real-time gauge, per-user breakdown, function stats",
-      "Threshold alerts at 80% and 100% of budget (Teams + email)",
-      "RAG pipeline: IT Glue + OneNote + SharePoint → pgvector embeddings",
-      "AI function: search_knowledge (semantic RAG search)",
-      "6-hour re-indexing cron job for embeddings",
-      "AI chat sidebar component with streaming responses",
-      "Ticket creation preview/confirmation UI flow",
-      "All AI actions audit-logged with role context",
+    { phase: "Phase 3", title: "AI Foundation + Cost Management", weeks: "Weeks 7–9", color: COLORS.pink, status: "progress", tasks: [
+      { text: "Provider-agnostic AI configuration: 4 Prisma models, AI client service, tRPC router", done: true },
+      { text: "Settings → AI page: model assignment per function, provider config (Azure/OpenAI/Custom)", done: true },
+      { text: "Azure OpenAI provisioning (GPT-4o + GPT-4o-mini + text-embedding-3-small)", done: false },
+      { text: "AI agent orchestrator with function calling + tiered model routing", done: false },
+      { text: "AI functions: create_ticket, search_tickets, search_alerts, lookup_device, lookup_user", done: false },
+      { text: "AI functions: create_document, update_document (KB Write — per-user gated)", done: false },
+      { text: "Token budget enforcer — per-user daily + monthly team limits (Redis-tracked)", done: false },
+      { text: "Redis prompt caching — 5-min TTL for lookups, 0 for mutations", done: false },
+      { text: "AI usage dashboard — real-time gauge, per-user breakdown, function stats", done: false },
+      { text: "RAG pipeline: IT Glue + OneNote + SharePoint → pgvector embeddings", done: false },
+      { text: "AI chat sidebar component with streaming responses", done: false },
+      { text: "Ticket creation preview/confirmation UI flow", done: false },
     ]},
-    { phase: "Phase 4", title: "Security & Identity", weeks: "Weeks 10–12", color: COLORS.purple, tasks: [
-      "MFA step-up gate for password + TOTP retrieval (MS Authenticator push)",
-      "AI function: get_password — credentials + TOTP codes from IT Glue (60s auto-clear, adjustable rate limit per user)",
-      "Duo connector — auth logs, enrollment, bypass events",
-      "AutoElevate connector — elevation requests, approvals",
-      "Quickpass connector — verification events, password resets",
-      "Avanan connector — email threats, phishing blocks",
-      "DNS Filter connector — DNS blocks, policy violations",
-      "Huntress SAT connector — phishing sim, training completion",
-      "CIPP connector — 365 tenant health, secure scores, licenses",
-      "Keeper connector — read-only client vault (MFA-gated)",
-      "Security overview dashboard page",
+    { phase: "Phase 4", title: "Security & Identity", weeks: "Weeks 10–12", color: COLORS.purple, status: "progress", tasks: [
+      { text: "DNS Filter connector — DNS blocks, policies, query logs, roaming clients (18 procedures)", done: true },
+      { text: "DNS Filter dashboard: 5-tab layout (overview, query logs, policies, roaming clients, domain lookup)", done: true },
+      { text: "Avanan connector — email threats, phishing blocks, user management (already built in Phase 2)", done: true },
+      { text: "CIPP connector — 365 tenant health, secure scores, licenses (already built in Phase 2)", done: true },
+      { text: "MFA step-up gate for password + TOTP retrieval (MS Authenticator push)", done: false },
+      { text: "AI function: get_password — credentials + TOTP codes from IT Glue (60s auto-clear)", done: false },
+      { text: "Duo connector — auth logs, enrollment, bypass events", done: false },
+      { text: "AutoElevate connector — elevation requests, approvals", done: false },
+      { text: "Quickpass connector — verification events, password resets", done: false },
+      { text: "Huntress SAT connector — phishing sim, training completion", done: false },
+      { text: "Keeper connector — read-only client vault (MFA-gated)", done: false },
+      { text: "Security overview dashboard page", done: false },
     ]},
-    { phase: "Phase 5", title: "Backup, Network, Phone & Alerting", weeks: "Weeks 13–15", color: COLORS.cyan, tasks: [
-      "Cove Backup connector — backup status, job history, failure alerts",
-      "Dropsuite connector — 365 backup status per client",
-      "Unifi connector — switch/AP status, client counts (local controllers)",
-      "WatchGuard connector — firewall status, VPN tunnels, threat logs",
-      "3CX connector — call logs, queue stats, voicemails, presence, inbound/outbound SMS",
-      "3CX voicemail → OpenAI API (Whisper) transcription pipeline",
-      "Emergency VM → auto-ticket: caller number lookup in ConnectWise PSA + transcription analysis",
-      "3CX Caller Intelligence — webhook → phone match → screen pop (client, tickets, history, alerts)",
-      "3CX Multi-PBX Dashboard — per-customer PBX cards, trunk status, active calls, queue stats",
-      "3CX PBX Quick Access — admin URL links + IT Glue credential retrieval (MFA-gated)",
-      "3CX multi-instance management in Settings → Integrations",
-      "WebSocket push for real-time screen pop delivery to tech browsers",
-      "Post-call ticketing: auto-create CW ticket with client/contact/call context pre-filled",
-      "threecx_instances, threecx_calls, threecx_extensions DB tables",
-      "Notification & Alerting Engine — granular, customizable rules per severity/tool/client/schedule",
-      "On-call rotation builder with substitutions + escalation paths (primary → secondary → manager)",
-      "Escalation engine: if no response within X min → auto-escalate to next in chain",
-      "Notification channels: Teams webhooks, SMS via 3CX, email — daily + on-call schedules",
-      "PAX8 connector — license counts, subscriptions, billing",
-      "Backup + Network + Phone + Notification dashboard pages",
+    { phase: "Phase 5", title: "Backup, Network, Phone & Alerting", weeks: "Weeks 13–15", color: COLORS.cyan, status: "progress", tasks: [
+      { text: "Cove Backup connector — backup status, job history, failure alerts, portal URL linking", done: true },
+      { text: "Cove backups dashboard page with device table, alert detail view", done: true },
+      { text: "Dropsuite connector — 365 backup, org summary cards, per-org table, client mapping", done: true },
+      { text: "Unifi connector (Cloud + Local, ~75 endpoints): devices, clients, throughput, AP health", done: true },
+      { text: "Network dashboard page with Unifi tab", done: true },
+      { text: "3CX multi-instance connector — IPhoneConnector + ThreecxClient + AES-256-GCM encryption", done: true },
+      { text: "3CX router (12 procedures): instances CRUD, systemStatus, trunks, users, activeCalls, services", done: true },
+      { text: "3CX multi-PBX dashboard page — per-customer PBX cards, trunk status, active calls", done: true },
+      { text: "3CX multi-instance management in Settings → Integrations → 3CX", done: true },
+      { text: "threecx_instances, threecx_calls, threecx_extensions DB tables", done: true },
+      { text: "PAX8 connector — license counts, subscriptions, billing data, product catalog", done: true },
+      { text: "Notification system overhaul: permission-filtered prefs, delivery channels, Teams webhook", done: true },
+      { text: "CW real-time ticket notifications: SSE, sonner toasts, NotificationBell", done: true },
+      { text: "Per-user alert notification preferences, cron alert-check endpoint", done: true },
+      { text: "Native uptime monitoring engine (HTTP/TCP/Ping/DNS) — replaces Uptime Kuma", done: true },
+      { text: "Monitoring page (/monitoring): search/filter, response time charts, detail panel", done: true },
+      { text: "WatchGuard connector — firewall status, VPN tunnels, threat logs", done: false },
+      { text: "3CX voicemail → OpenAI Whisper transcription pipeline", done: false },
+      { text: "3CX Caller Intelligence — webhook → phone match → screen pop via WebSocket", done: false },
+      { text: "On-call rotation builder with substitutions + escalation paths", done: false },
+      { text: "Escalation engine: auto-escalate if no acknowledgment within timeout", done: false },
     ]},
-    { phase: "Phase 6", title: "Dashboards, Reporting & Compliance", weeks: "Weeks 16–19", color: COLORS.green, tasks: [
-      "Built-in dashboards with Tremor + Recharts (replaces BrightGauge)",
-      "KPI widgets: ticket volume, response time, SLA %, backup success rate, alert trends",
-      "Per-client dashboard views with health trend charts",
-      "Grafana container — connected to PostgreSQL, pre-built dashboard templates",
-      "Grafana iframe embed for advanced ad-hoc analytics",
-      "Client health score engine (6 weighted metrics: patch, backup, EDR, MFA, training, tickets)",
-      "Client health scorecard components + per-client detail pages",
-      "QBR report generator (automated PDF with trends + recommendations)",
-      "Compliance audit report exporter (CSV/PDF, date range, filters)",
-      "Alert triage AI agent: auto-merge duplicates, suggest correlations",
-      "Hot/cold audit log tiering (PostgreSQL → compressed archive)",
-      "Client-facing read-only portal",
-      "Full docker-compose.yml for self-hosted deployment path",
-      "End-user dashboard customization — drag/drop widgets, pin clients, personal filters",
-      "User preferences system (user_preferences table + localStorage sync)",
-      "Responsive UI polish, keyboard shortcuts, notifications",
+    { phase: "Phase 6", title: "Dashboards, Reporting & Compliance", weeks: "Weeks 16–19", color: COLORS.green, status: "progress", tasks: [
+      { text: "Modular dashboard system with drag-drop, resize, add/remove modules (react-grid-layout)", done: true },
+      { text: "Per-role default layouts (Admin=5 modules, User=3, Client=1) + persist to UserPreference", done: true },
+      { text: "Module picker (Sheet slide-out) filtered by user permissions", done: true },
+      { text: "4 PSA dashboard modules wired with real CW data: my-tickets, recent-tickets, ticket-board, stat-overview", done: true },
+      { text: "Recent alerts dashboard module", done: true },
+      { text: "Audit log: retention config, retention settings UI, cleanup cron endpoint", done: true },
+      { text: "Timezone normalization: all timestamps UTC, user-configurable timezone display", done: true },
+      { text: "KPI widgets: ticket volume, response time, SLA %, backup success rate, alert trends", done: false },
+      { text: "Per-client dashboard views with health trend charts", done: false },
+      { text: "Grafana container connected to PostgreSQL + pre-built dashboard templates", done: false },
+      { text: "Client health score engine (6 weighted metrics)", done: false },
+      { text: "QBR report generator (automated PDF with trends + recommendations)", done: false },
+      { text: "Client-facing read-only portal", done: false },
     ]},
-    { phase: "Phase 7", title: "Contract Reconciliation (Gradient MSP Replacement)", weeks: "Weeks 20–23", color: COLORS.yellow, tasks: [
-      "Unified product catalog — normalize product names across PAX8, ConnectWise, NinjaRMM, etc.",
-      "Client-product mapping engine — licensed quantity vs. actual count per tool per client",
-      "Device count aggregation: NinjaRMM agents, SentinelOne agents, Cove endpoints per client",
-      "License count aggregation: PAX8 subscriptions, CIPP M365 licenses, Duo enrollments per client",
-      "Discrepancy detection — flag over-provisioned or under-licensed clients automatically",
-      "Contract reconciliation dashboard — side-by-side view of billed vs. actual per vendor/product",
-      "Profit margin calculation — vendor cost vs. client billing per product line",
-      "Bulk matching UI — map new products/clients across vendors when auto-match fails",
-      "Monthly reconciliation report (PDF/CSV export) per client or across portfolio",
-      "AI function: reconcile_client — natural language contract queries",
+    { phase: "Phase 7", title: "Contract Reconciliation (Gradient MSP Replacement)", weeks: "Weeks 20–23", color: COLORS.yellow, status: "progress", tasks: [
+      { text: "Billing reconciliation module: CW agreements vs. vendor product counts", done: true },
+      { text: "Billing page per client: financial stats (revenue/cost/profit/margin), vendor products", done: true },
+      { text: "Vendor auto-matching during CW sync, unmapped badges, ignore/unignore", done: true },
+      { text: "Reconciliation snapshot with discrepancy detection", done: true },
+      { text: "Ticket hours (30-day + 12-month charts)", done: true },
+      { text: "Unified product catalog — normalize product names across PAX8, CW, NinjaRMM", done: false },
+      { text: "Device count aggregation: NinjaRMM agents, S1 agents, Cove endpoints per client", done: false },
+      { text: "License count aggregation: PAX8 subs, CIPP M365 licenses, Duo enrollments", done: false },
+      { text: "Monthly reconciliation report (PDF/CSV export) per client or portfolio", done: false },
+      { text: "AI function: reconcile_client — natural language contract queries", done: false },
     ]},
   ];
 
+  const phaseStatusConfig = {
+    done: { label: "COMPLETE", color: COLORS.green },
+    progress: { label: "IN PROGRESS", color: COLORS.orange },
+    planned: { label: "PLANNED", color: COLORS.textMuted },
+  };
+
   return (
     <div>
-      <SectionHeader title="Implementation Roadmap — 7 Phases, 23 Weeks" subtitle="Each phase is testable independently — build, deploy, verify before moving to next" />
+      <SectionHeader title="Implementation Roadmap — 7 Phases, 23 Weeks" subtitle="Each phase is testable independently — build, deploy, verify before moving to next. Updated Feb 27, 2026." />
+
+      {/* Progress Summary */}
+      <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr 1fr", "1fr 1fr 1fr 1fr", "1fr 1fr 1fr 1fr"), gap: 10, marginBottom: 14 }}>
+        {(() => {
+          const allTasks = phases.flatMap(p => p.tasks);
+          const doneCount = allTasks.filter(t => t.done).length;
+          const totalCount = allTasks.length;
+          const pct = Math.round((doneCount / totalCount) * 100);
+          const builtTools = tools.filter(t => t.status === "built").length;
+          return [
+            <StatBox key="progress" value={`${pct}%`} label="Overall Progress" desc={`${doneCount} of ${totalCount} tasks complete`} color={COLORS.green} />,
+            <StatBox key="tools" value={`${builtTools}/20`} label="Integrations Built" desc="Connectors + tRPC routers deployed" color={COLORS.accent} />,
+            <StatBox key="routers" value="30+" label="tRPC Routers" desc="Type-safe API endpoints" color={COLORS.purple} />,
+            <StatBox key="pages" value="16" label="Dashboard Pages" desc="Alerts, tickets, billing, 3CX, monitoring..." color={COLORS.cyan} />,
+          ];
+        })()}
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: rGrid("1fr", "1fr", "1fr 1fr"), gap: 10 }}>
-        {phases.map((p, i) => (
+        {phases.map((p, i) => {
+          const doneCount = p.tasks.filter(t => t.done).length;
+          const totalCount = p.tasks.length;
+          const pct = Math.round((doneCount / totalCount) * 100);
+          const pStatus = p.status === "done" ? phaseStatusConfig.done : doneCount > 0 ? phaseStatusConfig.progress : phaseStatusConfig.planned;
+          return (
           <div key={i} style={{ background: COLORS.card, border: `1px solid ${p.color}30`, borderRadius: 12, padding: 14, borderTop: `3px solid ${p.color}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
               <div>
                 <span style={{ fontSize: 9, fontWeight: 700, color: p.color }}>{p.phase}</span>
                 <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.textPrimary }}>{p.title}</div>
               </div>
-              <span style={{ fontSize: 9, color: COLORS.textMuted, background: `${p.color}12`, padding: "2px 7px", borderRadius: 4 }}>{p.weeks}</span>
+              <div style={{ textAlign: "right" }}>
+                <span style={{ fontSize: 8, fontWeight: 800, color: pStatus.color, background: `${pStatus.color}18`, padding: "2px 7px", borderRadius: 4, display: "block", marginBottom: 3 }}>{pStatus.label}</span>
+                <span style={{ fontSize: 9, color: COLORS.textMuted }}>{p.weeks}</span>
+              </div>
+            </div>
+            {/* Progress bar */}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                <span style={{ fontSize: 9, color: COLORS.textMuted }}>{doneCount}/{totalCount} tasks</span>
+                <span style={{ fontSize: 9, fontWeight: 700, color: pct === 100 ? COLORS.green : pct > 0 ? COLORS.orange : COLORS.textMuted }}>{pct}%</span>
+              </div>
+              <ProgressBar pct={pct} color={pct === 100 ? COLORS.green : pct > 50 ? COLORS.accent : COLORS.orange} height={4} />
             </div>
             {p.tasks.map((task, j) => (
-              <div key={j} style={{ fontSize: 10, color: COLORS.textSecondary, padding: "3px 0", display: "flex", alignItems: "flex-start", gap: 6, lineHeight: 1.4 }}>
-                <span style={{ width: 4, height: 4, borderRadius: "50%", background: p.color, flexShrink: 0, marginTop: 4 }} />{task}
+              <div key={j} style={{ fontSize: 10, color: task.done ? COLORS.green : COLORS.textSecondary, padding: "3px 0", display: "flex", alignItems: "flex-start", gap: 6, lineHeight: 1.4, opacity: task.done ? 0.85 : 1 }}>
+                <span style={{ fontSize: 10, flexShrink: 0, marginTop: 0 }}>{task.done ? "✅" : "⬜"}</span>
+                <span style={{ textDecoration: task.done ? "none" : "none" }}>{task.text}</span>
               </div>
             ))}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -2423,7 +2470,7 @@ function MSPArchitecture() {
           <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>⚡</div>
           <div style={{ minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: r.isMobile ? 14 : 17, fontWeight: 800, letterSpacing: "-0.02em" }}>REDiTECH Unified Command Center</h1>
-            <p style={{ margin: 0, fontSize: r.isMobile ? 9 : 10, color: COLORS.textMuted, lineHeight: 1.4 }}>v4.0 — 20 Integrations | 4 AI Agents (13 Functions) | Entra SSO | Azure PaaS | Docker Portable | Dark Mode</p>
+            <p style={{ margin: 0, fontSize: r.isMobile ? 9 : 10, color: COLORS.textMuted, lineHeight: 1.4 }}>v5.0 — 20 Integrations (15 Built) | 4 AI Agents (13 Functions) | Entra SSO | Azure PaaS | Docker Portable | PWA | Dark Mode</p>
           </div>
         </div>
         <div style={{ display: "flex", gap: 0, marginTop: 10, overflowX: "auto", WebkitOverflowScrolling: "touch", msOverflowStyle: "none", scrollbarWidth: "none" }}>
