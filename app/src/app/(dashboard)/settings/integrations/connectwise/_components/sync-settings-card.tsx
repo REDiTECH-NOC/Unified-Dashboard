@@ -52,13 +52,13 @@ export function SyncSettingsCard({
   const utils = trpc.useUtils();
   const updateConfig = trpc.integration.updateSyncConfig.useMutation({
     onSuccess: () => {
-      // Invalidate so the explorer picks up updated default filters
       utils.integration.getSyncConfig.invalidate({ toolId: "connectwise" });
     },
   });
   const runAutoSync = trpc.company.runAutoSync.useMutation({
     onSuccess: () => {
-      utils.company.getSyncedSourceIds.invalidate();
+      // Sync started in background — start polling
+      utils.company.syncProgress.invalidate();
     },
   });
   const syncAll = trpc.company.syncAll.useMutation({
@@ -66,6 +66,15 @@ export function SyncSettingsCard({
       utils.company.getSyncedSourceIds.invalidate();
     },
   });
+
+  // ── Background sync progress polling ──
+  const { data: syncProgress } = trpc.company.syncProgress.useQuery(undefined, {
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data?.status === "running" ? 2000 : false;
+    },
+  });
+  const isSyncRunning = syncProgress?.status === "running";
 
   // ── Local form state ──
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
@@ -123,10 +132,12 @@ export function SyncSettingsCard({
   }
 
   const isLoading = loadingStatuses || loadingTypes || loadingConfig;
-  const isSyncing = runAutoSync.isPending || syncAll.isPending;
+  const isSyncing = runAutoSync.isPending || syncAll.isPending || isSyncRunning;
 
   // ── Sync result summaries ──
-  const syncResult = runAutoSync.data;
+  const syncResult = syncProgress?.status === "completed" || syncProgress?.status === "failed"
+    ? syncProgress
+    : null;
   const refreshResult = syncAll.data;
 
   return (
@@ -364,12 +375,12 @@ export function SyncSettingsCard({
                     onClick={handleSyncNow}
                     disabled={isSyncing}
                   >
-                    {runAutoSync.isPending ? (
+                    {isSyncRunning || runAutoSync.isPending ? (
                       <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                     ) : (
                       <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                     )}
-                    Run Sync Now
+                    {isSyncRunning ? "Syncing..." : "Run Sync Now"}
                   </Button>
                 )}
                 {syncMode === "manual" && (
@@ -397,8 +408,31 @@ export function SyncSettingsCard({
                 </div>
               )}
 
+              {/* Sync progress (live) */}
+              {isSyncRunning && syncProgress && (
+                <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-3 text-xs text-blue-400 space-y-2">
+                  <div className="flex items-center gap-2 font-medium">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
+                    {syncProgress.phase}
+                  </div>
+                  {syncProgress.total > 0 && (
+                    <>
+                      <div className="w-full bg-blue-500/20 rounded-full h-1.5">
+                        <div
+                          className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.round((syncProgress.current / syncProgress.total) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-blue-400/70">
+                        {syncProgress.current} of {syncProgress.total} companies
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Auto-sync results */}
-              {syncResult && (
+              {syncResult && syncResult.status === "completed" && (
                 <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-3 text-xs text-blue-400 space-y-1">
                   <div className="flex items-center gap-2 font-medium">
                     <Check className="h-3.5 w-3.5 flex-shrink-0" />
@@ -406,34 +440,35 @@ export function SyncSettingsCard({
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-blue-400/80 pl-5">
                     <span>
-                      Companies: {syncResult.companies.created} new,{" "}
-                      {syncResult.companies.synced} updated
+                      Companies: {syncResult.counts.companies.created} new,{" "}
+                      {syncResult.counts.companies.synced} updated
                     </span>
                     <span>
-                      Contacts: {syncResult.contacts.created} new,{" "}
-                      {syncResult.contacts.synced} updated
+                      Contacts: {syncResult.counts.contacts.created} new,{" "}
+                      {syncResult.counts.contacts.synced} updated
                     </span>
                     <span>
-                      Sites: {syncResult.sites.created} new,{" "}
-                      {syncResult.sites.synced} updated
+                      Sites: {syncResult.counts.sites.created} new,{" "}
+                      {syncResult.counts.sites.synced} updated
                     </span>
-                    {syncResult.companies.unmatched > 0 && (
+                    {syncResult.counts.companies.unmatched > 0 && (
                       <span>
-                        Unmatched: {syncResult.companies.unmatched}
+                        Unmatched: {syncResult.counts.companies.unmatched}
                       </span>
                     )}
-                    {syncResult.companies.removed > 0 && (
+                    {syncResult.counts.companies.removed > 0 && (
                       <span className="text-yellow-400">
-                        Removed: {syncResult.companies.removed}
+                        Removed: {syncResult.counts.companies.removed}
                       </span>
                     )}
                   </div>
                   {(() => {
+                    const c = syncResult.counts;
                     const skipped = [
-                      syncResult.contacts.skipped && `Contacts (${(syncResult.contacts as any).error || "unknown error"})`,
-                      syncResult.sites.skipped && `Sites (${(syncResult.sites as any).error || "unknown error"})`,
-                      syncResult.configurations.skipped && `Configurations (${(syncResult.configurations as any).error || "unknown error"})`,
-                      syncResult.agreements.skipped && `Agreements (${(syncResult.agreements as any).error || "unknown error"})`,
+                      c.contacts.skipped && `Contacts (${c.contacts.error || "unknown error"})`,
+                      c.sites.skipped && `Sites (${c.sites.error || "unknown error"})`,
+                      c.configurations.skipped && `Configurations (${c.configurations.error || "unknown error"})`,
+                      c.agreements.skipped && `Agreements (${c.agreements.error || "unknown error"})`,
                     ].filter(Boolean);
                     if (skipped.length === 0) return null;
                     return (
@@ -443,6 +478,22 @@ export function SyncSettingsCard({
                       </div>
                     );
                   })()}
+                </div>
+              )}
+
+              {/* Sync failed */}
+              {syncResult && syncResult.status === "failed" && (
+                <div className="rounded-md border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-400 space-y-1">
+                  <div className="flex items-center gap-2 font-medium">
+                    <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                    Sync failed
+                  </div>
+                  <div className="pl-5 text-red-400/80">
+                    {syncResult.error || "Unknown error"}
+                    {syncResult.current > 0 && (
+                      <span> — completed {syncResult.current} of {syncResult.total} companies before failure</span>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -458,9 +509,9 @@ export function SyncSettingsCard({
                 </div>
               )}
 
-              {(runAutoSync.error || syncAll.error) && (
+              {syncAll.error && (
                 <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2.5 text-xs text-red-400">
-                  {runAutoSync.error?.message || syncAll.error?.message}
+                  {syncAll.error.message}
                 </div>
               )}
             </>
