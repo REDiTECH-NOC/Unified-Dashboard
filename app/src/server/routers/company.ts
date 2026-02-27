@@ -375,6 +375,7 @@ export const companyRouter = router({
       z.object({
         searchTerm: z.string().optional(),
         status: z.string().optional(),
+        type: z.string().optional(),
         page: z.number().min(1).default(1),
         pageSize: z.number().min(1).max(100).default(50),
       })
@@ -387,6 +388,9 @@ export const companyRouter = router({
       }
       if (input.status) {
         where.status = input.status;
+      }
+      if (input.type) {
+        where.type = input.type;
       }
 
       const [companies, totalCount] = await Promise.all([
@@ -411,6 +415,16 @@ export const companyRouter = router({
         totalPages: Math.ceil(totalCount / input.pageSize),
       };
     }),
+
+  listTypes: protectedProcedure.query(async ({ ctx }) => {
+    const types = await ctx.prisma.company.findMany({
+      where: { type: { not: null } },
+      select: { type: true },
+      distinct: ["type"],
+      orderBy: { type: "asc" },
+    });
+    return types.map((t) => t.type!).filter(Boolean);
+  }),
 
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
