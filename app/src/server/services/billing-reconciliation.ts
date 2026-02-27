@@ -1,7 +1,7 @@
 /**
  * Billing Reconciliation Service
  *
- * Aggregates vendor counts from NinjaOne, SentinelOne, Cove, and Pax8,
+ * Aggregates vendor counts from NinjaOne, SentinelOne, Cove, Pax8, Blackpoint, and Avanan,
  * then compares them against CW PSA agreement additions (billed quantities).
  * Creates point-in-time reconciliation snapshots for audit and review.
  *
@@ -10,6 +10,8 @@
  *   SentinelOne:  per-SKU (complete, control, etc.) — determined from site license tier
  *   Cove:         server_backup, workstation_backup, m365_backup
  *   Pax8:         per-subscription product name (auto-discovered from active subscriptions)
+ *   Blackpoint:   managed_endpoints (DEVICE-class assets per tenant)
+ *   Avanan:       per-package user counts (auto-discovered from tenant packages)
  */
 
 import type { PrismaClient } from "@prisma/client";
@@ -17,6 +19,8 @@ import { ConnectorFactory } from "../connectors/factory";
 import type { NinjaOneRmmConnector } from "../connectors/ninjaone/connector";
 import type { SentinelOneEdrConnector } from "../connectors/sentinelone/connector";
 import type { Pax8LicensingConnector } from "../connectors/pax8/connector";
+import type { BlackpointConnector } from "../connectors/blackpoint/connector";
+import type { AvananEmailSecurityConnector } from "../connectors/avanan/connector";
 import { isM365Tenant } from "../connectors/cove/mappers";
 
 // ─── Types ──────────────────────────────────────────────────
@@ -59,6 +63,16 @@ const KNOWN_VENDOR_PRODUCTS: Array<{ vendorToolId: string; productKey: string; p
   { vendorToolId: "pax8", productKey: "microsoft_defender_for_business", productName: "Pax8 Microsoft Defender for Business", unit: "licenses" },
   { vendorToolId: "pax8", productKey: "microsoft_365_e3", productName: "Pax8 Microsoft 365 E3", unit: "licenses" },
   { vendorToolId: "pax8", productKey: "microsoft_365_e5", productName: "Pax8 Microsoft 365 E5", unit: "licenses" },
+  // Blackpoint: per-edition products (API doesn't expose edition — user maps the correct one)
+  { vendorToolId: "blackpoint", productKey: "response_compliance", productName: "Blackpoint Response + Compliance", unit: "devices" },
+  { vendorToolId: "blackpoint", productKey: "endpoint_mdr_essentials", productName: "Blackpoint Endpoint MDR Essentials", unit: "devices" },
+  { vendorToolId: "blackpoint", productKey: "cloud_mdr_essentials", productName: "Blackpoint Cloud MDR Essentials", unit: "devices" },
+  { vendorToolId: "blackpoint", productKey: "cloud_endpoint_mdr_essentials", productName: "Blackpoint Cloud & Endpoint MDR Essentials", unit: "devices" },
+  { vendorToolId: "blackpoint", productKey: "core", productName: "Blackpoint Core", unit: "devices" },
+  { vendorToolId: "blackpoint", productKey: "standard", productName: "Blackpoint Standard", unit: "devices" },
+  // Avanan: common packages seeded — additional packages auto-discovered from tenant data
+  { vendorToolId: "avanan", productKey: "advanced_email_security", productName: "Avanan Advanced Email Security", unit: "users" },
+  { vendorToolId: "avanan", productKey: "complete_email_security", productName: "Avanan Complete Email Security", unit: "users" },
 ];
 
 /** Ensure all known vendor products exist in DB (idempotent) */
@@ -91,7 +105,7 @@ export async function getVendorCountsForCompany(
   });
 
   const counts: VendorCount[] = [];
-  const targetTools = toolIds ?? ["ninjaone", "sentinelone", "cove", "pax8"];
+  const targetTools = toolIds ?? ["ninjaone", "sentinelone", "cove", "pax8", "blackpoint", "avanan"];
 
   for (const mapping of mappings) {
     if (!targetTools.includes(mapping.toolId)) continue;
@@ -126,6 +140,20 @@ export async function getVendorCountsForCompany(
           );
           break;
         }
+        case "blackpoint": {
+          const toolCounts = await getBlackpointCounts(mapping.externalId, prisma);
+          counts.push(
+            ...toolCounts.map((c) => ({ ...c, companyExternalId: mapping.externalId }))
+          );
+          break;
+        }
+        case "avanan": {
+          const toolCounts = await getAvananCounts(mapping.externalId, prisma);
+          counts.push(
+            ...toolCounts.map((c) => ({ ...c, companyExternalId: mapping.externalId }))
+          );
+          break;
+        }
       }
     } catch {
       // Tool not configured or API error — skip silently
@@ -143,7 +171,7 @@ export async function getAllVendorCounts(
   prisma: PrismaClient
 ): Promise<Map<string, VendorCount[]>> {
   const allMappings = await prisma.companyIntegrationMapping.findMany({
-    where: { toolId: { in: ["ninjaone", "sentinelone", "cove", "pax8"] } },
+    where: { toolId: { in: ["ninjaone", "sentinelone", "cove", "pax8", "blackpoint", "avanan"] } },
     include: { company: { select: { id: true } } },
   });
 
@@ -349,6 +377,80 @@ export async function getAllVendorCounts(
     // Pax8 not configured
   }
 
+  // ─── Blackpoint: per-tenant DEVICE asset counts ────────
+  try {
+    const bpMappings = byTool.get("blackpoint");
+    if (bpMappings?.length) {
+      const mdr = (await ConnectorFactory.get("mdr", prisma)) as BlackpointConnector;
+
+      for (const mapping of bpMappings) {
+        try {
+          // Fetch page 1 with pageSize 1 — we only need totalCount
+          const result = await mdr.getAssets(
+            { tenantId: mapping.externalId, assetClass: "DEVICE" },
+            1,
+            1,
+            mapping.externalId
+          );
+          const count = result.totalCount ?? result.data.length;
+          if (count > 0) {
+            appendCounts(mapping.companyId, [{
+              toolId: "blackpoint",
+              productKey: "response_compliance",
+              productName: "Blackpoint Response + Compliance",
+              count,
+              unit: "devices",
+              companyExternalId: mapping.externalId,
+              lastSyncedAt: new Date(),
+            }]);
+          }
+        } catch {
+          // Skip this tenant
+        }
+      }
+    }
+  } catch {
+    // Blackpoint not configured
+  }
+
+  // ─── Avanan: per-tenant user counts by package ────────
+  try {
+    const avananMappings = byTool.get("avanan");
+    if (avananMappings?.length) {
+      const emailSec = (await ConnectorFactory.getByToolId<"email_security">("avanan", prisma)) as AvananEmailSecurityConnector;
+      const allTenants = await emailSec.listTenants();
+
+      // Index tenants by ID (stringified) for fast lookup
+      const tenantById = new Map(allTenants.map((t) => [String(t.id), t]));
+
+      for (const mapping of avananMappings) {
+        const tenant = tenantById.get(mapping.externalId);
+        if (!tenant || tenant.isDeleted) continue;
+
+        const userCount = tenant.users ?? 0;
+        if (userCount === 0) continue;
+
+        // Product key from package code name
+        const packageKey = tenant.packageCodeName
+          ? tenant.packageCodeName.toLowerCase().replace(/[^a-z0-9]+/g, "_")
+          : "email_security";
+        const packageLabel = tenant.packageName || "Email Security";
+
+        appendCounts(mapping.companyId, [{
+          toolId: "avanan",
+          productKey: packageKey,
+          productName: `Avanan ${packageLabel}`,
+          count: userCount,
+          unit: "users",
+          companyExternalId: mapping.externalId,
+          lastSyncedAt: new Date(),
+        }]);
+      }
+    }
+  } catch {
+    // Avanan not configured
+  }
+
   return result;
 }
 
@@ -486,6 +588,61 @@ async function getPax8Counts(
     unit: "licenses",
     lastSyncedAt: now,
   }));
+}
+
+async function getBlackpointCounts(
+  tenantId: string,
+  prisma: PrismaClient
+): Promise<Omit<VendorCount, "companyExternalId">[]> {
+  const mdr = (await ConnectorFactory.get("mdr", prisma)) as BlackpointConnector;
+  // Fetch page 1 with pageSize 1 — we only need the totalCount from pagination metadata
+  const result = await mdr.getAssets(
+    { tenantId, assetClass: "DEVICE" },
+    1,
+    1,
+    tenantId
+  );
+  const count = result.totalCount ?? result.data.length;
+  if (count === 0) return [];
+
+  // Blackpoint API doesn't expose edition — use the account's edition.
+  // Users on a different edition should update their product mapping accordingly.
+  return [{
+    toolId: "blackpoint",
+    productKey: "response_compliance",
+    productName: "Blackpoint Response + Compliance",
+    count,
+    unit: "endpoints",
+    lastSyncedAt: new Date(),
+  }];
+}
+
+async function getAvananCounts(
+  tenantExternalId: string,
+  prisma: PrismaClient
+): Promise<Omit<VendorCount, "companyExternalId">[]> {
+  const emailSec = (await ConnectorFactory.getByToolId<"email_security">("avanan", prisma)) as AvananEmailSecurityConnector;
+  const allTenants = await emailSec.listTenants();
+
+  const tenant = allTenants.find((t) => String(t.id) === tenantExternalId);
+  if (!tenant || tenant.isDeleted) return [];
+
+  const userCount = tenant.users ?? 0;
+  if (userCount === 0) return [];
+
+  const packageKey = tenant.packageCodeName
+    ? tenant.packageCodeName.toLowerCase().replace(/[^a-z0-9]+/g, "_")
+    : "email_security";
+  const packageLabel = tenant.packageName || "Email Security";
+
+  return [{
+    toolId: "avanan",
+    productKey: packageKey,
+    productName: `Avanan ${packageLabel}`,
+    count: userCount,
+    unit: "users",
+    lastSyncedAt: new Date(),
+  }];
 }
 
 // ─── Reconciliation Engine ──────────────────────────────────
@@ -775,6 +932,20 @@ export async function getLiveVendorCount(
     }
     case "pax8": {
       const counts = await getPax8Counts(externalId, prisma);
+      if (productKey) {
+        return counts.find((c) => c.productKey === productKey)?.count ?? 0;
+      }
+      return counts.reduce((sum, c) => sum + c.count, 0);
+    }
+    case "blackpoint": {
+      const counts = await getBlackpointCounts(externalId, prisma);
+      if (productKey) {
+        return counts.find((c) => c.productKey === productKey)?.count ?? 0;
+      }
+      return counts.reduce((sum, c) => sum + c.count, 0);
+    }
+    case "avanan": {
+      const counts = await getAvananCounts(externalId, prisma);
       if (productKey) {
         return counts.find((c) => c.productKey === productKey)?.count ?? 0;
       }

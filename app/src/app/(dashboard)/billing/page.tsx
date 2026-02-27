@@ -23,6 +23,9 @@ const VENDOR_LABELS: Record<string, { label: string; color: string }> = {
   ninjaone: { label: "Ninja", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
   sentinelone: { label: "S1", color: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
   cove: { label: "Cove", color: "bg-teal-500/20 text-teal-400 border-teal-500/30" },
+  pax8: { label: "Pax8", color: "bg-orange-500/20 text-orange-400 border-orange-500/30" },
+  blackpoint: { label: "BP", color: "bg-red-500/20 text-red-400 border-red-500/30" },
+  avanan: { label: "Avanan", color: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30" },
 };
 
 export default function BillingPage() {

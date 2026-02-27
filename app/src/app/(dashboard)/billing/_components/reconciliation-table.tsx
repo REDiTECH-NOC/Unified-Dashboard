@@ -20,6 +20,8 @@ const VENDOR_COLORS: Record<string, string> = {
   sentinelone: "text-purple-400 bg-purple-500/10 border-purple-500/20",
   cove: "text-teal-400 bg-teal-500/10 border-teal-500/20",
   pax8: "text-orange-400 bg-orange-500/10 border-orange-500/20",
+  blackpoint: "text-red-400 bg-red-500/10 border-red-500/20",
+  avanan: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
 };
 
 interface ReconciliationItem {

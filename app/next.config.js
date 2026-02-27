@@ -4,9 +4,8 @@ const nextConfig = {
   env: {
     APP_VERSION: require("./package.json").version,
   },
+  serverExternalPackages: ["@prisma/client", "ioredis", "dockerode"],
   experimental: {
-    serverComponentsExternalPackages: ["@prisma/client", "ioredis", "dockerode"],
-    instrumentationHook: true,
     outputFileTracingIncludes: {
       "/api/trpc/\\[trpc\\]": ["./node_modules/ioredis/**/*"],
     },
@@ -41,7 +40,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
               "font-src 'self' data:",
-              "connect-src 'self' https://login.microsoftonline.com https://graph.microsoft.com",
+              "connect-src 'self' https://login.microsoftonline.com https://graph.microsoft.com https://*.s3.amazonaws.com",
               "frame-src 'self'",
               "frame-ancestors 'self'",
               "form-action 'self' https://login.microsoftonline.com",

@@ -23,6 +23,8 @@ const VENDOR_TABS = [
   { id: "sentinelone", label: "SentinelOne", color: "text-purple-400 border-purple-500/30" },
   { id: "cove", label: "Cove Backup", color: "text-teal-400 border-teal-500/30" },
   { id: "pax8", label: "Pax8", color: "text-orange-400 border-orange-500/30" },
+  { id: "blackpoint", label: "Blackpoint", color: "text-red-400 border-red-500/30" },
+  { id: "avanan", label: "Avanan", color: "text-cyan-400 border-cyan-500/30" },
 ];
 
 export default function MappingsPage() {
@@ -206,6 +208,12 @@ export default function MappingsPage() {
                   Auto-discovered from SentinelOne sites
                 </span>
               )}
+              {activeTab === "avanan" && (
+                <span className="ml-2 inline-flex items-center gap-1 text-[10px] text-cyan-400 font-normal">
+                  <Info className="h-3 w-3" />
+                  Auto-discovered from Avanan tenant packages
+                </span>
+              )}
             </h2>
           </div>
           <button
@@ -332,7 +340,7 @@ export default function MappingsPage() {
                                 style={{
                                   bottom: `${window.innerHeight - rect.top + 4}px`,
                                   left: `${rect.left}px`,
-                                  width: `${Math.max(rect.width, 300)}px`,
+                                  width: `${Math.max(rect.width, 480)}px`,
                                 }}
                               >
                                 {cwProductsQuery.isLoading ? (
@@ -357,8 +365,9 @@ export default function MappingsPage() {
                                         });
                                       }}
                                       className="w-full px-3 py-2 text-left text-xs hover:bg-muted/50 transition-colors flex items-center gap-2"
+                                      title={`${cw.description ?? cw.identifier}${cw.category ? ` (${cw.category})` : ""}`}
                                     >
-                                      <span className="truncate">{cw.description ?? cw.identifier}</span>
+                                      <span className="text-zinc-200">{cw.description ?? cw.identifier}</span>
                                       {cw.category && (
                                         <span className="text-[10px] text-zinc-500 shrink-0">({cw.category})</span>
                                       )}

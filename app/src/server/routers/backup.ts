@@ -130,6 +130,27 @@ export const backupRouter = router({
       }
     }),
 
+  // ─── Bulk Recovery-Enabled Devices (DRaaS) ─────────────────────
+
+  getRecoveryEnabledDevices: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const backup = await ConnectorFactory.get("backup", ctx.prisma);
+      if ("getRecoveryEnabledDevices" in backup) {
+        return await (
+          backup as {
+            getRecoveryEnabledDevices: () => Promise<
+              Array<{ deviceId: string; type: string; status: string; planName: string; targetType: string }>
+            >;
+          }
+        ).getRecoveryEnabledDevices();
+      }
+      return [] as Array<{ deviceId: string; type: string; status: string; planName: string; targetType: string }>;
+    } catch (err) {
+      console.error("[backup.getRecoveryEnabledDevices] Error:", err);
+      return [];
+    }
+  }),
+
   // ─── Alerts ───────────────────────────────────────────────────
 
   getAlerts: protectedProcedure.query(async ({ ctx }) => {
