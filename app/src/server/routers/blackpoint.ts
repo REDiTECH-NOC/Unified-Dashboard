@@ -1042,6 +1042,12 @@ export const blackpointRouter = router({
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       await bp.testEmailChannel(input.id);
+      await auditLog({
+        action: "blackpoint.email_channel.tested",
+        category: "INTEGRATION",
+        actorId: ctx.user.id,
+        resource: `bp-email-channel:${input.id}`,
+      });
       return { success: true };
     }),
 
@@ -1050,6 +1056,12 @@ export const blackpointRouter = router({
     .mutation(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       await bp.testWebhookChannel(input.id);
+      await auditLog({
+        action: "blackpoint.webhook_channel.tested",
+        category: "INTEGRATION",
+        actorId: ctx.user.id,
+        resource: `bp-webhook-channel:${input.id}`,
+      });
       return { success: true };
     }),
 

@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ConnectorFactory } from "@/server/connectors/factory";
 import { notifyUsersForAlert } from "@/lib/notification-engine";
+import { auditLog } from "@/lib/audit";
 
 function timingSafeCompare(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -175,6 +176,12 @@ export async function POST(request: Request) {
       `[CRON:alert-check] ${alerts.length} alerts checked, ${notified} notifications sent, ${skipped} skipped (already seen or no matching prefs). ${elapsed}ms`
     );
 
+    await auditLog({
+      action: "cron.alert_check.executed",
+      category: "SYSTEM",
+      detail: { alertsChecked: alerts.length, notificationsSent: notified, skipped, elapsedMs: elapsed },
+    });
+
     return NextResponse.json({
       success: true,
       alertsChecked: alerts.length,
@@ -184,6 +191,12 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error("[CRON:alert-check] Error:", err);
+    await auditLog({
+      action: "cron.alert_check.failed",
+      category: "SYSTEM",
+      outcome: "failure",
+      detail: { error: String(err) },
+    });
     return NextResponse.json(
       { error: "Alert check failed", details: String(err) },
       { status: 500 }

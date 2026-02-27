@@ -19,6 +19,7 @@ import {
   getAllVendorCounts,
   getLiveVendorCount,
 } from "../services/billing-reconciliation";
+import { refreshCompanyAgreements } from "./company";
 
 export const billingRouter = router({
   // ─── Reconciliation Summary ──────────────────────────────
@@ -288,6 +289,14 @@ export const billingRouter = router({
   reconcileCompany: adminProcedure
     .input(z.object({ companyId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      // Refresh CW agreements + additions from the CW API first
+      // so reconciliation compares against the latest billed quantities
+      try {
+        await refreshCompanyAgreements(ctx.prisma, input.companyId);
+      } catch (err) {
+        console.error("[Billing] CW agreement refresh failed, proceeding with cached data:", err);
+      }
+
       const result = await reconcileCompany(
         input.companyId,
         ctx.prisma,
@@ -322,6 +331,12 @@ export const billingRouter = router({
 
     for (const company of companies) {
       try {
+        // Refresh CW agreements + additions before reconciling
+        try {
+          await refreshCompanyAgreements(ctx.prisma, company.id);
+        } catch {
+          // Non-fatal — proceed with cached data
+        }
         const result = await reconcileCompany(company.id, ctx.prisma, ctx.user.id);
         results.push({
           companyId: company.id,
@@ -716,6 +731,18 @@ export const billingRouter = router({
         }
       }
 
+      await auditLog({
+        action: "billing.bulk_reconcile_to_psa",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `reconciliation-items:${input.itemIds.length}`,
+        detail: {
+          itemCount: input.itemIds.length,
+          successCount: results.filter((r) => !r.error).length,
+          errorCount: results.filter((r) => r.error).length,
+        },
+      });
+
       return results;
     }),
 
@@ -726,6 +753,13 @@ export const billingRouter = router({
     .mutation(async ({ ctx, input }) => {
       const counts = await getVendorCountsForCompany(input.companyId, ctx.prisma);
       const result = await reconcileCompany(input.companyId, ctx.prisma, ctx.user.id);
+      await auditLog({
+        action: "billing.vendor_counts.synced",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `company:${input.companyId}`,
+        detail: { companyId: input.companyId, vendorCounts: counts },
+      });
       return { vendorCounts: counts, reconciliation: result };
     }),
 
@@ -751,6 +785,13 @@ export const billingRouter = router({
 
     await ctx.prisma.billingSyncConfig.updateMany({
       data: { lastSyncAt: new Date(), lastSyncStatus: errors > 0 ? "completed_with_errors" : "completed" },
+    });
+
+    await auditLog({
+      action: "billing.vendor_counts.sync_all",
+      category: "DATA",
+      actorId: ctx.user.id,
+      detail: { processed, errors, total: companies.length },
     });
 
     return { processed, errors, total: companies.length };
@@ -793,16 +834,26 @@ export const billingRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.billingSyncConfig.findFirst();
 
+      let result;
       if (existing) {
-        return ctx.prisma.billingSyncConfig.update({
+        result = await ctx.prisma.billingSyncConfig.update({
           where: { id: existing.id },
+          data: { ...input, updatedBy: ctx.user.id },
+        });
+      } else {
+        result = await ctx.prisma.billingSyncConfig.create({
           data: { ...input, updatedBy: ctx.user.id },
         });
       }
 
-      return ctx.prisma.billingSyncConfig.create({
-        data: { ...input, updatedBy: ctx.user.id },
+      await auditLog({
+        action: "billing.sync_schedule.updated",
+        category: "INTEGRATION",
+        actorId: ctx.user.id,
+        detail: { enabled: input.enabled, frequency: input.frequency, dayOfWeek: input.dayOfWeek, hourUtc: input.hourUtc },
       });
+
+      return result;
     }),
 
   // ─── Product Mappings ────────────────────────────────────
@@ -833,9 +884,17 @@ export const billingRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.billingProductMapping.create({
+      const result = await ctx.prisma.billingProductMapping.create({
         data: { ...input, createdBy: ctx.user.id },
       });
+      await auditLog({
+        action: "billing.product_mapping.created",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `mapping:${result.id}`,
+        detail: { vendorToolId: input.vendorToolId, vendorProductKey: input.vendorProductKey, vendorProductName: input.vendorProductName },
+      });
+      return result;
     }),
 
   updateProductMapping: adminProcedure
@@ -1031,13 +1090,21 @@ export const billingRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.billingVendorProduct.create({
+      const result = await ctx.prisma.billingVendorProduct.create({
         data: {
           ...input,
           isAutoDiscovered: false,
           createdBy: ctx.user.id,
         },
       });
+      await auditLog({
+        action: "billing.vendor_product.created",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `vendor-product:${result.id}`,
+        detail: { vendorToolId: input.vendorToolId, productKey: input.productKey, productName: input.productName },
+      });
+      return result;
     }),
 
   /** Admin deletes a manual vendor product */
@@ -1054,19 +1121,35 @@ export const billingRouter = router({
       await ctx.prisma.companyBillingAssignment.deleteMany({
         where: { vendorProductId: input.id },
       });
-      return ctx.prisma.billingVendorProduct.delete({
+      const result = await ctx.prisma.billingVendorProduct.delete({
         where: { id: input.id },
       });
+      await auditLog({
+        action: "billing.vendor_product.deleted",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `vendor-product:${input.id}`,
+        detail: { vendorToolId: product.vendorToolId, productName: product.productName },
+      });
+      return result;
     }),
 
   /** Toggle active state for a vendor product */
   toggleVendorProduct: adminProcedure
     .input(z.object({ id: z.string(), isActive: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.billingVendorProduct.update({
+      const result = await ctx.prisma.billingVendorProduct.update({
         where: { id: input.id },
         data: { isActive: input.isActive },
       });
+      await auditLog({
+        action: "billing.vendor_product.toggled",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `vendor-product:${input.id}`,
+        detail: { isActive: input.isActive, productName: result.productName },
+      });
+      return result;
     }),
 
   // ─── Company Billing Assignments ─────────────────────────
@@ -1093,7 +1176,7 @@ export const billingRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.companyBillingAssignment.create({
+      const result = await ctx.prisma.companyBillingAssignment.create({
         data: {
           companyId: input.companyId,
           vendorProductId: input.vendorProductId,
@@ -1101,15 +1184,35 @@ export const billingRouter = router({
         },
         include: { vendorProduct: true },
       });
+      await auditLog({
+        action: "billing.product_assignment.created",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `company:${input.companyId}`,
+        detail: { companyId: input.companyId, vendorProductId: input.vendorProductId, productName: result.vendorProduct.productName },
+      });
+      return result;
     }),
 
   /** Remove a product assignment from a company */
   removeProductFromCompany: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.companyBillingAssignment.delete({
+      const assignment = await ctx.prisma.companyBillingAssignment.findUniqueOrThrow({
+        where: { id: input.id },
+        include: { vendorProduct: true },
+      });
+      const result = await ctx.prisma.companyBillingAssignment.delete({
         where: { id: input.id },
       });
+      await auditLog({
+        action: "billing.product_assignment.removed",
+        category: "DATA",
+        actorId: ctx.user.id,
+        resource: `company:${assignment.companyId}`,
+        detail: { companyId: assignment.companyId, vendorProductId: assignment.vendorProductId, productName: assignment.vendorProduct.productName },
+      });
+      return result;
     }),
 
   // ─── Per-Company Vendor Products (Live) ─────────────────

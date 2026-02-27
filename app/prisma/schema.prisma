@@ -108,6 +108,18 @@ model AuditEvent {
   @@index([actorId, createdAt])
 }
 
+model AuditRetentionConfig {
+  id                 String    @id @default(cuid())
+  retentionDays      Int       @default(2555) // 7 years
+  autoCleanupEnabled Boolean   @default(false)
+  cleanupFrequency   String    @default("monthly") // daily | weekly | monthly
+  lastCleanupAt      DateTime?
+  lastCleanupCount   Int       @default(0)
+  updatedBy          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
 model UserPreference {
   id        String   @id @default(cuid())
   userId    String

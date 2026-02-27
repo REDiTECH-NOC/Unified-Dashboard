@@ -75,6 +75,12 @@ export const notificationInboxRouter = router({
         where: { id: input.id, userId: ctx.user.id },
         data: { read: true },
       });
+      await auditLog({
+        action: "notification.read",
+        category: "NOTIFICATION",
+        actorId: ctx.user.id,
+        resource: `notification:${input.id}`,
+      });
       return { success: true };
     }),
 
@@ -85,6 +91,12 @@ export const notificationInboxRouter = router({
     const result = await ctx.prisma.inAppNotification.updateMany({
       where: { userId: ctx.user.id, read: false },
       data: { read: true },
+    });
+    await auditLog({
+      action: "notification.all_read",
+      category: "NOTIFICATION",
+      actorId: ctx.user.id,
+      detail: { markedCount: result.count },
     });
     return { updated: result.count };
   }),
@@ -97,6 +109,12 @@ export const notificationInboxRouter = router({
     .mutation(async ({ ctx, input }) => {
       await ctx.prisma.inAppNotification.deleteMany({
         where: { id: input.id, userId: ctx.user.id },
+      });
+      await auditLog({
+        action: "notification.dismissed",
+        category: "NOTIFICATION",
+        actorId: ctx.user.id,
+        resource: `notification:${input.id}`,
       });
       return { success: true };
     }),
@@ -366,6 +384,12 @@ export const notificationInboxRouter = router({
       }
 
       console.log(`[ticket-poll] Checked ${tickets.length} tickets, created ${notificationCount} notifications (self-action filtering enabled)`);
+      await auditLog({
+        action: "notification.ticket_poll.executed",
+        category: "SYSTEM",
+        actorId: ctx.user.id,
+        detail: { ticketsChecked: tickets.length, notificationsCreated: notificationCount },
+      });
       return { skipped: false, notifications: notificationCount, ticketsChecked: tickets.length };
     } catch (err: any) {
       console.error("[ticket-poll] Error:", err?.message);

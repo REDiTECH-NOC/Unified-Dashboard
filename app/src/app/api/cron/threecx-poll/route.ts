@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ThreecxInstanceManager } from "@/server/connectors/threecx/instance-manager";
+import { auditLog } from "@/lib/audit";
 
 function timingSafeCompare(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -114,10 +115,18 @@ export async function GET(request: Request) {
       : { id: "unknown", name: "unknown", ok: false, error: "Promise rejected" }
   );
 
-  return NextResponse.json({
+  const summary = {
     polled: settled.length,
     online: settled.filter((r) => r.ok).length,
     offline: settled.filter((r) => !r.ok).length,
     errors: settled.filter((r) => !r.ok),
+  };
+
+  await auditLog({
+    action: "cron.threecx_poll.executed",
+    category: "SYSTEM",
+    detail: { polled: summary.polled, online: summary.online, offline: summary.offline, errorCount: summary.errors.length },
   });
+
+  return NextResponse.json(summary);
 }
