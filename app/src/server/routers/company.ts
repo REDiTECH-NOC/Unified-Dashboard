@@ -41,8 +41,8 @@ function classifySyncError(err: unknown): string {
 // Called by both runAutoSync and syncSelected.
 
 interface SubEntityCounts {
-  contacts: { synced: number; created: number };
-  sites: { synced: number; created: number };
+  contacts: { synced: number; created: number; skipped: boolean; error?: string };
+  sites: { synced: number; created: number; skipped: boolean; error?: string };
   configurations: { synced: number; created: number; skipped: boolean; error?: string };
   agreements: { synced: number; created: number; skipped: boolean; error?: string };
   additions: { synced: number; created: number; skipped: boolean; error?: string };
@@ -55,8 +55,8 @@ async function syncCompanySubEntities(
   psaSourceId: string
 ): Promise<SubEntityCounts> {
   const counts: SubEntityCounts = {
-    contacts: { synced: 0, created: 0 },
-    sites: { synced: 0, created: 0 },
+    contacts: { synced: 0, created: 0, skipped: false },
+    sites: { synced: 0, created: 0, skipped: false },
     configurations: { synced: 0, created: 0, skipped: false },
     agreements: { synced: 0, created: 0, skipped: false },
     additions: { synced: 0, created: 0, skipped: false },
@@ -122,8 +122,11 @@ async function syncCompanySubEntities(
       hasMore = result.hasMore;
       page++;
     }
-  } catch {
-    // Contact sync failure is not fatal
+  } catch (err) {
+    const reason = classifySyncError(err);
+    console.error("[CW Sync] Contacts sync failed:", reason, err);
+    counts.contacts.skipped = true;
+    counts.contacts.error = reason;
   }
 
   // ── Sites ──
@@ -157,11 +160,14 @@ async function syncCompanySubEntities(
         counts.sites.created++;
       }
     }
-  } catch {
-    // Site sync failure is not fatal
+  } catch (err) {
+    const reason = classifySyncError(err);
+    console.error("[CW Sync] Sites sync failed:", reason, err);
+    counts.sites.skipped = true;
+    counts.sites.error = reason;
   }
 
-  // ── Configurations (may be permission-blocked) ──
+  // ── Configurations ──
   try {
     let page = 1;
     let hasMore = true;
@@ -205,7 +211,7 @@ async function syncCompanySubEntities(
     counts.configurations.error = reason;
   }
 
-  // ── Agreements (may be permission-blocked) ──
+  // ── Agreements ──
   const syncedAgreements: Array<{ cwId: string; localId: string }> = [];
   try {
     let page = 1;
@@ -578,8 +584,8 @@ export const companyRouter = router({
     // 4. Upsert each CW company + sub-entities
     const counts = {
       companies: { synced: 0, created: 0, unmatched: 0, removed: 0 },
-      contacts: { synced: 0, created: 0 },
-      sites: { synced: 0, created: 0 },
+      contacts: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
+      sites: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
       configurations: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
       agreements: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
     };
@@ -627,8 +633,16 @@ export const companyRouter = router({
       );
       counts.contacts.synced += sub.contacts.synced;
       counts.contacts.created += sub.contacts.created;
+      if (sub.contacts.skipped) {
+        counts.contacts.skipped = true;
+        counts.contacts.error ??= sub.contacts.error;
+      }
       counts.sites.synced += sub.sites.synced;
       counts.sites.created += sub.sites.created;
+      if (sub.sites.skipped) {
+        counts.sites.skipped = true;
+        counts.sites.error ??= sub.sites.error;
+      }
       counts.configurations.synced += sub.configurations.synced;
       counts.configurations.created += sub.configurations.created;
       if (sub.configurations.skipped) {
@@ -715,8 +729,8 @@ export const companyRouter = router({
 
       const counts = {
         companies: { synced: 0, created: 0, failed: 0 },
-        contacts: { synced: 0, created: 0 },
-        sites: { synced: 0, created: 0 },
+        contacts: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
+        sites: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
         configurations: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
         agreements: { synced: 0, created: 0, skipped: false, error: undefined as string | undefined },
       };
@@ -760,8 +774,16 @@ export const companyRouter = router({
           );
           counts.contacts.synced += sub.contacts.synced;
           counts.contacts.created += sub.contacts.created;
+          if (sub.contacts.skipped) {
+            counts.contacts.skipped = true;
+            counts.contacts.error ??= sub.contacts.error;
+          }
           counts.sites.synced += sub.sites.synced;
           counts.sites.created += sub.sites.created;
+          if (sub.sites.skipped) {
+            counts.sites.skipped = true;
+            counts.sites.error ??= sub.sites.error;
+          }
           counts.configurations.synced += sub.configurations.synced;
           counts.configurations.created += sub.configurations.created;
           if (sub.configurations.skipped) {

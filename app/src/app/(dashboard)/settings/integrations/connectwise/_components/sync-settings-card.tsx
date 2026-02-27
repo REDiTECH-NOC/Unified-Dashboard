@@ -430,21 +430,21 @@ export function SyncSettingsCard({
                       </span>
                     )}
                   </div>
-                  {(syncResult.configurations.skipped ||
-                    syncResult.agreements.skipped) && (
-                    <div className="flex items-center gap-1.5 text-yellow-400/80 pl-5 mt-1">
-                      <AlertCircle className="h-3 w-3" />
-                      <span>
-                        {syncResult.configurations.skipped &&
-                          `Configurations skipped (${(syncResult.configurations as any).error || "unknown error"})`}
-                        {syncResult.configurations.skipped &&
-                          syncResult.agreements.skipped &&
-                          " · "}
-                        {syncResult.agreements.skipped &&
-                          `Agreements skipped (${(syncResult.agreements as any).error || "unknown error"})`}
-                      </span>
-                    </div>
-                  )}
+                  {(() => {
+                    const skipped = [
+                      syncResult.contacts.skipped && `Contacts (${(syncResult.contacts as any).error || "unknown error"})`,
+                      syncResult.sites.skipped && `Sites (${(syncResult.sites as any).error || "unknown error"})`,
+                      syncResult.configurations.skipped && `Configurations (${(syncResult.configurations as any).error || "unknown error"})`,
+                      syncResult.agreements.skipped && `Agreements (${(syncResult.agreements as any).error || "unknown error"})`,
+                    ].filter(Boolean);
+                    if (skipped.length === 0) return null;
+                    return (
+                      <div className="flex items-start gap-1.5 text-yellow-400/80 pl-5 mt-1">
+                        <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                        <span>Skipped: {skipped.join(" · ")}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
