@@ -30,10 +30,8 @@ interface SyncSettingsCardProps {
 
 const SCHEDULE_OPTIONS = [
   { value: "on_demand", label: "On Demand" },
-  { value: "hourly", label: "Hourly" },
-  { value: "every6h", label: "Every 6h" },
   { value: "every12h", label: "Every 12h" },
-  { value: "daily", label: "Daily" },
+  { value: "daily", label: "Daily (overnight)" },
 ] as const;
 
 export function SyncSettingsCard({
@@ -110,7 +108,7 @@ export function SyncSettingsCard({
       syncMode,
       syncStatuses: statusFilters,
       syncTypes: typeFilters,
-      autoSyncSchedule: schedule as "on_demand" | "hourly" | "every6h" | "every12h" | "daily",
+      autoSyncSchedule: schedule as "on_demand" | "every12h" | "daily",
       removalPolicy: removalPolicy as "keep" | "remove_after_days",
       removalDays,
     });

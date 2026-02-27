@@ -16,6 +16,7 @@ import {
   Check,
   X,
   Filter,
+  RefreshCw,
 } from "lucide-react";
 
 interface CompanyExplorerProps {
@@ -102,6 +103,7 @@ export function CompanyExplorer({ syncMode }: CompanyExplorerProps) {
   });
 
   const [importedIds, setImportedIds] = useState<Set<string>>(new Set());
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
   function handleImportOne(sourceId: string) {
     importSingle.mutate(
@@ -110,6 +112,17 @@ export function CompanyExplorer({ syncMode }: CompanyExplorerProps) {
         onSuccess: () => {
           setImportedIds((prev) => new Set(prev).add(sourceId));
         },
+      }
+    );
+  }
+
+  function handleRefreshOne(sourceId: string) {
+    setRefreshingId(sourceId);
+    importSingle.mutate(
+      { psaCompanyId: sourceId },
+      {
+        onSuccess: () => setRefreshingId(null),
+        onError: () => setRefreshingId(null),
       }
     );
   }
@@ -435,21 +448,53 @@ export function CompanyExplorer({ syncMode }: CompanyExplorerProps) {
                       </td>
                       <td className="px-3 py-2 text-center">
                         {isSynced || justImported ? (
-                          <Badge
-                            variant="success"
-                            className="text-[10px] gap-1"
-                          >
-                            <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
-                            Synced
-                          </Badge>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <Badge
+                              variant="success"
+                              className="text-[10px] gap-1"
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
+                              Synced
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              title="Re-sync this company"
+                              onClick={() => handleRefreshOne(company.sourceId)}
+                              disabled={refreshingId === company.sourceId}
+                            >
+                              {refreshingId === company.sourceId ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
                         ) : isSyncDisabled ? (
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] gap-1"
-                          >
-                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 inline-block" />
-                            Disabled
-                          </Badge>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] gap-1"
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 inline-block" />
+                              Disabled
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              title="Re-sync this company"
+                              onClick={() => handleRefreshOne(company.sourceId)}
+                              disabled={refreshingId === company.sourceId}
+                            >
+                              {refreshingId === company.sourceId ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
                         ) : !isManual ? (
                           <Button
                             variant="ghost"

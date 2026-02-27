@@ -373,8 +373,6 @@ export const integrationRouter = router({
         syncTypes: z.array(z.string()),
         autoSyncSchedule: z.enum([
           "on_demand",
-          "hourly",
-          "every6h",
           "every12h",
           "daily",
         ]),
