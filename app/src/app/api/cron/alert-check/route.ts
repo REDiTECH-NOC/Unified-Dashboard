@@ -98,25 +98,8 @@ async function collectAlerts(): Promise<AlertItem[]> {
   }
 
   // ── Uptime Monitors ──
-  try {
-    const monitors = await prisma.monitor.findMany({
-      where: { active: true, status: { in: ["DOWN", "PENDING"] } },
-      include: { company: { select: { name: true } } },
-    });
-    for (const m of monitors) {
-      const isDown = m.status === "DOWN";
-      alerts.push({
-        id: `uptime-${m.id}`,
-        source: "uptime",
-        severity: isDown ? "critical" : "medium",
-        title: `${m.name} is ${m.status}`,
-        description: m.description || undefined,
-        organizationName: m.company?.name,
-      });
-    }
-  } catch {
-    // DB error — skip
-  }
+  // Uptime alerts are now handled directly by the UptimeScheduler on state
+  // transitions (incident-based). No polling needed here.
 
   // ── Cove Backup ──
   try {
@@ -142,6 +125,95 @@ async function collectAlerts(): Promise<AlertItem[]> {
   return alerts;
 }
 
+/**
+ * Match alerts to CW companies and open tickets.
+ * For each alert, resolves the company via fuzzy name match on the local
+ * Company table, then searches for open CW tickets matching that company
+ * + hostname. Results are persisted to AlertState for instant UI display.
+ * Non-fatal: individual alert failures are skipped.
+ */
+async function matchAlertsToTickets(alerts: AlertItem[]): Promise<number> {
+  let matched = 0;
+
+  for (const alert of alerts) {
+    try {
+      // Skip if already has a linked ticket
+      const existing = await prisma.alertState.findUnique({
+        where: { alertId: alert.id },
+        select: { linkedTicketId: true },
+      });
+      if (existing?.linkedTicketId) continue;
+
+      // Step 1: Resolve CW company ID
+      let cwCompanyId: string | null = null;
+      let matchedCompanyName: string | null = null;
+
+      if (alert.organizationName) {
+        const company = await prisma.company.findFirst({
+          where: {
+            name: { contains: alert.organizationName, mode: "insensitive" },
+            status: "Active",
+          },
+        });
+        if (company?.psaSourceId) {
+          cwCompanyId = company.psaSourceId;
+          matchedCompanyName = company.name;
+        }
+      }
+
+      // Always upsert the company match (even if no ticket found yet)
+      await prisma.alertState.upsert({
+        where: { alertId: alert.id },
+        create: {
+          alertId: alert.id,
+          source: alert.source,
+          matchedCompanyId: cwCompanyId,
+          matchedCompanyName,
+        },
+        update: {
+          // Only overwrite if we found a match (don't erase existing)
+          ...(cwCompanyId ? { matchedCompanyId: cwCompanyId, matchedCompanyName } : {}),
+        },
+      });
+
+      if (!cwCompanyId) continue;
+
+      // Step 2: Search for matching open tickets
+      const psa = await ConnectorFactory.get("psa", prisma);
+      const result = await psa.getTickets(
+        {
+          companyId: cwCompanyId,
+          searchTerm: alert.deviceHostname || undefined,
+        },
+        1,
+        5
+      );
+
+      const openTickets = result.data.filter(
+        (t) => !["Closed", "Resolved", "Completed"].includes(t.status)
+      );
+
+      if (openTickets.length > 0) {
+        const ticket = openTickets[0];
+        await prisma.alertState.update({
+          where: { alertId: alert.id },
+          data: {
+            linkedTicketId: ticket.sourceId,
+            linkedTicketSummary: ticket.summary,
+            matchMethod: "cron_auto",
+            matchedAt: new Date(),
+          },
+        });
+        matched++;
+      }
+    } catch {
+      // Individual alert matching failure — skip and continue
+    }
+  }
+
+  return matched;
+}
+
 export async function POST(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -159,6 +231,15 @@ export async function POST(request: Request) {
 
   try {
     const alerts = await collectAlerts();
+
+    // Match alerts to CW companies and open tickets
+    let ticketsMatched = 0;
+    try {
+      ticketsMatched = await matchAlertsToTickets(alerts);
+    } catch (err) {
+      console.error("[CRON:alert-check] Ticket matching error:", err);
+    }
+
     let notified = 0;
     let skipped = 0;
 
@@ -173,18 +254,19 @@ export async function POST(request: Request) {
 
     const elapsed = Date.now() - startTime;
     console.log(
-      `[CRON:alert-check] ${alerts.length} alerts checked, ${notified} notifications sent, ${skipped} skipped (already seen or no matching prefs). ${elapsed}ms`
+      `[CRON:alert-check] ${alerts.length} alerts checked, ${ticketsMatched} tickets matched, ${notified} notifications sent, ${skipped} skipped. ${elapsed}ms`
     );
 
     await auditLog({
       action: "cron.alert_check.executed",
       category: "SYSTEM",
-      detail: { alertsChecked: alerts.length, notificationsSent: notified, skipped, elapsedMs: elapsed },
+      detail: { alertsChecked: alerts.length, ticketsMatched, notificationsSent: notified, skipped, elapsedMs: elapsed },
     });
 
     return NextResponse.json({
       success: true,
       alertsChecked: alerts.length,
+      ticketsMatched,
       notificationsSent: notified,
       skipped,
       elapsedMs: elapsed,

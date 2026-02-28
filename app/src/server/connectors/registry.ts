@@ -22,8 +22,9 @@ import { CoveBackupConnector } from "./cove/connector";
 import { Pax8LicensingConnector } from "./pax8/connector";
 import { DropsuiteConnector } from "./dropsuite/connector";
 import { DnsFilterConnector } from "./dnsfilter/connector";
+import { KeeperConnector } from "./keeper/connector";
 
-export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network" | "mdr" | "cipp" | "email_security" | "backup" | "saas_backup" | "licensing" | "dns_security";
+export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network" | "mdr" | "cipp" | "email_security" | "backup" | "saas_backup" | "licensing" | "dns_security" | "password_manager";
 
 export interface ConnectorRegistration {
   category: ConnectorCategory;
@@ -126,5 +127,13 @@ export const CONNECTOR_REGISTRY: Record<string, ConnectorRegistration> = {
     rateLimitMax: 100,
     rateLimitWindowMs: 60_000,
     factory: (config) => new DnsFilterConnector(config),
+  },
+
+  keeper: {
+    category: "password_manager",
+    defaultBaseUrl: "https://keepersecurity.com/api/rest/enterprise/v1",
+    rateLimitMax: 60,
+    rateLimitWindowMs: 60_000,
+    factory: (config) => new KeeperConnector(config),
   },
 };

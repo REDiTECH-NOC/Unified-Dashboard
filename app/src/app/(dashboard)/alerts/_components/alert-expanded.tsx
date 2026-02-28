@@ -24,11 +24,18 @@ import {
   ChevronsRight,
   Shield,
   AlertTriangle,
+  UserCheck,
+  UserMinus,
+  XCircle,
+  RotateCw,
+  Ticket,
 } from "lucide-react";
 import { ConfirmationDialog } from "./confirmation-dialog";
 import { CoveAlertDetail } from "./cove-alert-detail";
 import { DropsuiteAlertDetail } from "./dropsuite-alert-detail";
+import { UptimeAlertDetail } from "./uptime-alert-detail";
 import { AlertTicketLink } from "./alert-ticket-link";
+import { useTicketBubbles } from "@/contexts/ticket-bubble-context";
 
 /* ─── TYPES ────────────────────────────────────────────── */
 
@@ -50,11 +57,26 @@ interface AlertItem {
   bpOrganizationSourceId?: string;
 }
 
+interface AlertStateEntry {
+  closed?: boolean;
+  closedAt?: Date | string | null;
+  closeNote?: string | null;
+  owner?: { id: string; name: string | null; avatar: string | null } | null;
+  closedBy?: { id: string; name: string | null } | null;
+  linkedTicketId?: string | null;
+  linkedTicketSummary?: string | null;
+  matchedCompanyId?: string | null;
+  matchedCompanyName?: string | null;
+  source?: string;
+}
+
 interface AlertExpandedProps {
   source: string;
   alerts: AlertItem[];
+  alertStates: Record<string, AlertStateEntry>;
   onOpenDetail: (sourceId: string) => void;
   onClose: () => void;
+  onOpenCreateTicket: (alerts: AlertItem[]) => void;
 }
 
 interface S1ThreatRaw {
@@ -868,9 +890,178 @@ function BpContextSection({ bpRaw, bpRiskScore, bpTicketStatus }: {
   );
 }
 
+/* ─── ALERT ACTIONS BAR (per-alert ownership, close, ticket) ── */
+
+function AlertActions({
+  alert,
+  alertState,
+  source,
+  onOpenCreateTicket,
+}: {
+  alert: AlertItem;
+  alertState?: AlertStateEntry;
+  source: string;
+  onOpenCreateTicket: (alerts: AlertItem[]) => void;
+}) {
+  const [showCloseForm, setShowCloseForm] = useState(false);
+  const [closeNote, setCloseNote] = useState("");
+  const utils = trpc.useUtils();
+  const { openTicket } = useTicketBubbles();
+
+  const takeOwnership = trpc.alertAction.takeOwnership.useMutation({
+    onSuccess: () => utils.alertAction.getStates.invalidate(),
+  });
+  const releaseOwnership = trpc.alertAction.releaseOwnership.useMutation({
+    onSuccess: () => utils.alertAction.getStates.invalidate(),
+  });
+  const closeAlert = trpc.alertAction.close.useMutation({
+    onSuccess: () => {
+      utils.alertAction.getStates.invalidate();
+      setShowCloseForm(false);
+      setCloseNote("");
+    },
+  });
+  const reopenAlert = trpc.alertAction.reopen.useMutation({
+    onSuccess: () => utils.alertAction.getStates.invalidate(),
+  });
+
+  const isClosed = alertState?.closed;
+  const isOwned = !!alertState?.owner;
+  const isPending =
+    takeOwnership.isPending ||
+    releaseOwnership.isPending ||
+    closeAlert.isPending ||
+    reopenAlert.isPending;
+
+  return (
+    <div className="space-y-2 pt-2 border-t border-border/30">
+      {/* State info: owner, linked ticket, closed */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {alertState?.owner && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-blue-400">
+            <UserCheck className="h-3.5 w-3.5" />
+            Owned by {alertState.owner.name || "Unknown"}
+          </span>
+        )}
+        {alertState?.linkedTicketId && (
+          <button
+            onClick={() => openTicket(alertState.linkedTicketId!)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-primary/20 bg-primary/5 text-[11px] text-primary font-mono hover:bg-primary/10 transition-colors"
+          >
+            <Ticket className="h-3 w-3" />
+            #{alertState.linkedTicketId}
+            {alertState.linkedTicketSummary && (
+              <span className="text-muted-foreground font-sans ml-1 truncate max-w-[200px]">
+                {alertState.linkedTicketSummary}
+              </span>
+            )}
+          </button>
+        )}
+        {isClosed && alertState?.closeNote && (
+          <span className="text-[11px] text-zinc-400">
+            Closed: {alertState.closeNote}
+            {alertState.closedBy?.name && ` — ${alertState.closedBy.name}`}
+          </span>
+        )}
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Take / Release Ownership */}
+        {isOwned ? (
+          <button
+            onClick={() => releaseOwnership.mutate({ alertIds: [alert.id] })}
+            disabled={isPending}
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[11px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors disabled:opacity-50"
+          >
+            {releaseOwnership.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserMinus className="h-3 w-3" />}
+            Release
+          </button>
+        ) : (
+          <button
+            onClick={() => takeOwnership.mutate({ alertIds: [alert.id], source })}
+            disabled={isPending}
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[11px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors disabled:opacity-50"
+          >
+            {takeOwnership.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserCheck className="h-3 w-3" />}
+            Assign to Me
+          </button>
+        )}
+
+        {/* Close / Reopen */}
+        {isClosed ? (
+          <button
+            onClick={() => reopenAlert.mutate({ alertId: alert.id })}
+            disabled={isPending}
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[11px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 hover:bg-zinc-500/20 transition-colors disabled:opacity-50"
+          >
+            {reopenAlert.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+            Reopen
+          </button>
+        ) : (
+          <button
+            onClick={() => setShowCloseForm(!showCloseForm)}
+            disabled={isPending}
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[11px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+          >
+            <XCircle className="h-3 w-3" />
+            Close
+          </button>
+        )}
+
+        {/* Create Ticket (only if no linked ticket) */}
+        {!alertState?.linkedTicketId && (
+          <button
+            onClick={() => onOpenCreateTicket([alert])}
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[11px] font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors"
+          >
+            <Ticket className="h-3 w-3" />
+            Create Ticket
+          </button>
+        )}
+      </div>
+
+      {/* Close note form */}
+      {showCloseForm && (
+        <div className="flex items-start gap-2">
+          <textarea
+            value={closeNote}
+            onChange={(e) => setCloseNote(e.target.value)}
+            placeholder="Resolution note..."
+            rows={2}
+            className="flex-1 rounded-lg bg-background border border-border px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
+            autoFocus
+          />
+          <button
+            onClick={() => {
+              if (!closeNote.trim()) return;
+              closeAlert.mutate({
+                alertIds: [alert.id],
+                source,
+                note: closeNote.trim(),
+              });
+            }}
+            disabled={!closeNote.trim() || closeAlert.isPending}
+            className="h-8 px-3 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-50 shrink-0"
+          >
+            {closeAlert.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Close Alert"}
+          </button>
+        </div>
+      )}
+
+      {/* Error messages */}
+      {(takeOwnership.error || closeAlert.error || reopenAlert.error) && (
+        <div className="text-[10px] text-red-400">
+          {(takeOwnership.error || closeAlert.error || reopenAlert.error)?.message?.substring(0, 100)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── MAIN COMPONENT ──────────────────────────────────── */
 
-export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertExpandedProps) {
+export function AlertExpanded({ source, alerts, alertStates, onOpenDetail, onClose, onOpenCreateTicket }: AlertExpandedProps) {
   const { dateTime } = useTimezone();
   const [currentIndex, setCurrentIndex] = useState(0);
 
@@ -921,6 +1112,13 @@ export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertEx
             alert={currentAlert}
           />
 
+          <AlertActions
+            alert={currentAlert}
+            alertState={alertStates[currentAlert.id]}
+            source={source}
+            onOpenCreateTicket={onOpenCreateTicket}
+          />
+
           <button onClick={onClose} className="text-xs text-red-500 hover:text-red-400">
             Close
           </button>
@@ -931,7 +1129,19 @@ export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertEx
 
   // Blackpoint standalone alerts: rich detail view
   if (source === "blackpoint") {
-    return <BlackpointAlertDetail alert={currentAlert} onClose={onClose} />;
+    return (
+      <div className="space-y-0">
+        <BlackpointAlertDetail alert={currentAlert} onClose={onClose} />
+        <div className="px-6 pb-4">
+          <AlertActions
+            alert={currentAlert}
+            alertState={alertStates[currentAlert.id]}
+            source={source}
+            onOpenCreateTicket={onOpenCreateTicket}
+          />
+        </div>
+      </div>
+    );
   }
 
   // Dropsuite SaaS backup alerts: account-level detail view
@@ -942,9 +1152,32 @@ export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertEx
           key={currentAlert.sourceId}
           alert={currentAlert}
         />
+        <AlertActions
+          alert={currentAlert}
+          alertState={alertStates[currentAlert.id]}
+          source={source}
+          onOpenCreateTicket={onOpenCreateTicket}
+        />
         <button onClick={onClose} className="text-xs text-red-500 hover:text-red-400">
           Close
         </button>
+      </div>
+    );
+  }
+
+  // Uptime monitor alerts: incident detail view
+  if (source === "uptime") {
+    return (
+      <div className="space-y-0">
+        <UptimeAlertDetail alert={currentAlert} onClose={onClose} />
+        <div className="px-6 pb-4">
+          <AlertActions
+            alert={currentAlert}
+            alertState={alertStates[currentAlert.id]}
+            source={source}
+            onOpenCreateTicket={onOpenCreateTicket}
+          />
+        </div>
       </div>
     );
   }
@@ -967,6 +1200,12 @@ export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertEx
             deviceHostname: currentAlert.deviceHostname,
             detectedAt: currentAlert.detectedAt,
           }}
+        />
+        <AlertActions
+          alert={currentAlert}
+          alertState={alertStates[currentAlert.id]}
+          source={source}
+          onOpenCreateTicket={onOpenCreateTicket}
         />
         <button onClick={onClose} className="text-xs text-red-500 hover:text-red-400">
           Close
@@ -1099,6 +1338,14 @@ export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertEx
             }}
           />
         )}
+
+        {/* ─── Alert Actions (ownership, close, ticket) ─── */}
+        <AlertActions
+          alert={currentAlert}
+          alertState={alertStates[currentAlert.id]}
+          source={source}
+          onOpenCreateTicket={onOpenCreateTicket}
+        />
       </div>
     </div>
   );

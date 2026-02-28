@@ -28,6 +28,9 @@ import { billingRouter } from "./billing";
 import { licensingRouter } from "./licensing";
 import { saasBackupRouter } from "./saas-backup";
 import { dnsFilterRouter } from "./dns-filter";
+import { itGluePermRouter } from "./itglue-perm";
+import { keeperRouter } from "./keeper";
+import { alertActionRouter } from "./alert-action";
 
 export const appRouter = router({
   user: userRouter,
@@ -59,6 +62,9 @@ export const appRouter = router({
   licensing: licensingRouter,
   saasBackup: saasBackupRouter,
   dnsFilter: dnsFilterRouter,
+  itGluePerm: itGluePermRouter,
+  keeper: keeperRouter,
+  alertAction: alertActionRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -18,10 +18,11 @@ import {
 import {
   Lock, Plus, Copy, Check, UserCog, ShieldCheck, Pencil, Trash2,
   Users as UsersIcon, Search, ChevronDown, ChevronRight, Link2, Loader2,
-  Info, X,
+  Info, X, BookOpen,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { ITGlueAccessTab } from "./_components/itglue-access-tab";
 
 const roleColors: Record<string, string> = {
   ADMIN: "destructive",
@@ -46,7 +47,7 @@ function UsersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const activeTab = tabParam === "roles" ? "roles" : tabParam === "group-sync" ? "group-sync" : "users";
+  const activeTab = tabParam === "roles" ? "roles" : tabParam === "group-sync" ? "group-sync" : tabParam === "itglue" ? "itglue" : "users";
   const utils = trpc.useUtils();
 
   // ── Users tab state ──
@@ -209,7 +210,7 @@ function UsersContent() {
 
   const isRoleSaving = createRole.isPending || updateRole.isPending;
 
-  function setTab(tab: "users" | "roles" | "group-sync") {
+  function setTab(tab: "users" | "roles" | "group-sync" | "itglue") {
     router.push(`/settings/users${tab !== "users" ? `?tab=${tab}` : ""}`);
   }
 
@@ -316,6 +317,18 @@ function UsersContent() {
           {groupMappings && groupMappings.length > 0 && (
             <Badge variant="secondary" className="text-[10px] ml-1">{groupMappings.length}</Badge>
           )}
+        </button>
+        <button
+          onClick={() => setTab("itglue")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
+            activeTab === "itglue"
+              ? "border-primary text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <BookOpen className="h-4 w-4" />
+          IT Glue Access
         </button>
       </div>
 
@@ -689,6 +702,9 @@ function UsersContent() {
           </Card>
         </div>
       )}
+
+      {/* ═══ IT Glue Access Tab Content ═══ */}
+      {activeTab === "itglue" && <ITGlueAccessTab />}
 
       {/* ═══ Create User Dialog ═══ */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

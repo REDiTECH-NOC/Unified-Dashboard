@@ -49,14 +49,14 @@ export function UptimeStatusModule({ config, onConfigChange, isConfigOpen, onCon
         {list.map((m) => {
           const isUp = m.status === "UP";
           const isDown = m.status === "DOWN";
-          const isPending = m.status === "PENDING";
+          const isWarning = m.status === "WARNING";
           const hb = m.latestHeartbeat as { latencyMs?: number } | null;
 
           return (
             <div key={m.id} className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg hover:bg-accent/50 transition-colors">
               <div className={cn(
                 "w-2 h-2 rounded-full shrink-0",
-                isUp ? "bg-green-500" : isDown ? "bg-red-500" : isPending ? "bg-yellow-500" : "bg-zinc-500"
+                isUp ? "bg-green-500" : isDown ? "bg-red-500" : isWarning ? "bg-amber-500" : "bg-zinc-500"
               )} />
               <span className="text-xs font-medium text-foreground truncate flex-1">{m.name}</span>
               {!m.active && (
@@ -67,9 +67,9 @@ export function UptimeStatusModule({ config, onConfigChange, isConfigOpen, onCon
               )}
               <span className={cn(
                 "text-[10px] font-medium shrink-0",
-                isUp ? "text-green-500" : isDown ? "text-red-500" : isPending ? "text-yellow-500" : "text-muted-foreground"
+                isUp ? "text-green-500" : isDown ? "text-red-500" : isWarning ? "text-amber-500" : "text-muted-foreground"
               )}>
-                {isUp ? "UP" : isDown ? "DOWN" : isPending ? "PENDING" : "—"}
+                {isUp ? "UP" : isDown ? "DOWN" : isWarning ? "WARN" : "—"}
               </span>
             </div>
           );
@@ -87,6 +87,7 @@ export function UptimeStatusModule({ config, onConfigChange, isConfigOpen, onCon
             {[
               { id: "all", label: "All" },
               { id: "UP", label: "Up" },
+              { id: "WARNING", label: "Warning" },
               { id: "DOWN", label: "Down" },
               { id: "PAUSED", label: "Paused" },
             ].map((s) => (

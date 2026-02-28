@@ -9,6 +9,11 @@ import { z } from "zod";
 import { router, protectedProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
+import {
+  resolveITGlueAccess,
+  batchResolveITGlueAccess,
+  getAllowedOrgIds,
+} from "@/lib/itglue-permissions";
 
 export const documentationRouter = router({
   // ─── Organizations ───────────────────────────────────────
@@ -23,11 +28,19 @@ export const documentationRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const docs = await ConnectorFactory.get("documentation", ctx.prisma);
-      return docs.getOrganizations(
+      const result = await docs.getOrganizations(
         input.searchTerm,
         input.page,
         input.pageSize
       );
+
+      // Filter by IT Glue permissions — only return orgs the user has access to
+      const allowedOrgs = await getAllowedOrgIds(ctx.user.id);
+      if (allowedOrgs.size > 0) {
+        result.data = result.data.filter((org) => allowedOrgs.has(org.sourceId));
+      }
+
+      return result;
     }),
 
   getOrganizationById: requirePerm("documentation.view")
@@ -51,6 +64,14 @@ export const documentationRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      // If org is specified, check IT Glue permissions for flexible_assets section
+      if (input.organizationId) {
+        const access = await resolveITGlueAccess(ctx.user.id, input.organizationId, "flexible_assets");
+        if (!access.allowed) {
+          return { data: [], hasMore: false, totalCount: 0 };
+        }
+      }
+
       const docs = await ConnectorFactory.get("documentation", ctx.prisma);
       return docs.getDocuments(
         {
@@ -138,15 +159,21 @@ export const documentationRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      // Check IT Glue permissions for this org + passwords section
+      const access = await resolveITGlueAccess(ctx.user.id, input.organizationId, "passwords");
+      if (!access.allowed) {
+        const { TRPCError } = await import("@trpc/server");
+        throw new TRPCError({ code: "FORBIDDEN", message: "No access to passwords in this organization" });
+      }
+
       const docs = await ConnectorFactory.get("documentation", ctx.prisma);
 
-      // Audit log password list access (security event)
       await auditLog({
         action: "credential.list.accessed",
         category: "SECURITY",
         actorId: ctx.user.id,
         resource: `organization:${input.organizationId}`,
-        detail: { searchTerm: input.searchTerm },
+        detail: { searchTerm: input.searchTerm, accessMode: access.mode },
       });
 
       return docs.getPasswords(
@@ -165,6 +192,24 @@ export const documentationRouter = router({
 
       // TODO: Phase 4 — Check MFA session validity (2-hour window)
       // TODO: Phase 4 — Check per-user rate limit for password retrievals
+
+      // Check IT Glue per-asset permissions via cached metadata
+      const cachedAsset = await ctx.prisma.iTGlueCachedAsset.findUnique({
+        where: { itGlueId: input.id },
+      });
+      if (cachedAsset) {
+        const access = await resolveITGlueAccess(
+          ctx.user.id,
+          cachedAsset.orgId,
+          "passwords",
+          cachedAsset.categoryId ?? undefined,
+          cachedAsset.itGlueId
+        );
+        if (!access.allowed) {
+          const { TRPCError } = await import("@trpc/server");
+          throw new TRPCError({ code: "FORBIDDEN", message: "No access to this password" });
+        }
+      }
 
       await auditLog({
         action: "credential.requested",
@@ -202,6 +247,13 @@ export const documentationRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      if (input.organizationId) {
+        const access = await resolveITGlueAccess(ctx.user.id, input.organizationId, "configurations");
+        if (!access.allowed) {
+          return { data: [], hasMore: false, totalCount: 0 };
+        }
+      }
+
       const docs = await ConnectorFactory.get("documentation", ctx.prisma);
       return docs.getConfigurations(
         input.organizationId,
@@ -223,6 +275,13 @@ export const documentationRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      if (input.organizationId) {
+        const access = await resolveITGlueAccess(ctx.user.id, input.organizationId, "contacts");
+        if (!access.allowed) {
+          return { data: [], hasMore: false, totalCount: 0 };
+        }
+      }
+
       const docs = await ConnectorFactory.get("documentation", ctx.prisma);
       return docs.getContacts(
         input.organizationId,
@@ -238,4 +297,98 @@ export const documentationRouter = router({
     const docs = await ConnectorFactory.get("documentation", ctx.prisma);
     return docs.getFlexibleAssetTypes();
   }),
+
+  // ─── Search (Cached Data + Permission Filtered) ─────────
+
+  search: requirePerm("documentation.view")
+    .input(
+      z.object({
+        query: z.string().min(1).max(200),
+        orgId: z.string().optional(),
+        section: z.enum(["passwords", "flexible_assets", "configurations", "contacts", "documents"]).optional(),
+        assetTypeId: z.string().optional(),
+        page: z.number().min(1).default(1),
+        pageSize: z.number().min(1).max(100).default(25),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      // Query cached IT Glue assets with case-insensitive name match
+      const assets = await ctx.prisma.iTGlueCachedAsset.findMany({
+        where: {
+          name: { contains: input.query, mode: "insensitive" },
+          ...(input.orgId && { orgId: input.orgId }),
+          ...(input.section && { section: input.section }),
+          ...(input.assetTypeId && { categoryId: input.assetTypeId }),
+        },
+        orderBy: { name: "asc" },
+        take: input.pageSize * 4, // Over-fetch to account for permission filtering
+      });
+
+      if (assets.length === 0) {
+        return { data: [], total: 0, totalBeforeFilter: 0, hasMore: false };
+      }
+
+      // Batch resolve IT Glue permissions
+      const accessMap = await batchResolveITGlueAccess(
+        ctx.user.id,
+        assets.map((a) => ({
+          orgId: a.orgId,
+          section: a.section,
+          categoryId: a.categoryId ?? undefined,
+          assetId: a.itGlueId,
+        }))
+      );
+
+      // Filter by access and apply pagination
+      const allowed = assets
+        .filter((a) => {
+          const access = accessMap.get(a.itGlueId);
+          return access?.allowed;
+        })
+        .map((a) => ({
+          itGlueId: a.itGlueId,
+          name: a.name,
+          orgId: a.orgId,
+          section: a.section,
+          categoryId: a.categoryId,
+          categoryName: a.categoryName,
+          accessMode: accessMap.get(a.itGlueId)!.mode,
+        }));
+
+      const start = (input.page - 1) * input.pageSize;
+      const paged = allowed.slice(start, start + input.pageSize);
+
+      // Enrich with org names
+      const orgIds = [...new Set(paged.map((a) => a.orgId))];
+      const orgs = await ctx.prisma.iTGlueCachedOrg.findMany({
+        where: { itGlueId: { in: orgIds } },
+        select: { itGlueId: true, name: true },
+      });
+      const orgNameMap = new Map(orgs.map((o) => [o.itGlueId, o.name]));
+
+      const enriched = paged.map((a) => ({
+        ...a,
+        orgName: orgNameMap.get(a.orgId) ?? a.orgId,
+      }));
+
+      await auditLog({
+        action: "itglue.search",
+        category: "DATA",
+        actorId: ctx.user.id,
+        detail: {
+          query: input.query,
+          resultCount: enriched.length,
+          totalBeforeFilter: assets.length,
+          orgId: input.orgId,
+          section: input.section,
+        },
+      });
+
+      return {
+        data: enriched,
+        total: allowed.length,
+        totalBeforeFilter: assets.length,
+        hasMore: start + input.pageSize < allowed.length,
+      };
+    }),
 });

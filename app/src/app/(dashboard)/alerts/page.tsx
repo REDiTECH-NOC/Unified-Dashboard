@@ -23,6 +23,12 @@ import {
   HardDrive,
   Globe,
   ArrowUpDown,
+  UserCheck,
+  Ticket,
+  EyeOff,
+  Eye,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTimezone } from "@/hooks/use-timezone";
@@ -33,6 +39,8 @@ import { S1ManagementView } from "./_components/s1-management";
 import { AvananManagementView } from "./_components/avanan-management";
 import { BlackpointManagementView } from "./_components/bp-management";
 import { DnsManagementView } from "./_components/dns-management";
+import { AlertActionBar } from "./_components/alert-action-bar";
+import { CreateTicketPanel } from "./_components/create-ticket-panel";
 
 /* ─── TYPES ──────────────────────────────────────────────── */
 
@@ -280,26 +288,58 @@ const sourceColors: Record<string, string> = {
   dnsfilter: "text-violet-400 bg-violet-500/10 border-violet-500/20",
 };
 
-function AlertRow({ group, expanded, onToggle }: { group: AlertGroup; expanded: boolean; onToggle: () => void }) {
+interface AlertRowProps {
+  group: AlertGroup;
+  expanded: boolean;
+  onToggle: () => void;
+  selected: boolean;
+  onSelect: (e: React.MouseEvent) => void;
+  alertState?: {
+    closed?: boolean;
+    closeNote?: string | null;
+    owner?: { id: string; name: string | null; avatar: string | null } | null;
+    linkedTicketId?: string | null;
+    linkedTicketSummary?: string | null;
+  };
+}
+
+function AlertRow({ group, expanded, onToggle, selected, onSelect, alertState }: AlertRowProps) {
   const { dateTime } = useTimezone();
   const alert = group.representative;
   const cfg = severityConfig[alert.severity];
+  const isClosed = alertState?.closed;
 
   return (
-    <button
+    <div
       onClick={onToggle}
+      role="button"
+      tabIndex={0}
       className={cn(
-        "w-full flex items-center gap-3 px-4 py-3 transition-colors text-left group",
-        expanded ? "bg-accent/40" : "hover:bg-accent/50"
+        "w-full flex items-center gap-3 px-4 py-3 transition-colors text-left group cursor-pointer",
+        expanded ? "bg-accent/40" : "hover:bg-accent/50",
+        selected && "bg-primary/5 border-l-2 border-l-primary",
+        isClosed && "opacity-50"
       )}
     >
+      {/* Checkbox */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onSelect(e); }}
+        className="shrink-0 flex items-center justify-center w-5 h-5 rounded transition-colors"
+      >
+        {selected ? (
+          <CheckSquare className="h-4 w-4 text-primary" />
+        ) : (
+          <Square className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground/70 transition-colors" />
+        )}
+      </button>
+
       {/* Severity dot */}
       <span className={cn("w-2 h-2 rounded-full shrink-0", cfg.dot)} />
 
       {/* Main info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-foreground truncate">{alert.title}</span>
+          <span className={cn("text-sm font-medium text-foreground truncate", isClosed && "line-through")}>{alert.title}</span>
           {/* Group count badge */}
           {group.count > 1 && (
             <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold border border-red-500/30">
@@ -330,6 +370,12 @@ function AlertRow({ group, expanded, onToggle }: { group: AlertGroup; expanded: 
               {alert.mitigationStatus === "mitigated" || alert.mitigationStatus === "resolved" ? "Mitigated" : "Not Mitigated"}
             </span>
           )}
+          {/* Closed badge */}
+          {isClosed && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-500/30 bg-zinc-500/10 text-zinc-400">
+              Closed
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3 mt-0.5">
           {/* Show unique hostnames for groups, single hostname otherwise */}
@@ -353,6 +399,36 @@ function AlertRow({ group, expanded, onToggle }: { group: AlertGroup; expanded: 
           )}
         </div>
       </div>
+
+      {/* Owner avatar */}
+      {alertState?.owner && (
+        <div
+          className="shrink-0 flex items-center gap-1"
+          title={`Assigned to ${alertState.owner.name || "Unknown"}`}
+        >
+          {alertState.owner.avatar ? (
+            <img src={alertState.owner.avatar} alt="" className="h-5 w-5 rounded-full" />
+          ) : (
+            <div className="h-5 w-5 rounded-full bg-blue-500/20 flex items-center justify-center">
+              <UserCheck className="h-3 w-3 text-blue-400" />
+            </div>
+          )}
+          <span className="text-[10px] text-blue-400 hidden lg:inline">
+            {alertState.owner.name?.split(" ")[0]}
+          </span>
+        </div>
+      )}
+
+      {/* Linked ticket badge */}
+      {alertState?.linkedTicketId && (
+        <span
+          className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded border border-primary/20 bg-primary/5 text-[10px] text-primary font-mono"
+          title={alertState.linkedTicketSummary || `Ticket #${alertState.linkedTicketId}`}
+        >
+          <Ticket className="h-3 w-3" />
+          #{alertState.linkedTicketId}
+        </span>
+      )}
 
       {/* File hash / VirusTotal */}
       {alert.fileHash && (
@@ -380,7 +456,7 @@ function AlertRow({ group, expanded, onToggle }: { group: AlertGroup; expanded: 
       ) : (
         <ChevronDown className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
       )}
-    </button>
+    </div>
   );
 }
 
@@ -433,6 +509,12 @@ export default function AlertsPage() {
   const [showBpManagement, setShowBpManagement] = useState(false);
   const [showDnsManagement, setShowDnsManagement] = useState(false);
 
+  // ─── Multi-Select & Alert State ─────────────────────────────
+  const [selectedAlertIds, setSelectedAlertIds] = useState<Set<string>>(new Set());
+  const [showClosed, setShowClosed] = useState(false);
+  const [showCreateTicket, setShowCreateTicket] = useState(false);
+  const [createTicketAlerts, setCreateTicketAlerts] = useState<UnifiedAlert[]>([]);
+
   // ─── Source Filter Helpers ─────────────────────────────────
   const allSourcesActive = activeSources.size === visibleSources.length || activeSources.size === 0;
 
@@ -468,7 +550,7 @@ export default function AlertsPage() {
   // staleTime on all queries: React Query returns cached data instantly on re-navigation,
   // then refreshes in the background. Cards never show spinners on subsequent visits.
   const s1Threats = trpc.edr.getThreats.useQuery(
-    { pageSize: 100, createdAfter },
+    { pageSize: 100, status: "unresolved" },
     { retry: false, refetchInterval: 60000, staleTime: 5 * 60_000 }
   );
 
@@ -518,6 +600,11 @@ export default function AlertsPage() {
   );
 
   const utils = trpc.useUtils();
+
+  // ─── Alert States (overlay: ownership, closed, tickets) ────
+  // We can't query until we have alert IDs, so this runs after unifiedAlerts are computed.
+  // This is declared here but actually populated after unifiedAlerts memo below.
+  // We use a ref pattern: fetch is triggered by the alertIds memo.
 
   // ─── Compute Platform Summaries ────────────────────────
 
@@ -805,17 +892,17 @@ export default function AlertsPage() {
       }
     }
 
-    // Uptime monitors (DOWN = critical, PENDING = medium)
+    // Uptime monitors (DOWN = critical, WARNING = medium)
     if (uptimeMonitors.data) {
       for (const m of uptimeMonitors.data) {
         if (!m.active) continue;
-        if (m.status !== "DOWN" && m.status !== "PENDING") continue;
+        if (m.status !== "DOWN" && m.status !== "WARNING") continue;
         const isDown = m.status === "DOWN";
         alerts.push({
           id: `uptime-${m.id}`,
           source: "uptime",
           sourceLabel: "Uptime",
-          title: `${m.name} is ${isDown ? "DOWN" : "PENDING"}`,
+          title: `${m.name} is ${isDown ? "DOWN" : "WARNING"}`,
           description: m.description || `${m.type} monitor${m.company ? ` — ${m.company.name}` : ""}`,
           severity: isDown ? "critical" : "medium",
           severityScore: isDown ? 90 : 50,
@@ -886,10 +973,35 @@ export default function AlertsPage() {
     return alerts;
   }, [s1Threats.data, bpDetections.data, ninjaAlerts.data, uptimeMonitors.data, backupAlerts.data, dsBackupAlerts.data]);
 
+  // ─── Alert State Overlay ─────────────────────────────────
+  const allAlertIds = useMemo(() => unifiedAlerts.map((a) => a.id), [unifiedAlerts]);
+
+  const alertStatesQuery = trpc.alertAction.getStates.useQuery(
+    { alertIds: allAlertIds },
+    { enabled: allAlertIds.length > 0, staleTime: 30_000 }
+  );
+  const alertStates = alertStatesQuery.data ?? {};
+
+  // Count closed alerts per source for platform card adjustments
+  const closedBySource = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const [, state] of Object.entries(alertStates)) {
+      if (state.closed) {
+        counts[state.source] = (counts[state.source] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [alertStates]);
+
   // ─── Filter Alerts ─────────────────────────────────────
 
   const filteredAlerts = useMemo(() => {
     let result = unifiedAlerts;
+
+    // Filter out closed alerts unless toggled on
+    if (!showClosed) {
+      result = result.filter((a) => !alertStates[a.id]?.closed);
+    }
 
     if (!allSourcesActive) {
       result = result.filter((a) => {
@@ -914,7 +1026,7 @@ export default function AlertsPage() {
     }
 
     return result;
-  }, [unifiedAlerts, allSourcesActive, activeSources, severityFilter, searchQuery]);
+  }, [unifiedAlerts, alertStates, showClosed, allSourcesActive, activeSources, severityFilter, searchQuery]);
 
   // ─── Group Alerts ───────────────────────────────────────
 
@@ -970,7 +1082,8 @@ export default function AlertsPage() {
   // ─── Loading / Connected States ────────────────────────
 
   const anyLoading = s1Threats.isLoading || bpDetections.isLoading || ninjaAlerts.isLoading || uptimeMonitors.isLoading || backupAlerts.isLoading || dnsFilterThreats.isLoading;
-  const totalAlerts = (s1Summary?.total ?? 0) + (bpSummary?.total ?? 0) + (ninjaSummary?.total ?? 0) + (uptimeSummary?.total ?? 0) + (backupSummary?.total ?? 0) + (dnsFilterSummary?.total ?? 0);
+  const totalClosedCount = Object.values(closedBySource).reduce((sum, c) => sum + c, 0);
+  const totalAlerts = Math.max(0, (s1Summary?.total ?? 0) + (bpSummary?.total ?? 0) + (ninjaSummary?.total ?? 0) + (uptimeSummary?.total ?? 0) + (backupSummary?.total ?? 0) + (dnsFilterSummary?.total ?? 0) - totalClosedCount);
 
   function refreshAll() {
     utils.edr.getThreats.invalidate();
@@ -981,7 +1094,30 @@ export default function AlertsPage() {
     utils.emailSecurity.listTenants.invalidate();
     utils.emailSecurity.getEventStats.invalidate();
     utils.dnsFilter.getThreatSummary.invalidate();
+    utils.alertAction.getStates.invalidate();
   }
+
+  // ─── Multi-Select Helpers ───────────────────────────────
+  function toggleAlertSelection(alertId: string) {
+    setSelectedAlertIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(alertId)) next.delete(alertId);
+      else next.add(alertId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedAlertIds.size === filteredAlerts.length) {
+      setSelectedAlertIds(new Set());
+    } else {
+      setSelectedAlertIds(new Set(filteredAlerts.map((a) => a.id)));
+    }
+  }
+
+  const closedCount = useMemo(() => {
+    return Object.values(alertStates).filter((s) => s.closed).length;
+  }, [alertStates]);
 
   return (
     <div className="space-y-6">
@@ -1442,6 +1578,23 @@ export default function AlertsPage() {
                     ))}
                   </div>
 
+                  {/* Show Closed toggle */}
+                  <button
+                    onClick={() => setShowClosed(!showClosed)}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg border transition-colors",
+                      showClosed
+                        ? "border-zinc-500/50 bg-zinc-500/10 text-zinc-300"
+                        : "border-border bg-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {showClosed ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                    {showClosed ? "Showing Closed" : "Show Closed"}
+                    {closedCount > 0 && (
+                      <span className="ml-0.5 text-[9px] opacity-70">({closedCount})</span>
+                    )}
+                  </button>
+
                   {/* Clear filters */}
                   {(!allSourcesActive || severityFilter !== "all" || searchQuery || sortMode !== "severity") && (
                     <button
@@ -1454,6 +1607,27 @@ export default function AlertsPage() {
                 </div>
               )}
             </div>
+
+            {/* Select All row */}
+            {filteredAlerts.length > 0 && (
+              <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/30 bg-accent/20">
+                <button
+                  onClick={toggleSelectAll}
+                  className="shrink-0 flex items-center justify-center w-5 h-5 rounded"
+                >
+                  {selectedAlertIds.size === filteredAlerts.length && filteredAlerts.length > 0 ? (
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Square className="h-4 w-4 text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors" />
+                  )}
+                </button>
+                <span className="text-[10px] text-muted-foreground">
+                  {selectedAlertIds.size > 0
+                    ? `${selectedAlertIds.size} of ${filteredAlerts.length} selected`
+                    : "Select all"}
+                </span>
+              </div>
+            )}
 
             {/* Alert List */}
             {anyLoading && unifiedAlerts.length === 0 ? (
@@ -1482,31 +1656,86 @@ export default function AlertsPage() {
               </div>
             ) : (
               <div className="divide-y divide-border/50">
-                {groupedAlerts.map((group) => (
-                  <div key={group.key}>
-                    <AlertRow
-                      group={group}
-                      expanded={expandedGroupKey === group.key}
-                      onToggle={() => setExpandedGroupKey(expandedGroupKey === group.key ? null : group.key)}
-                    />
-                    {/* Inline expansion */}
-                    {expandedGroupKey === group.key && (
-                      <AlertExpanded
-                        source={group.representative.source}
-                        alerts={group.alerts}
-                        onOpenDetail={(sourceId) => {
-                          if (group.representative.source === "sentinelone") {
-                            setDetailThreatId(sourceId);
-                          }
+                {groupedAlerts.map((group) => {
+                  const repAlertState = alertStates[group.representative.id];
+                  return (
+                    <div key={group.key}>
+                      <AlertRow
+                        group={group}
+                        expanded={expandedGroupKey === group.key}
+                        onToggle={() => setExpandedGroupKey(expandedGroupKey === group.key ? null : group.key)}
+                        selected={selectedAlertIds.has(group.representative.id)}
+                        onSelect={(e) => {
+                          e.stopPropagation();
+                          toggleAlertSelection(group.representative.id);
                         }}
-                        onClose={() => setExpandedGroupKey(null)}
+                        alertState={repAlertState}
                       />
-                    )}
-                  </div>
-                ))}
+                      {/* Inline expansion */}
+                      {expandedGroupKey === group.key && (
+                        <AlertExpanded
+                          source={group.representative.source}
+                          alerts={group.alerts}
+                          alertStates={alertStates}
+                          onOpenDetail={(sourceId) => {
+                            if (group.representative.source === "sentinelone") {
+                              setDetailThreatId(sourceId);
+                            }
+                          }}
+                          onClose={() => setExpandedGroupKey(null)}
+                          onOpenCreateTicket={(alertItems) => {
+                            // AlertItem from expanded view has the fields CreateTicketPanel needs
+                            setCreateTicketAlerts(alertItems as unknown as UnifiedAlert[]);
+                            setShowCreateTicket(true);
+                          }}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
+
+          {/* Inline Create Ticket Panel */}
+          {showCreateTicket && createTicketAlerts.length > 0 && (
+            <CreateTicketPanel
+              alerts={createTicketAlerts}
+              alertStates={alertStates}
+              onClose={() => {
+                setShowCreateTicket(false);
+                setCreateTicketAlerts([]);
+              }}
+              onSuccess={() => {
+                setShowCreateTicket(false);
+                setCreateTicketAlerts([]);
+                setSelectedAlertIds(new Set());
+                utils.alertAction.getStates.invalidate();
+              }}
+            />
+          )}
+
+          {/* Bulk Action Bar */}
+          {selectedAlertIds.size > 0 && (
+            <AlertActionBar
+              selectedAlerts={filteredAlerts
+                .filter((a) => selectedAlertIds.has(a.id))
+                .map((a) => ({
+                  id: a.id,
+                  source: a.source,
+                  title: a.title,
+                  severity: a.severity,
+                  deviceHostname: a.deviceHostname,
+                  organizationName: a.organizationName,
+                }))}
+              onClearSelection={() => setSelectedAlertIds(new Set())}
+              onOpenCreateTicket={() => {
+                const selected = filteredAlerts.filter((a) => selectedAlertIds.has(a.id));
+                setCreateTicketAlerts(selected);
+                setShowCreateTicket(true);
+              }}
+            />
+          )}
         </>
       )}
 

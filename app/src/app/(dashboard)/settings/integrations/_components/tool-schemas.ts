@@ -41,6 +41,7 @@ export const BUILT_TOOLS = new Set([
   "pax8",
   "dropsuite",
   "dnsfilter",
+  "keeper",
   "ai-provider",
 ]);
 
@@ -477,6 +478,36 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
       "In the DNSFilter portal, go to Settings → Keys & Tokens and generate a new API key. " +
       "A single MSP-level key provides access to all managed organizations. " +
       "The key is used in the Authorization header for all API requests.",
+  },
+
+  keeper: {
+    toolId: "keeper",
+    displayName: "Keeper Security",
+    description:
+      "Keeper Security MSP — enterprise password management, managed company monitoring, " +
+      "usage reporting, and license management via the Keeper MSP REST API.",
+    fields: [
+      {
+        key: "apiKey",
+        label: "API Key",
+        type: "text",
+        placeholder: "Enter Keeper MSP API key",
+        required: true,
+        helpText: "Your Keeper MSP API key (used as the JWT subject claim).",
+      },
+      {
+        key: "privateKey",
+        label: "API Secret",
+        type: "password",
+        placeholder: "Enter Keeper MSP API secret",
+        required: true,
+        helpText: "Secret key used to sign JWT tokens (HS512). Keep this secure.",
+      },
+    ],
+    instructions:
+      "Contact Keeper Security support or your MSP account manager to obtain API credentials. " +
+      "The API Key is used as the JWT subject, and the API Secret signs the token using HS512. " +
+      "Tokens are generated automatically and expire after 5 minutes.",
   },
 
   n8n: {

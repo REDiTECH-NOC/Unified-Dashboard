@@ -29,6 +29,7 @@ import {
   HardDrive,
   Building2,
   Tag,
+  AlertTriangle,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
@@ -40,7 +41,7 @@ function statusColor(status: string | undefined | null) {
   switch (status) {
     case "UP":      return "text-green-500";
     case "DOWN":    return "text-red-500";
-    case "PENDING": return "text-yellow-500";
+    case "WARNING": return "text-amber-500";
     default:        return "text-muted-foreground";
   }
 }
@@ -49,7 +50,7 @@ function statusDot(status: string | undefined | null) {
   switch (status) {
     case "UP":      return "bg-green-500";
     case "DOWN":    return "bg-red-500";
-    case "PENDING": return "bg-yellow-500";
+    case "WARNING": return "bg-amber-500";
     default:        return "bg-muted-foreground";
   }
 }
@@ -58,7 +59,7 @@ function statusLabel(status: string | undefined | null) {
   switch (status) {
     case "UP":      return "Up";
     case "DOWN":    return "Down";
-    case "PENDING": return "Pending";
+    case "WARNING": return "Warning";
     default:        return "Unknown";
   }
 }
@@ -141,7 +142,7 @@ function UptimeBar({ monitorId }: { monitorId: string }) {
   return (
     <div className="flex gap-px h-6 items-end group/bar">
       {bars.map((bar, i) => {
-        const bg = bar.status === "UP" ? "bg-green-500" : bar.status === "DOWN" ? "bg-red-500" : bar.status === "PENDING" ? "bg-yellow-500" : "bg-muted/30";
+        const bg = bar.status === "UP" ? "bg-green-500" : bar.status === "DOWN" ? "bg-red-500" : bar.status === "WARNING" ? "bg-amber-500" : "bg-muted/30";
         return (
           <div
             key={i}
@@ -267,6 +268,7 @@ function MonitorDetail({ monitorId, onClose }: { monitorId: string; onClose: () 
   const { dateTime, time } = useTimezone();
   const { data: monitor } = trpc.uptime.get.useQuery({ id: monitorId }, { refetchInterval: 15000 });
   const { data: stats } = trpc.uptime.stats.useQuery({ monitorId }, { refetchInterval: 30000 });
+  const { data: incidents } = trpc.uptime.incidents.useQuery({ monitorId, limit: 10 }, { refetchInterval: 30000 });
   const testNow = trpc.uptime.testNow.useMutation();
   const [testResult, setTestResult] = useState<{ status: string; latencyMs: number; message?: string } | null>(null);
 
@@ -404,6 +406,41 @@ function MonitorDetail({ monitorId, onClose }: { monitorId: string; onClose: () 
             </div>
           )}
 
+          {/* Incident History */}
+          {incidents && incidents.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">Incident History</p>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {incidents.map((inc) => {
+                  const durSecs = inc.durationSecs;
+                  const durStr = durSecs == null ? "ongoing"
+                    : durSecs < 60 ? `${durSecs}s`
+                    : durSecs < 3600 ? `${Math.round(durSecs / 60)}m`
+                    : `${Math.floor(durSecs / 3600)}h ${Math.round((durSecs % 3600) / 60)}m`;
+                  return (
+                    <div key={inc.id} className="flex items-center gap-2 text-xs py-1.5 px-2 rounded-lg bg-accent/30">
+                      <div className={cn("w-2 h-2 rounded-full shrink-0",
+                        inc.status === "DOWN" ? "bg-red-500" : "bg-amber-500"
+                      )} />
+                      <span className="text-muted-foreground shrink-0">{dateTime(inc.startedAt)}</span>
+                      <span className={cn("font-medium shrink-0",
+                        inc.status === "DOWN" ? "text-red-500" : "text-amber-500"
+                      )}>
+                        {inc.status}
+                      </span>
+                      {inc.cause && <span className="text-muted-foreground truncate flex-1">{inc.cause}</span>}
+                      <span className={cn("ml-auto text-[10px] shrink-0",
+                        inc.resolvedAt ? "text-muted-foreground" : "text-red-400"
+                      )}>
+                        {durStr}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Recent Heartbeats */}
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-2">Recent Checks</p>
@@ -453,6 +490,8 @@ interface FormState {
   maxRetries: number;
   timeoutMs: number;
   sslExpiryDays: number;
+  latencyWarningMs: string;
+  packetLossWarningPct: string;
   // HTTP
   url: string;
   method: string;
@@ -499,6 +538,7 @@ interface FormState {
 const defaultForm: FormState = {
   name: "", type: "HTTP", description: "",
   intervalSeconds: 60, retrySeconds: 60, maxRetries: 3, timeoutMs: 10000, sslExpiryDays: 30,
+  latencyWarningMs: "", packetLossWarningPct: "",
   url: "", method: "GET", expectedStatus: "200-299", keyword: "", invertKeyword: false,
   followRedirects: true, ignoreTls: false, authType: "none", authUser: "", authPass: "",
   headers: "", body: "",
@@ -564,6 +604,8 @@ function formFromMonitor(monitor: any): FormState {
     maxRetries: monitor.maxRetries,
     timeoutMs: monitor.timeoutMs,
     sslExpiryDays: monitor.sslExpiryDays,
+    latencyWarningMs: monitor.latencyWarningMs ? String(monitor.latencyWarningMs) : "",
+    packetLossWarningPct: monitor.packetLossWarningPct ? String(monitor.packetLossWarningPct) : "",
     companyId: monitor.company?.id || "",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     selectedTagIds: (monitor.tags || []).map((t: any) => t.id),
@@ -677,6 +719,8 @@ function MonitorFormDialog({ open, onClose, onSuccess, editMonitor }: {
         name: form.name, type: form.type, description: form.description,
         intervalSeconds: form.intervalSeconds, retrySeconds: form.retrySeconds,
         maxRetries: form.maxRetries, timeoutMs: form.timeoutMs, sslExpiryDays: form.sslExpiryDays,
+        latencyWarningMs: form.latencyWarningMs ? parseInt(form.latencyWarningMs, 10) : null,
+        packetLossWarningPct: form.packetLossWarningPct ? parseFloat(form.packetLossWarningPct) : null,
         config,
         companyId: form.companyId || null,
         tagIds: form.selectedTagIds,
@@ -1112,6 +1156,22 @@ function MonitorFormDialog({ open, onClose, onSuccess, editMonitor }: {
             )}
           </div>
 
+          {/* Warning Thresholds */}
+          <div className="pt-2 border-t border-border">
+            <p className="text-xs font-medium text-muted-foreground mb-1">Warning Thresholds</p>
+            <p className="text-[10px] text-muted-foreground/70 mb-3">Trigger WARNING status when thresholds are exceeded. Leave blank to disable.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Latency Warning (ms)" hint="e.g. 200">
+                <input className={inputClass} type="number" value={form.latencyWarningMs} onChange={(e) => updateForm({ latencyWarningMs: e.target.value })} placeholder="200" />
+              </FormField>
+              {form.type === "PING" && (
+                <FormField label="Packet Loss Warning (%)" hint="e.g. 33">
+                  <input className={inputClass} type="number" value={form.packetLossWarningPct} onChange={(e) => updateForm({ packetLossWarningPct: e.target.value })} placeholder="33" />
+                </FormField>
+              )}
+            </div>
+          </div>
+
           {error && <p className="text-xs text-red-500">{error}</p>}
 
           <button onClick={handleSubmit} disabled={isLoading || !form.name}
@@ -1213,7 +1273,7 @@ function MonitorRow({ monitor, onEdit, onDetail }: { monitor: any; onEdit: () =>
 
 /* ─── MAIN PAGE ──────────────────────────────────────────────── */
 
-type StatusFilter = "all" | "UP" | "DOWN" | "PAUSED";
+type StatusFilter = "all" | "UP" | "WARNING" | "DOWN" | "PAUSED";
 
 export default function MonitoringPage() {
   const [showForm, setShowForm] = useState(false);
@@ -1272,6 +1332,7 @@ export default function MonitoringPage() {
 
   const allMonitors = allMonitorsList || [];
   const upCount = allMonitors.filter((m) => m.status === "UP" && m.active).length;
+  const warningCount = allMonitors.filter((m) => m.status === "WARNING" && m.active).length;
   const downCount = allMonitors.filter((m) => m.status === "DOWN" && m.active).length;
   const pausedCount = allMonitors.filter((m) => !m.active).length;
 
@@ -1303,9 +1364,10 @@ export default function MonitoringPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard label="Total Monitors" value={allMonitors.length} icon={Activity} color="bg-accent text-foreground" />
         <StatCard label="Up" value={upCount} icon={ArrowUpCircle} color="bg-green-500/10 text-green-500" />
+        <StatCard label="Warning" value={warningCount} icon={AlertTriangle} color="bg-amber-500/10 text-amber-500" />
         <StatCard label="Down" value={downCount} icon={ArrowDownCircle} color="bg-red-500/10 text-red-500" />
         <StatCard label="Paused" value={pausedCount} icon={PauseCircle} color="bg-yellow-500/10 text-yellow-500" />
       </div>
@@ -1314,8 +1376,8 @@ export default function MonitoringPage() {
       <div className="flex items-center gap-5 text-xs text-muted-foreground">
         <span className="font-medium text-foreground">Status:</span>
         <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500" />Up — responding normally</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" />Warning — degraded performance</span>
         <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" />Down — unreachable or failed</span>
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-yellow-500" />Pending — retrying or initializing</span>
         <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-zinc-500" />Unknown — no data yet</span>
       </div>
 
@@ -1350,7 +1412,7 @@ export default function MonitoringPage() {
               />
             </div>
             <div className="flex gap-1">
-              {(["all", "UP", "DOWN", "PAUSED"] as const).map((f) => (
+              {(["all", "UP", "WARNING", "DOWN", "PAUSED"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setStatusFilter(f)}
@@ -1358,15 +1420,17 @@ export default function MonitoringPage() {
                     "px-2.5 py-1.5 text-[10px] font-medium rounded-lg border transition-colors",
                     statusFilter === f
                       ? f === "UP" ? "border-green-500/50 bg-green-500/10 text-green-500"
+                        : f === "WARNING" ? "border-amber-500/50 bg-amber-500/10 text-amber-500"
                         : f === "DOWN" ? "border-red-500/50 bg-red-500/10 text-red-500"
                         : f === "PAUSED" ? "border-yellow-500/50 bg-yellow-500/10 text-yellow-500"
                         : "border-red-500/50 bg-red-500/10 text-foreground"
                       : "border-border bg-transparent text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {f === "all" ? "All" : f === "PAUSED" ? "Paused" : f}
+                  {f === "all" ? "All" : f === "WARNING" ? "Warn" : f === "PAUSED" ? "Paused" : f}
                   {f === "all" && ` (${allMonitors.length})`}
                   {f === "UP" && ` (${upCount})`}
+                  {f === "WARNING" && ` (${warningCount})`}
                   {f === "DOWN" && ` (${downCount})`}
                   {f === "PAUSED" && ` (${pausedCount})`}
                 </button>
