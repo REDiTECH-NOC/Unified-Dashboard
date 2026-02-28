@@ -343,7 +343,7 @@ function CIPPPageInner() {
       {activeTab !== "tenants" && activeTab !== "fullui" && (
         <PlaceholderTab tab={activeTab} selectedTenant={selectedTenant} />
       )}
-      {/* fullui tab: persistent iframe overlay is rendered from the dashboard layout */}
+      {/* fullui tab content: persistent iframe renders from the dashboard layout */}
     </div>
   );
 }

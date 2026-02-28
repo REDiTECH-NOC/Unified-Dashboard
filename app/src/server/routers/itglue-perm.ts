@@ -419,6 +419,120 @@ export const itGluePermRouter = router({
       });
     }),
 
+  // Return flexible asset type categories that actually exist for a specific org
+  getOrgSectionCategories: adminProcedure
+    .input(z.object({
+      orgId: z.string(),
+      section: z.enum(["flexible_assets", "documents"]),
+    }))
+    .query(async ({ ctx, input }) => {
+      // First check if we have cached assets for this org+section — derive categories from those
+      const cachedCategories = await ctx.prisma.iTGlueCachedAsset.groupBy({
+        by: ["categoryId", "categoryName"],
+        where: {
+          orgId: input.orgId,
+          section: input.section,
+          categoryId: { not: null },
+        },
+        _count: { _all: true },
+      });
+
+      if (cachedCategories.length > 0) {
+        return cachedCategories
+          .filter((c) => c.categoryId !== null)
+          .map((c) => ({
+            itGlueId: c.categoryId!,
+            name: c.categoryName ?? c.categoryId!,
+            count: c._count._all,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      }
+
+      // Cache empty — query IT Glue API to discover categories for this org
+      try {
+        const connector = await ConnectorFactory.get("documentation", ctx.prisma);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = connector as any;
+
+        // Section-specific API config
+        const isFlexAssets = input.section === "flexible_assets";
+        const catIdKey = isFlexAssets ? "flexible-asset-type-id" : "document-folder-id";
+        const catNameKey = isFlexAssets ? "flexible-asset-type-name" : "document-folder-name";
+
+        // Flexible assets use flat endpoint with filter (relationship path returns 404)
+        // Documents use org-scoped relationship path
+        const res = await raw.requestListRaw({
+          path: isFlexAssets
+            ? "/flexible_assets"
+            : `/organizations/${input.orgId}/relationships/documents`,
+          page: 1,
+          pageSize: 1000,
+          ...(isFlexAssets && { filters: { "organization-id": input.orgId } }),
+        });
+
+        // Extract distinct flexible asset type categories
+        const categoryMap = new Map<string, { name: string; count: number }>();
+        for (const item of (res.data ?? [])) {
+          const catId = item.attributes?.[catIdKey];
+          const catName = item.attributes?.[catNameKey];
+          if (catId) {
+            const key = String(catId);
+            const existing = categoryMap.get(key);
+            if (existing) {
+              existing.count++;
+            } else {
+              categoryMap.set(key, { name: (catName as string) ?? key, count: 1 });
+            }
+          }
+        }
+
+        // Also cache these assets for future use
+        const items = ((res.data ?? []) as { id: string; attributes: Record<string, unknown> }[]).map((r) => ({
+          sourceId: r.id,
+          name: (r.attributes.name as string) || `Asset ${r.id}`,
+          catId: r.attributes[catIdKey] ? String(r.attributes[catIdKey]) : null,
+          catName: r.attributes[catNameKey] ? String(r.attributes[catNameKey]) : null,
+        }));
+
+        if (items.length > 0) {
+          await Promise.all(
+            items.map((a) =>
+              ctx.prisma.iTGlueCachedAsset.upsert({
+                where: { itGlueId: a.sourceId },
+                create: {
+                  itGlueId: a.sourceId,
+                  orgId: input.orgId,
+                  section: input.section,
+                  categoryId: a.catId,
+                  categoryName: a.catName,
+                  name: a.name,
+                  syncedAt: new Date(),
+                },
+                update: {
+                  name: a.name,
+                  section: input.section,
+                  categoryId: a.catId,
+                  categoryName: a.catName,
+                  syncedAt: new Date(),
+                },
+              })
+            )
+          );
+        }
+
+        return Array.from(categoryMap.entries())
+          .map(([id, data]) => ({
+            itGlueId: id,
+            name: data.name,
+            count: data.count,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } catch (err) {
+        console.error("[getOrgSectionCategories] Failed for org", input.orgId, input.section, err);
+        return [];
+      }
+    }),
+
   // Live-fetch assets from IT Glue API when cache is empty, then cache them
   fetchSectionAssets: adminProcedure
     .input(z.object({
@@ -440,74 +554,118 @@ export const itGluePermRouter = router({
 
       if (cached.length > 0) return cached;
 
-      // Cache empty — fetch from IT Glue API and cache results
+      // Cache empty — fetch from IT Glue API using raw requests for all types
       try {
-        const docs = await ConnectorFactory.get("documentation", ctx.prisma);
-        type AssetLike = { sourceId: string; name: string; categoryName?: string | null };
-        let apiResults: AssetLike[] = [];
+        const connector = await ConnectorFactory.get("documentation", ctx.prisma);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = connector as any;
 
-        switch (input.section) {
-          case "passwords": {
-            const res = await docs.getPasswords(input.orgId, undefined, 1, 100);
-            apiResults = res.data.map((p) => ({
-              sourceId: p.sourceId,
-              name: p.name,
-              categoryName: p.resourceType ?? null,
-            }));
-            break;
-          }
-          case "configurations": {
-            const res = await docs.getConfigurations(input.orgId, undefined, 1, 100);
-            apiResults = res.data.map((c) => ({
-              sourceId: c.sourceId,
-              name: c.hostname || "Unnamed",
-              categoryName: c.model ?? null,
-            }));
-            break;
-          }
-          case "contacts": {
-            const res = await docs.getContacts(input.orgId, undefined, 1, 100);
-            apiResults = res.data.map((c) => ({
-              sourceId: c.sourceId,
-              name: `${c.firstName} ${c.lastName}`.trim() || "Unnamed",
-              categoryName: c.title ?? null,
-            }));
-            break;
-          }
-          case "documents":
-          case "flexible_assets": {
-            const res = await docs.getDocuments(
-              { organizationId: input.orgId },
-              1,
-              100
-            );
-            apiResults = res.data.map((d) => ({
-              sourceId: d.sourceId,
-              name: d.title,
-              categoryName: null,
-            }));
-            break;
-          }
+        // Map section to IT Glue API path and attribute keys
+        // Note: Most sections use /organizations/{id}/relationships/{section} path
+        //       but flexible_assets uses the flat /flexible_assets endpoint with filter (relationship path returns 404)
+        const SECTION_CONFIG: Record<string, {
+          path: string;
+          useOrgFilter: boolean; // true = pass filter[organization-id] (for flat endpoints)
+          sort?: string;
+          catIdKey: string | null;
+          catNameKey: string | null;
+          nameExtractor: (attrs: Record<string, unknown>) => string;
+          filterKey?: string;
+        }> = {
+          passwords: {
+            path: `/organizations/${input.orgId}/relationships/passwords`,
+            useOrgFilter: false,
+            sort: "name",
+            catIdKey: "password-category-id",
+            catNameKey: "password-category-name",
+            nameExtractor: (a) => (a.name as string) || "Unnamed",
+            filterKey: "password-category-id",
+          },
+          flexible_assets: {
+            path: "/flexible_assets",
+            useOrgFilter: true, // flat endpoint needs org filter
+            catIdKey: "flexible-asset-type-id",
+            catNameKey: "flexible-asset-type-name",
+            nameExtractor: (a) => (a.name as string) || "Asset",
+            filterKey: "flexible-asset-type-id",
+          },
+          configurations: {
+            path: `/organizations/${input.orgId}/relationships/configurations`,
+            useOrgFilter: false,
+            sort: "name",
+            catIdKey: "configuration-type-id",
+            catNameKey: "configuration-type-name",
+            nameExtractor: (a) => (a.name as string) || (a.hostname as string) || "Unnamed",
+          },
+          contacts: {
+            path: `/organizations/${input.orgId}/relationships/contacts`,
+            useOrgFilter: false,
+            sort: "last-name",
+            catIdKey: "contact-type-id",
+            catNameKey: "contact-type-name",
+            nameExtractor: (a) => {
+              const first = (a["first-name"] as string) || "";
+              const last = (a["last-name"] as string) || "";
+              return `${first} ${last}`.trim() || "Unnamed";
+            },
+          },
+          documents: {
+            path: `/organizations/${input.orgId}/relationships/documents`,
+            useOrgFilter: false,
+            catIdKey: "document-folder-id",
+            catNameKey: "document-folder-name",
+            nameExtractor: (a) => (a.name as string) || "Untitled",
+          },
+        };
+
+        const config = SECTION_CONFIG[input.section];
+        const filters: Record<string, string> = {};
+        if (config.useOrgFilter) filters["organization-id"] = input.orgId;
+        if (input.categoryId && config.filterKey) {
+          filters[config.filterKey] = input.categoryId;
         }
 
+        const res = await raw.requestListRaw({
+          path: config.path,
+          page: 1,
+          pageSize: 500,
+          ...(Object.keys(filters).length > 0 && { filters }),
+          ...(config.sort && { sort: config.sort }),
+        });
+
+        type RawItem = { id: string; attributes: Record<string, unknown> };
+        const items = ((res.data ?? []) as RawItem[]).map((r) => {
+          const attrs = r.attributes;
+          const catIdRaw = config.catIdKey ? attrs[config.catIdKey] : null;
+          const catNameRaw = config.catNameKey ? attrs[config.catNameKey] : null;
+          return {
+            sourceId: r.id,
+            name: config.nameExtractor(attrs),
+            catId: catIdRaw ? String(catIdRaw) : null,
+            catName: catNameRaw ? String(catNameRaw) : null,
+          };
+        });
+
         // Upsert into cache
-        if (apiResults.length > 0) {
+        if (items.length > 0) {
           await Promise.all(
-            apiResults.map((a) =>
+            items.map((a) =>
               ctx.prisma.iTGlueCachedAsset.upsert({
                 where: { itGlueId: a.sourceId },
                 create: {
                   itGlueId: a.sourceId,
                   orgId: input.orgId,
                   section: input.section,
-                  categoryId: input.categoryId ?? null,
-                  categoryName: a.categoryName ?? null,
+                  categoryId: a.catId,
+                  categoryName: a.catName,
                   name: a.name,
                   syncedAt: new Date(),
                 },
                 update: {
                   name: a.name,
-                  categoryName: a.categoryName ?? undefined,
+                  section: input.section,
+                  categoryId: a.catId,
+                  categoryName: a.catName,
                   syncedAt: new Date(),
                 },
               })
@@ -515,14 +673,14 @@ export const itGluePermRouter = router({
           );
         }
 
-        return apiResults.map((a) => ({
+        return items.map((a) => ({
           itGlueId: a.sourceId,
           name: a.name,
-          categoryId: input.categoryId ?? null,
-          categoryName: a.categoryName ?? null,
+          categoryId: a.catId,
+          categoryName: a.catName,
         }));
-      } catch {
-        // API call failed — return empty (integration might not be configured)
+      } catch (err) {
+        console.error("[fetchSectionAssets] Failed for", input.orgId, input.section, err);
         return [];
       }
     }),

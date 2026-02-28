@@ -18,10 +18,12 @@ export default function DashboardLayout({
           <Sidebar />
           <div className="flex flex-1 flex-col lg:ml-18 xl:ml-sidebar transition-all duration-200">
             <Header />
-            <main className="flex-1 p-4 sm:p-5 lg:p-6 xl:p-8">{children}</main>
+            <main className="flex-1 p-4 sm:p-5 lg:p-6 xl:p-8">
+              {children}
+              <PersistentCIPPIframe />
+            </main>
           </div>
         </div>
-        <PersistentCIPPIframe />
       </PermissionGate>
     </BrandingProvider>
   );

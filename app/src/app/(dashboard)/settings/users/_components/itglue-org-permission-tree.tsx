@@ -405,17 +405,16 @@ function SectionRow({
   const [expanded, setExpanded] = useState(false);
   const utils = trpc.useUtils();
   const Icon = section.icon;
-  const hasCategories = section.key === "passwords" || section.key === "flexible_assets";
+  const hasCategories = section.key === "flexible_assets" || section.key === "documents";
 
-  // Category data (global, cached aggressively)
-  const passwordCats = trpc.itGluePerm.getCachedPasswordCategories.useQuery(undefined, {
-    enabled: expanded && section.key === "passwords",
-    staleTime: 5 * 60_000,
-  });
-  const assetTypes = trpc.itGluePerm.getCachedAssetTypes.useQuery(undefined, {
-    enabled: expanded && section.key === "flexible_assets",
-    staleTime: 5 * 60_000,
-  });
+  // Category data — per-org (flexible_assets have asset type categories, documents have folders)
+  const orgCategories = trpc.itGluePerm.getOrgSectionCategories.useQuery(
+    { orgId, section: section.key as "flexible_assets" | "documents" },
+    {
+      enabled: expanded && hasCategories,
+      staleTime: 60_000,
+    }
+  );
 
   // Direct assets (for sections without categories) — live-fetches from IT Glue if cache is empty
   const directAssets = trpc.itGluePerm.fetchSectionAssets.useQuery(
@@ -457,16 +456,10 @@ function SectionRow({
     [orgId, section.key, ruleIndex, groupId, addRule, updateRule, removeRule]
   );
 
-  const categories =
-    section.key === "passwords"
-      ? passwordCats.data ?? []
-      : section.key === "flexible_assets"
-        ? assetTypes.data ?? []
-        : [];
+  const categories = hasCategories ? (orgCategories.data ?? []) : [];
 
   const isChildLoading =
-    (section.key === "passwords" && passwordCats.isLoading) ||
-    (section.key === "flexible_assets" && assetTypes.isLoading) ||
+    (hasCategories && orgCategories.isLoading) ||
     (!hasCategories && directAssets.isLoading);
 
   return (
