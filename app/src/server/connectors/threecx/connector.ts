@@ -36,6 +36,7 @@ import type {
   ThreecxActiveCall,
   ThreecxService,
   ThreecxCallHistoryRecord,
+  ThreecxReportCallRecord,
   ThreecxQueue,
   ThreecxQueueAgent,
   ThreecxQueueManager,
@@ -53,6 +54,7 @@ import {
   mapActiveCall,
   mapService,
   mapCallHistoryRecord,
+  mapReportCallRecord,
   mapQueue,
   mapRingGroup,
   mapGroup,
@@ -213,22 +215,85 @@ export class ThreecxConnector implements IPhoneConnector {
   }
 
   async getCallHistory(top = 100, filter?: CallHistoryFilter): Promise<CallHistoryRecord[]> {
+    // Try admin ReportCallLogData endpoint first (sees ALL calls),
+    // fall back to per-user CallHistoryView if it fails
+    try {
+      return await this.getCallHistoryReport(top, filter);
+    } catch {
+      return await this.getCallHistoryView(top, filter);
+    }
+  }
+
+  /** Admin-level call report — /ReportCallLogData/Pbx.GetCallLogData() */
+  private async getCallHistoryReport(top: number, filter?: CallHistoryFilter): Promise<CallHistoryRecord[]> {
+    // Build date range — required by this endpoint
+    const now = new Date();
+    let periodFrom: string;
+    let periodTo: string;
+
+    if (filter?.dateFrom) {
+      periodFrom = new Date(filter.dateFrom + "T00:00:00").toISOString();
+    } else {
+      // Default: last 90 days
+      const from = new Date(now);
+      from.setDate(from.getDate() - 90);
+      periodFrom = from.toISOString();
+    }
+
+    if (filter?.dateTo) {
+      // End of day inclusive
+      const to = new Date(filter.dateTo + "T23:59:59");
+      periodTo = to.toISOString();
+    } else {
+      periodTo = now.toISOString();
+    }
+
+    // Build filter params for source/destination
+    const sourceFilter = filter?.fromNumber ? filter.fromNumber.replace(/'/g, "''") : "";
+    const destFilter = filter?.toNumber ? filter.toNumber.replace(/'/g, "''") : "";
+    // callsType: 0=all, 1=answered, 2=unanswered
+    const callsType = filter?.answered === true ? 1 : filter?.answered === false ? 2 : 0;
+
+    const fnParams = [
+      `periodFrom=${periodFrom}`,
+      `periodTo=${periodTo}`,
+      `sourceType=0`,
+      `sourceFilter='${sourceFilter}'`,
+      `destinationType=0`,
+      `destinationFilter='${destFilter}'`,
+      `callsType=${callsType}`,
+      `callTimeFilterType=0`,
+      `callTimeFilterFrom='0:00:0'`,
+      `callTimeFilterTo='0:00:0'`,
+      `hidePcalls=true`,
+    ].join(",");
+
+    const raw = await this.client.xapiRequest<{ value: ThreecxReportCallRecord[] }>(
+      `/ReportCallLogData/Pbx.GetCallLogData(${fnParams})?$top=${top}&$skip=0`
+    );
+    const records = Array.isArray(raw) ? raw : raw.value ?? [];
+    return records.map(mapReportCallRecord);
+  }
+
+  /** Per-user call history — /CallHistoryView (fallback for non-admin extensions) */
+  private async getCallHistoryView(top: number, filter?: CallHistoryFilter): Promise<CallHistoryRecord[]> {
     const params: string[] = [
       `$top=${top}`,
       `$orderby=SegmentStartTime desc`,
     ];
 
-    // Build OData $filter from filter options
     const filters: string[] = [];
     if (filter?.dateFrom) {
       filters.push(`SegmentStartTime ge ${filter.dateFrom}`);
     }
     if (filter?.dateTo) {
-      // Add 1 day to make "to" inclusive (end of day)
-      filters.push(`SegmentStartTime le ${filter.dateTo}`);
+      const next = new Date(filter.dateTo + "T00:00:00");
+      next.setDate(next.getDate() + 1);
+      const nextDay = next.toISOString().split("T")[0];
+      filters.push(`SegmentStartTime lt ${nextDay}`);
     }
     if (filter?.fromNumber) {
-      const q = filter.fromNumber.replace(/'/g, "''"); // escape single quotes
+      const q = filter.fromNumber.replace(/'/g, "''");
       filters.push(`(contains(SrcCallerNumber,'${q}') or contains(SrcDisplayName,'${q}'))`);
     }
     if (filter?.toNumber) {

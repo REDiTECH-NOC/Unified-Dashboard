@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { MonitorType } from "@prisma/client";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure, requirePerm } from "../trpc";
 import { getUptimeEngine } from "../services/uptime";
 import { auditLog } from "@/lib/audit";
 
@@ -140,7 +140,7 @@ const baseMonitorInput = z.object({
 
 export const uptimeRouter = router({
   /** List all monitors with latest heartbeat, company, and tags. */
-  list: protectedProcedure
+  list: requirePerm("tools.uptime")
     .input(z.object({
       companyId: z.string().optional(),
       tagIds: z.array(z.string()).optional(),
@@ -199,7 +199,7 @@ export const uptimeRouter = router({
     }),
 
   /** Get a single monitor with recent heartbeats, company, and tags. */
-  get: protectedProcedure
+  get: requirePerm("tools.uptime")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const monitor = await ctx.prisma.monitor.findUniqueOrThrow({
@@ -225,7 +225,7 @@ export const uptimeRouter = router({
     }),
 
   /** Get paginated heartbeats for a monitor. */
-  heartbeats: protectedProcedure
+  heartbeats: requirePerm("tools.uptime")
     .input(
       z.object({
         monitorId: z.string(),
@@ -257,7 +257,7 @@ export const uptimeRouter = router({
     }),
 
   /** Get computed stats for a monitor. */
-  stats: protectedProcedure
+  stats: requirePerm("tools.uptime")
     .input(z.object({ monitorId: z.string() }))
     .query(async ({ ctx, input }) => {
       const now = new Date();
@@ -316,7 +316,7 @@ export const uptimeRouter = router({
     }),
 
   /** Get uptime bar data for the list view. */
-  uptimeBars: protectedProcedure
+  uptimeBars: requirePerm("tools.uptime")
     .input(
       z.object({
         monitorId: z.string(),
@@ -379,7 +379,7 @@ export const uptimeRouter = router({
     }),
 
   /** Engine health status. */
-  health: protectedProcedure.query(async () => {
+  health: requirePerm("tools.uptime").query(async () => {
     const engine = getUptimeEngine();
     return {
       running: engine.isRunning(),
@@ -590,7 +590,7 @@ export const uptimeRouter = router({
   // ─── Tag Management ──────────────────────────────────────────
 
   /** List all tags. */
-  listTags: protectedProcedure.query(async ({ ctx }) => {
+  listTags: requirePerm("tools.uptime").query(async ({ ctx }) => {
     return ctx.prisma.monitorTag.findMany({
       orderBy: { name: "asc" },
     });
@@ -643,7 +643,7 @@ export const uptimeRouter = router({
   // ─── Company List (lightweight for dropdowns) ────────────────
 
   /** List companies for monitor assignment dropdown. */
-  listCompanies: protectedProcedure
+  listCompanies: requirePerm("tools.uptime")
     .input(z.object({ search: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       return ctx.prisma.company.findMany({

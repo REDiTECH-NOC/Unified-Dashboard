@@ -9,7 +9,7 @@
 import { z } from "zod";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure, requirePerm } from "../trpc";
 import { ThreecxInstanceManager } from "../connectors/threecx/instance-manager";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { auditLog } from "@/lib/audit";
@@ -66,14 +66,14 @@ const DASHBOARD_SELECT = {
 export const threecxRouter = router({
   // ─── Instance Management (Admin) ───────────────────────────
 
-  listInstances: protectedProcedure.query(async ({ ctx }) => {
+  listInstances: requirePerm("phone.view").query(async ({ ctx }) => {
     return ctx.prisma.threecxInstance.findMany({
       orderBy: { name: "asc" },
       select: DASHBOARD_SELECT,
     });
   }),
 
-  getInstance: protectedProcedure
+  getInstance: requirePerm("phone.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const instance = await ctx.prisma.threecxInstance.findUnique({
@@ -310,7 +310,7 @@ export const threecxRouter = router({
 
   // ─── SSO Quick Access ─────────────────────────────────────
 
-  getSsoUrl: protectedProcedure
+  getSsoUrl: requirePerm("phone.sso.access")
     .input(z.object({ instanceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const instance = await ctx.prisma.threecxInstance.findUnique({
@@ -337,7 +337,7 @@ export const threecxRouter = router({
 
   // ─── Live Refresh ─────────────────────────────────────────
 
-  refreshInstance: protectedProcedure
+  refreshInstance: requirePerm("phone.view")
     .input(z.object({ instanceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       try {
@@ -394,7 +394,7 @@ export const threecxRouter = router({
       }
     }),
 
-  refreshAllInstances: protectedProcedure.mutation(async ({ ctx }) => {
+  refreshAllInstances: requirePerm("phone.view").mutation(async ({ ctx }) => {
     const instances = await ctx.prisma.threecxInstance.findMany({
       where: { isActive: true },
       select: { id: true, name: true },
@@ -479,7 +479,7 @@ export const threecxRouter = router({
 
   // ─── Monitoring (Read-Only) ────────────────────────────────
 
-  getSystemStatus: protectedProcedure
+  getSystemStatus: requirePerm("phone.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -489,7 +489,7 @@ export const threecxRouter = router({
       return connector.getSystemStatus();
     }),
 
-  getTrunks: protectedProcedure
+  getTrunks: requirePerm("phone.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -499,7 +499,7 @@ export const threecxRouter = router({
       return connector.getTrunks();
     }),
 
-  getUsers: protectedProcedure
+  getUsers: requirePerm("phone.extensions.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -509,7 +509,7 @@ export const threecxRouter = router({
       return connector.getUsers();
     }),
 
-  getActiveCalls: protectedProcedure
+  getActiveCalls: requirePerm("phone.calls.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -519,7 +519,7 @@ export const threecxRouter = router({
       return connector.getActiveCalls();
     }),
 
-  getServices: protectedProcedure
+  getServices: requirePerm("phone.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -529,7 +529,7 @@ export const threecxRouter = router({
       return connector.getServices();
     }),
 
-  getSystemHealth: protectedProcedure
+  getSystemHealth: requirePerm("phone.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -539,7 +539,7 @@ export const threecxRouter = router({
       return connector.getSystemHealth();
     }),
 
-  getSystemTelemetry: protectedProcedure
+  getSystemTelemetry: requirePerm("phone.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -549,7 +549,7 @@ export const threecxRouter = router({
       return connector.getSystemTelemetry();
     }),
 
-  getQueues: protectedProcedure
+  getQueues: requirePerm("phone.queues.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -559,7 +559,7 @@ export const threecxRouter = router({
       return connector.getQueues();
     }),
 
-  getRingGroups: protectedProcedure
+  getRingGroups: requirePerm("phone.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -569,7 +569,7 @@ export const threecxRouter = router({
       return connector.getRingGroups();
     }),
 
-  getGroups: protectedProcedure
+  getGroups: requirePerm("phone.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -579,7 +579,7 @@ export const threecxRouter = router({
       return connector.getGroups();
     }),
 
-  getTrunkDetails: protectedProcedure
+  getTrunkDetails: requirePerm("phone.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -590,7 +590,7 @@ export const threecxRouter = router({
     }),
 
   /** Fetches users + cross-references with queues, ring groups, and groups to show membership */
-  getUsersWithMembership: protectedProcedure
+  getUsersWithMembership: requirePerm("phone.extensions.view")
     .input(z.object({ instanceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await ThreecxInstanceManager.get(
@@ -644,7 +644,7 @@ export const threecxRouter = router({
       });
     }),
 
-  getCallHistory: protectedProcedure
+  getCallHistory: requirePerm("phone.calls.view")
     .input(z.object({
       instanceId: z.string(),
       top: z.number().min(1).max(500).optional(),
@@ -673,7 +673,7 @@ export const threecxRouter = router({
 
   // ─── Queue Agent Actions ────────────────────────────────────
 
-  queueAgentLogin: protectedProcedure
+  queueAgentLogin: requirePerm("phone.queues.view")
     .input(z.object({
       instanceId: z.string(),
       queueId: z.number(),
@@ -694,7 +694,7 @@ export const threecxRouter = router({
       return { ok: true };
     }),
 
-  queueAgentLogout: protectedProcedure
+  queueAgentLogout: requirePerm("phone.queues.view")
     .input(z.object({
       instanceId: z.string(),
       queueId: z.number(),
@@ -737,6 +737,7 @@ export const threecxRouter = router({
   restartAllServices: adminProcedure
     .input(z.object({ instanceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const instance = await ctx.prisma.threecxInstance.findUnique({ where: { id: input.instanceId }, select: { name: true, fqdn: true } });
       const connector = await ThreecxInstanceManager.get(input.instanceId, ctx.prisma);
       await connector.restartAllServices();
 
@@ -745,7 +746,7 @@ export const threecxRouter = router({
         category: "INTEGRATION",
         actorId: ctx.user.id,
         resource: `threecx:${input.instanceId}`,
-        detail: {},
+        detail: { instanceName: instance?.name, fqdn: instance?.fqdn },
       });
 
       return { ok: true };
@@ -754,6 +755,7 @@ export const threecxRouter = router({
   restartServer: adminProcedure
     .input(z.object({ instanceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const instance = await ctx.prisma.threecxInstance.findUnique({ where: { id: input.instanceId }, select: { name: true, fqdn: true } });
       const connector = await ThreecxInstanceManager.get(input.instanceId, ctx.prisma);
       await connector.restartServer();
 
@@ -762,7 +764,7 @@ export const threecxRouter = router({
         category: "INTEGRATION",
         actorId: ctx.user.id,
         resource: `threecx:${input.instanceId}`,
-        detail: {},
+        detail: { instanceName: instance?.name, fqdn: instance?.fqdn },
       });
 
       return { ok: true };
@@ -770,7 +772,7 @@ export const threecxRouter = router({
 
   // ─── Dashboard Aggregate ───────────────────────────────────
 
-  getDashboardOverview: protectedProcedure.query(async ({ ctx }) => {
+  getDashboardOverview: requirePerm("phone.view").query(async ({ ctx }) => {
     // Read from cached DB fields — does NOT query PBXs live
     return ctx.prisma.threecxInstance.findMany({
       where: { isActive: true },
@@ -883,7 +885,7 @@ export const threecxRouter = router({
 
   // ─── Relay Agent Management ────────────────────────────────
 
-  getAgentStatus: protectedProcedure.query(async ({ ctx }) => {
+  getAgentStatus: requirePerm("phone.view").query(async ({ ctx }) => {
     const agents = await ctx.prisma.onPremAgent.findMany({
       where: { isActive: true },
       select: {

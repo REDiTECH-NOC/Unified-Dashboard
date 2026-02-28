@@ -20,8 +20,10 @@ import { CIPPConnector } from "./cipp/connector";
 import { AvananEmailSecurityConnector } from "./avanan/connector";
 import { CoveBackupConnector } from "./cove/connector";
 import { Pax8LicensingConnector } from "./pax8/connector";
+import { DropsuiteConnector } from "./dropsuite/connector";
+import { DnsFilterConnector } from "./dnsfilter/connector";
 
-export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network" | "mdr" | "cipp" | "email_security" | "backup" | "licensing";
+export type ConnectorCategory = "psa" | "rmm" | "edr" | "documentation" | "network" | "mdr" | "cipp" | "email_security" | "backup" | "saas_backup" | "licensing" | "dns_security";
 
 export interface ConnectorRegistration {
   category: ConnectorCategory;
@@ -108,5 +110,21 @@ export const CONNECTOR_REGISTRY: Record<string, ConnectorRegistration> = {
     rateLimitMax: 900, // Official limit 1000/min, keep 10% buffer
     rateLimitWindowMs: 60_000,
     factory: (config) => new Pax8LicensingConnector(config),
+  },
+
+  dropsuite: {
+    category: "saas_backup",
+    defaultBaseUrl: "https://dropsuite.us/api",
+    rateLimitMax: 30,
+    rateLimitWindowMs: 60_000,
+    factory: (config) => new DropsuiteConnector(config),
+  },
+
+  dnsfilter: {
+    category: "dns_security",
+    defaultBaseUrl: "https://api.dnsfilter.com",
+    rateLimitMax: 100,
+    rateLimitWindowMs: 60_000,
+    factory: (config) => new DnsFilterConnector(config),
   },
 };

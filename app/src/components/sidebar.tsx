@@ -6,6 +6,7 @@ import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/contexts/branding-context";
 import { trpc } from "@/lib/trpc";
+import { usePermissions } from "@/hooks/use-permissions";
 import {
   LayoutDashboard,
   AlertTriangle,
@@ -143,11 +144,8 @@ export function Sidebar() {
     });
   };
 
-  // Fetch user permissions for sidebar filtering
-  const { data: permissions } = trpc.user.myPermissions.useQuery(undefined, {
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-  });
-  const permSet = useMemo(() => new Set(permissions || []), [permissions]);
+  // User permissions for sidebar filtering (shared hook with 5-min cache)
+  const { permissions: permSet, isLoading: permsLoading } = usePermissions();
 
   // Fetch runtime external URLs (n8n, etc.) — set once by admin in .env
   const { data: externalUrls } = trpc.system.externalUrls.useQuery(undefined, {
@@ -158,7 +156,7 @@ export function Sidebar() {
   // Also resolve externalKey → actual URL and hide items with no configured URL
   const visibleSections = useMemo(() => {
     // While loading, show all items (prevents flash of empty sidebar)
-    if (!permissions) return navSections;
+    if (permsLoading) return navSections;
 
     return navSections
       .map((section) => ({
@@ -183,7 +181,7 @@ export function Sidebar() {
           }),
       }))
       .filter((section) => section.items.length > 0);
-  }, [permissions, permSet, externalUrls]);
+  }, [permsLoading, permSet, externalUrls]);
 
   const isOverlay = bp.isMobile || bp.isTablet;
   const effectiveCollapsed = bp.isLaptop ? !hovered : false;

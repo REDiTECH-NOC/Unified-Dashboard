@@ -39,6 +39,14 @@ export default function IntegrationsPage() {
       router.push("/settings/integrations/pax8");
       return;
     }
+    if (toolId === "dropsuite") {
+      router.push("/settings/integrations/dropsuite");
+      return;
+    }
+    if (toolId === "dnsfilter") {
+      router.push("/settings/integrations/dnsfilter");
+      return;
+    }
     if (toolId === AI_TOOL_ID) {
       router.push("/settings/integrations/ai");
       return;

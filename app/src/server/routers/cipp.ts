@@ -15,7 +15,7 @@
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import type { CIPPConnector } from "../connectors/cipp/connector";
 import { auditLog } from "@/lib/audit";
@@ -42,36 +42,36 @@ export const cippRouter = router({
   // Tenant Administration
   // =========================================================================
 
-  listTenants: protectedProcedure.query(async ({ ctx }) => {
+  listTenants: requirePerm("cipp.view").query(async ({ ctx }) => {
     const cipp = await getCIPP(ctx.prisma);
     return cipp.listTenants();
   }),
 
-  listAlerts: protectedProcedure
+  listAlerts: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listAlerts(input.tenantFilter);
     }),
 
-  listLicenses: protectedProcedure
+  listLicenses: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listLicenses(input.tenantFilter);
     }),
 
-  listCSPLicenses: protectedProcedure.query(async ({ ctx }) => {
+  listCSPLicenses: requirePerm("cipp.view").query(async ({ ctx }) => {
     const cipp = await getCIPP(ctx.prisma);
     return cipp.listCSPLicenses();
   }),
 
-  listCSPSkus: protectedProcedure.query(async ({ ctx }) => {
+  listCSPSkus: requirePerm("cipp.view").query(async ({ ctx }) => {
     const cipp = await getCIPP(ctx.prisma);
     return cipp.listCSPSkus();
   }),
 
-  listAuditLogs: protectedProcedure
+  listAuditLogs: requirePerm("cipp.view")
     .input(
       z.object({
         tenantFilter: z.string(),
@@ -84,19 +84,19 @@ export const cippRouter = router({
       return cipp.listAuditLogs(input.tenantFilter, input.startDate, input.endDate);
     }),
 
-  listBackups: protectedProcedure
+  listBackups: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listBackups(input.tenantFilter);
     }),
 
-  listGDAPRoles: protectedProcedure.query(async ({ ctx }) => {
+  listGDAPRoles: requirePerm("cipp.view").query(async ({ ctx }) => {
     const cipp = await getCIPP(ctx.prisma);
     return cipp.listGDAPRoles();
   }),
 
-  listGDAPRoleTemplates: protectedProcedure.query(async ({ ctx }) => {
+  listGDAPRoleTemplates: requirePerm("cipp.view").query(async ({ ctx }) => {
     const cipp = await getCIPP(ctx.prisma);
     return cipp.listGDAPRoleTemplates();
   }),
@@ -105,7 +105,7 @@ export const cippRouter = router({
   // Identity Management — Users
   // =========================================================================
 
-  listUsers: protectedProcedure
+  listUsers: requirePerm("cipp.view")
     .input(
       z.object({
         tenantFilter: z.string(),
@@ -247,6 +247,7 @@ export const cippRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}/user:${input.userId}`,
+        detail: { tenantFilter: input.tenantFilter, userId: input.userId },
       });
       return result;
     }),
@@ -255,7 +256,7 @@ export const cippRouter = router({
   // Identity Management — MFA
   // =========================================================================
 
-  listMFAUsers: protectedProcedure
+  listMFAUsers: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
@@ -327,6 +328,7 @@ export const cippRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}/user:${input.userEmail}`,
+        detail: { tenantFilter: input.tenantFilter, userEmail: input.userEmail },
       });
       return result;
     }),
@@ -335,7 +337,7 @@ export const cippRouter = router({
   // Identity Management — Groups
   // =========================================================================
 
-  listGroups: protectedProcedure
+  listGroups: requirePerm("cipp.view")
     .input(
       z.object({
         tenantFilter: z.string(),
@@ -454,6 +456,7 @@ export const cippRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}/group:${input.groupId}`,
+        detail: { tenantFilter: input.tenantFilter, groupId: input.groupId, hide: input.hide },
       });
       return result;
     }),
@@ -462,7 +465,7 @@ export const cippRouter = router({
   // Identity Management — Sign-ins & Audit
   // =========================================================================
 
-  listSignIns: protectedProcedure
+  listSignIns: requirePerm("cipp.view")
     .input(
       z.object({
         tenantFilter: z.string(),
@@ -482,21 +485,21 @@ export const cippRouter = router({
       });
     }),
 
-  listInactiveAccounts: protectedProcedure
+  listInactiveAccounts: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listInactiveAccounts(input.tenantFilter);
     }),
 
-  listRoles: protectedProcedure
+  listRoles: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listRoles(input.tenantFilter);
     }),
 
-  listAzureADConnectStatus: protectedProcedure
+  listAzureADConnectStatus: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
@@ -573,6 +576,7 @@ export const cippRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}/user:${input.userId}`,
+        detail: { tenantFilter: input.tenantFilter, userId: input.userId },
       });
       return result;
     }),
@@ -644,6 +648,7 @@ export const cippRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}/user:${input.upn}`,
+        detail: { tenantFilter: input.tenantFilter, upn: input.upn },
       });
       return result;
     }),
@@ -685,6 +690,7 @@ export const cippRouter = router({
         category: "SECURITY",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}/device:${input.guid}`,
+        detail: { tenantFilter: input.tenantFilter, deviceGuid: input.guid },
       });
       return result;
     }),
@@ -715,7 +721,7 @@ export const cippRouter = router({
       return result;
     }),
 
-  listDeletedItems: protectedProcedure
+  listDeletedItems: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
@@ -733,6 +739,7 @@ export const cippRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}/item:${input.itemId}`,
+        detail: { tenantFilter: input.tenantFilter, itemId: input.itemId },
       });
       return result;
     }),
@@ -741,21 +748,21 @@ export const cippRouter = router({
   // Security & Compliance
   // =========================================================================
 
-  listDefenderState: protectedProcedure
+  listDefenderState: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listDefenderState(input.tenantFilter);
     }),
 
-  listDefenderTVM: protectedProcedure
+  listDefenderTVM: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listDefenderTVM(input.tenantFilter);
     }),
 
-  listSecurityAlerts: protectedProcedure
+  listSecurityAlerts: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
@@ -792,7 +799,7 @@ export const cippRouter = router({
       return result;
     }),
 
-  listSecurityIncidents: protectedProcedure
+  listSecurityIncidents: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
@@ -831,7 +838,7 @@ export const cippRouter = router({
   // Intune
   // =========================================================================
 
-  listIntuneDevices: protectedProcedure
+  listIntuneDevices: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
@@ -877,6 +884,7 @@ export const cippRouter = router({
         category: "SECURITY",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}/device:${input.deviceId}`,
+        detail: { tenantFilter: input.tenantFilter, deviceId: input.deviceId },
       });
       return result;
     }),
@@ -892,25 +900,26 @@ export const cippRouter = router({
         category: "SECURITY",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}/device:${input.deviceId}`,
+        detail: { tenantFilter: input.tenantFilter, deviceId: input.deviceId },
       });
       return result;
     }),
 
-  listAPDevices: protectedProcedure
+  listAPDevices: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listAPDevices(input.tenantFilter);
     }),
 
-  listIntuneApps: protectedProcedure
+  listIntuneApps: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listIntuneApps(input.tenantFilter);
     }),
 
-  listIntunePolicy: protectedProcedure
+  listIntunePolicy: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
@@ -928,6 +937,7 @@ export const cippRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `tenant:${input.tenantFilter}`,
+        detail: { tenantFilter: input.tenantFilter },
       });
       return result;
     }),
@@ -936,28 +946,28 @@ export const cippRouter = router({
   // Teams & SharePoint
   // =========================================================================
 
-  listTeams: protectedProcedure
+  listTeams: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listTeams(input.tenantFilter);
     }),
 
-  listTeamsActivity: protectedProcedure
+  listTeamsActivity: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listTeamsActivity(input.tenantFilter);
     }),
 
-  listTeamsVoice: protectedProcedure
+  listTeamsVoice: requirePerm("cipp.view")
     .input(z.object({ tenantFilter: z.string() }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
       return cipp.listTeamsVoice(input.tenantFilter);
     }),
 
-  listSites: protectedProcedure
+  listSites: requirePerm("cipp.view")
     .input(
       z.object({
         tenantFilter: z.string(),
@@ -973,7 +983,7 @@ export const cippRouter = router({
   // CIPP Platform
   // =========================================================================
 
-  listScheduledItems: protectedProcedure
+  listScheduledItems: requirePerm("cipp.view")
     .input(z.object({ showHidden: z.boolean().default(false) }))
     .query(async ({ ctx, input }) => {
       const cipp = await getCIPP(ctx.prisma);
@@ -991,11 +1001,12 @@ export const cippRouter = router({
         category: "API",
         actorId: ctx.user.id,
         resource: `scheduledItem:${input.rowKey}`,
+        detail: { rowKey: input.rowKey },
       });
       return result;
     }),
 
-  listLogs: protectedProcedure
+  listLogs: requirePerm("cipp.view")
     .input(
       z.object({
         dateFilter: z.string().optional(),
@@ -1007,7 +1018,7 @@ export const cippRouter = router({
       return cipp.listLogs(input.dateFilter, input.severity);
     }),
 
-  listExtensionsConfig: protectedProcedure.query(async ({ ctx }) => {
+  listExtensionsConfig: requirePerm("cipp.view").query(async ({ ctx }) => {
     const cipp = await getCIPP(ctx.prisma);
     return cipp.listExtensionsConfig();
   }),
@@ -1016,7 +1027,7 @@ export const cippRouter = router({
   // Graph API (pass-through)
   // =========================================================================
 
-  graphRequest: protectedProcedure
+  graphRequest: requirePerm("cipp.view")
     .input(
       z.object({
         tenantFilter: z.string(),
@@ -1038,7 +1049,7 @@ export const cippRouter = router({
   // Health Check
   // =========================================================================
 
-  healthCheck: protectedProcedure.query(async ({ ctx }) => {
+  healthCheck: requirePerm("cipp.view").query(async ({ ctx }) => {
     const cipp = await getCIPP(ctx.prisma);
     return cipp.healthCheck();
   }),

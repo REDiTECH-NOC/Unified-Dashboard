@@ -16,6 +16,8 @@ import {
   AlertTriangle,
   EyeOff,
   Eye,
+  MessageSquare,
+  Pencil,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { ReconcileConfirmDialog } from "./reconcile-confirm-dialog";
@@ -41,6 +43,8 @@ const VENDOR_COLORS: Record<string, string> = {
 export function ClientBillingTab({ companyId }: { companyId: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reconcileTarget, setReconcileTarget] = useState<any>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
 
   const reconciliationQuery = trpc.billing.getCompanyReconciliation.useQuery(
     { companyId },
@@ -57,6 +61,14 @@ export function ClientBillingTab({ companyId }: { companyId: string }) {
 
   const resolveMutation = trpc.billing.resolveItem.useMutation({
     onSuccess: () => reconciliationQuery.refetch(),
+  });
+
+  const updateNoteMutation = trpc.billing.updateItemNote.useMutation({
+    onSuccess: () => {
+      reconciliationQuery.refetch();
+      setEditingNoteId(null);
+      setNoteText("");
+    },
   });
 
   const data = reconciliationQuery.data;
@@ -152,17 +164,28 @@ export function ClientBillingTab({ companyId }: { companyId: string }) {
               {data.reconciliationItems.map((item: any) => (
                 <div key={item.id}>
                   <div className="grid grid-cols-[1fr_100px_60px_60px_60px_80px_80px] px-3 py-2 border-b border-zinc-800/50 items-center hover:bg-zinc-900/30 transition-colors text-sm">
-                    <button
-                      onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
-                      className="flex items-center gap-1 text-left text-zinc-200 hover:text-white truncate"
-                    >
-                      {expandedId === item.id ? (
-                        <ChevronDown className="h-3 w-3 text-zinc-500 shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3 text-zinc-500 shrink-0" />
+                    <div>
+                      <button
+                        onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                        className="flex items-center gap-1 text-left text-zinc-200 hover:text-white truncate"
+                      >
+                        {expandedId === item.id ? (
+                          <ChevronDown className="h-3 w-3 text-zinc-500 shrink-0" />
+                        ) : (
+                          <ChevronRight className="h-3 w-3 text-zinc-500 shrink-0" />
+                        )}
+                        <span className="truncate">{item.productName}</span>
+                      </button>
+                      {item.resolvedNote && editingNoteId !== item.id && (
+                        <button
+                          onClick={() => { setEditingNoteId(item.id); setNoteText(item.resolvedNote ?? ""); }}
+                          className="flex items-center gap-1 ml-4 mt-0.5 text-[11px] text-zinc-500 italic hover:text-zinc-400 transition-colors"
+                        >
+                          <MessageSquare className="h-2.5 w-2.5 shrink-0" />
+                          <span className="truncate max-w-[180px]">{item.resolvedNote}</span>
+                        </button>
                       )}
-                      <span className="truncate">{item.productName}</span>
-                    </button>
+                    </div>
                     <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] border ${
                       VENDOR_COLORS[item.vendorToolId] ?? "text-zinc-400 bg-zinc-500/10 border-zinc-500/20"
                     }`}>
@@ -179,6 +202,25 @@ export function ClientBillingTab({ companyId }: { companyId: string }) {
                       </span>
                     </div>
                     <div className="flex items-center justify-center gap-0.5">
+                      <button
+                        onClick={() => {
+                          if (editingNoteId === item.id) {
+                            setEditingNoteId(null);
+                            setNoteText("");
+                          } else {
+                            setEditingNoteId(item.id);
+                            setNoteText(item.resolvedNote ?? "");
+                          }
+                        }}
+                        className={`p-0.5 rounded transition-colors ${
+                          item.resolvedNote
+                            ? "text-blue-400 hover:bg-blue-500/10"
+                            : "text-zinc-500 hover:bg-zinc-500/10 hover:text-zinc-400"
+                        }`}
+                        title={item.resolvedNote ? "Edit note" : "Add note"}
+                      >
+                        {item.resolvedNote ? <MessageSquare className="h-3.5 w-3.5" /> : <Pencil className="h-3 w-3" />}
+                      </button>
                       {item.status === "pending" && item.discrepancy !== 0 && item.additionPsaId && (
                         <button
                           onClick={() => setReconcileTarget(item)}
@@ -208,6 +250,51 @@ export function ClientBillingTab({ companyId }: { companyId: string }) {
                       )}
                     </div>
                   </div>
+
+                  {/* Inline note editor */}
+                  {editingNoteId === item.id && (
+                    <div className="px-3 py-2 bg-zinc-900/50 border-b border-zinc-800/50 flex items-center gap-2">
+                      <MessageSquare className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+                      <input
+                        type="text"
+                        value={noteText}
+                        onChange={(e) => setNoteText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            updateNoteMutation.mutate({ itemId: item.id, note: noteText });
+                          } else if (e.key === "Escape") {
+                            setEditingNoteId(null);
+                            setNoteText("");
+                          }
+                        }}
+                        placeholder='Add a note (e.g. "free backups we are providing x5")...'
+                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => updateNoteMutation.mutate({ itemId: item.id, note: noteText })}
+                        disabled={updateNoteMutation.isPending}
+                        className="h-6 px-2 rounded text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+                      >
+                        {updateNoteMutation.isPending ? "..." : "Save"}
+                      </button>
+                      {item.resolvedNote && (
+                        <button
+                          onClick={() => updateNoteMutation.mutate({ itemId: item.id, note: "" })}
+                          disabled={updateNoteMutation.isPending}
+                          className="h-6 px-2 rounded text-[10px] border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                        >
+                          Clear
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { setEditingNoteId(null); setNoteText(""); }}
+                        className="p-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
 
                   {expandedId === item.id && (
                     <div className="bg-zinc-900/30 border-b border-zinc-800/30 px-6 py-3 text-xs space-y-1">

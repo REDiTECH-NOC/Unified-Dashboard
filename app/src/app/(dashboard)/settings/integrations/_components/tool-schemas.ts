@@ -39,6 +39,8 @@ export const BUILT_TOOLS = new Set([
   "avanan",
   "cove",
   "pax8",
+  "dropsuite",
+  "dnsfilter",
   "ai-provider",
 ]);
 
@@ -413,6 +415,68 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     instructions:
       "Log into the Pax8 Developer Portal (devx.pax8.com), create a new OAuth2 application, " +
       "and copy the Client ID and Client Secret. The dashboard handles token exchange automatically.",
+  },
+
+  dropsuite: {
+    toolId: "dropsuite",
+    displayName: "DropSuite (NinjaOne SaaS Backup)",
+    description:
+      "Dropsuite SaaS backup monitoring — M365 email backup, archiving, OneDrive, SharePoint, " +
+      "and Teams protection across all client organizations via the Dropsuite Reseller API.",
+    fields: [
+      {
+        key: "resellerToken",
+        label: "Reseller Token",
+        type: "password",
+        placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        required: true,
+        helpText: "Global MSP reseller token. Authenticates your account across all client organizations.",
+      },
+      {
+        key: "authenticationToken",
+        label: "Authentication Token",
+        type: "password",
+        placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        required: false,
+        helpText: "Optional. Default authentication token for initial API setup. Per-org tokens are fetched automatically.",
+      },
+      {
+        key: "secretToken",
+        label: "Secret Token",
+        type: "password",
+        placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        required: false,
+        helpText: "Used for webhook verification. Not required for read-only monitoring.",
+      },
+    ],
+    instructions:
+      "Log into the Dropsuite reseller portal (or NinjaOne SaaS Backup admin). " +
+      "Your Reseller Token is provided by Dropsuite/NinjaOne support. " +
+      "The API authenticates at https://dropsuite.us/api/ — per-organization access tokens " +
+      "are returned automatically from the /users endpoint. " +
+      "Only the Reseller Token is required for monitoring.",
+  },
+
+  dnsfilter: {
+    toolId: "dnsfilter",
+    displayName: "DNS Filter",
+    description:
+      "DNSFilter DNS security platform — content filtering, threat protection, traffic analytics, " +
+      "policy management, and roaming client monitoring across all managed organizations.",
+    fields: [
+      {
+        key: "apiKey",
+        label: "API Key",
+        type: "password",
+        placeholder: "Enter DNSFilter API key",
+        required: true,
+        helpText: "API key from DNSFilter portal. Provides access to all organizations under your MSP account.",
+      },
+    ],
+    instructions:
+      "In the DNSFilter portal, go to Settings → Keys & Tokens and generate a new API key. " +
+      "A single MSP-level key provides access to all managed organizations. " +
+      "The key is used in the Authorization header for all API requests.",
   },
 
   n8n: {

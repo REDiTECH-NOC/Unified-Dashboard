@@ -26,6 +26,8 @@ import { notificationPreferencesRouter } from "./notification-preferences";
 import { notificationChannelRouter } from "./notification-channel";
 import { billingRouter } from "./billing";
 import { licensingRouter } from "./licensing";
+import { saasBackupRouter } from "./saas-backup";
+import { dnsFilterRouter } from "./dns-filter";
 
 export const appRouter = router({
   user: userRouter,
@@ -55,6 +57,8 @@ export const appRouter = router({
   notificationChannel: notificationChannelRouter,
   billing: billingRouter,
   licensing: licensingRouter,
+  saasBackup: saasBackupRouter,
+  dnsFilter: dnsFilterRouter,
 });
 
 export type AppRouter = typeof appRouter;

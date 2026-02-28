@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import type { ConnectWisePsaConnector } from "../connectors/connectwise/connector";
 import type { SentinelOneEdrConnector } from "../connectors/sentinelone/connector";
@@ -25,7 +25,7 @@ export const billingRouter = router({
   // ─── Reconciliation Summary ──────────────────────────────
 
   /** Global reconciliation stats from the latest snapshot per company */
-  getReconciliationSummary: protectedProcedure.query(async ({ ctx }) => {
+  getReconciliationSummary: requirePerm("billing.view").query(async ({ ctx }) => {
     const latestSnapshots = await ctx.prisma.reconciliationSnapshot.findMany({
       where: { status: "completed" },
       orderBy: { snapshotAt: "desc" },
@@ -81,7 +81,7 @@ export const billingRouter = router({
   // ─── Company Billing Summaries (main landing page) ─────
 
   /** Returns per-company billing summary for the company list page */
-  getCompanyBillingSummaries: protectedProcedure.query(async ({ ctx }) => {
+  getCompanyBillingSummaries: requirePerm("billing.view").query(async ({ ctx }) => {
     // Get all companies with agreements
     const companies = await ctx.prisma.company.findMany({
       where: {
@@ -168,7 +168,7 @@ export const billingRouter = router({
 
   // ─── Reconciliation Items (main table) ───────────────────
 
-  getReconciliationItems: protectedProcedure
+  getReconciliationItems: requirePerm("billing.view")
     .input(
       z.object({
         companyId: z.string().optional(),
@@ -237,7 +237,7 @@ export const billingRouter = router({
 
   // ─── Per-Company Financial Stats ────────────────────────
 
-  getCompanyBillingStats: protectedProcedure
+  getCompanyBillingStats: requirePerm("billing.view")
     .input(z.object({ companyId: z.string() }))
     .query(async ({ ctx, input }) => {
       const company = await ctx.prisma.company.findUniqueOrThrow({
@@ -297,7 +297,7 @@ export const billingRouter = router({
 
   // ─── Per-Company Reconciliation Detail ───────────────────
 
-  getCompanyReconciliation: protectedProcedure
+  getCompanyReconciliation: requirePerm("billing.view")
     .input(z.object({ companyId: z.string() }))
     .query(async ({ ctx, input }) => {
       const company = await ctx.prisma.company.findUniqueOrThrow({
@@ -457,11 +457,18 @@ export const billingRouter = router({
         actorId: ctx.user.id,
         action: "BILLING_RESOLVE_ITEM",
         category: "DATA",
+        resource: `company:${item.companyId}`,
         detail: {
           itemId: input.itemId,
-          action: input.action,
-          companyId: item.companyId,
+          resolution: input.action,
+          note: input.note ?? null,
+          companyName: company?.name ?? "Unknown",
           productName: item.productName,
+          vendorProduct: item.vendorProductName,
+          vendorToolId: item.vendorToolId,
+          psaQty: item.psaQty,
+          vendorQty: item.vendorQty,
+          discrepancy: item.discrepancy,
         },
       });
 
@@ -487,6 +494,41 @@ export const billingRouter = router({
         },
       });
 
+      return item;
+    }),
+
+  updateItemNote: adminProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        note: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const before = await ctx.prisma.reconciliationItem.findUnique({
+        where: { id: input.itemId },
+        select: { resolvedNote: true, companyId: true, productName: true },
+      });
+      const company = before?.companyId
+        ? await ctx.prisma.company.findUnique({ where: { id: before.companyId }, select: { name: true } })
+        : null;
+      const item = await ctx.prisma.reconciliationItem.update({
+        where: { id: input.itemId },
+        data: { resolvedNote: input.note || null },
+      });
+      await auditLog({
+        actorId: ctx.user.id,
+        action: "BILLING_ITEM_NOTE_UPDATED",
+        category: "DATA",
+        resource: `company:${item.companyId}`,
+        detail: {
+          itemId: input.itemId,
+          companyName: company?.name ?? "Unknown",
+          productName: before?.productName,
+          previousNote: before?.resolvedNote ?? null,
+          newNote: input.note || null,
+        },
+      });
       return item;
     }),
 
@@ -529,9 +571,11 @@ export const billingRouter = router({
         action: "BILLING_BULK_RESOLVE",
         category: "DATA",
         detail: {
-          itemIds: input.itemIds,
-          action: input.action,
+          resolution: input.action,
+          note: input.note ?? null,
           count: input.itemIds.length,
+          companies: companies.map((c) => c.name),
+          products: items.map((i) => i.productName).filter((v, i, a) => a.indexOf(v) === i),
         },
       });
 
@@ -857,7 +901,7 @@ export const billingRouter = router({
     return { processed, errors, total: companies.length };
   }),
 
-  getLastSyncTime: protectedProcedure.query(async ({ ctx }) => {
+  getLastSyncTime: requirePerm("billing.view").query(async ({ ctx }) => {
     const lastSnapshot = await ctx.prisma.reconciliationSnapshot.findFirst({
       where: { status: "completed" },
       orderBy: { snapshotAt: "desc" },
@@ -868,7 +912,7 @@ export const billingRouter = router({
 
   // ─── Sync Schedule Config ────────────────────────────────
 
-  getSyncSchedule: protectedProcedure.query(async ({ ctx }) => {
+  getSyncSchedule: requirePerm("billing.view").query(async ({ ctx }) => {
     const config = await ctx.prisma.billingSyncConfig.findFirst();
     return (
       config ?? {
@@ -918,7 +962,7 @@ export const billingRouter = router({
 
   // ─── Product Mappings ────────────────────────────────────
 
-  getProductMappings: protectedProcedure
+  getProductMappings: requirePerm("billing.view")
     .input(
       z.object({
         vendorToolId: z.string().optional(),
@@ -1013,7 +1057,7 @@ export const billingRouter = router({
   // ─── Vendor Products (DB-backed) ─────────────────────────
 
   /** Get vendor products from DB — replaces hardcoded lists */
-  getVendorProducts: protectedProcedure
+  getVendorProducts: requirePerm("billing.view")
     .input(z.object({ toolId: z.string() }))
     .query(async ({ ctx, input }) => {
       let dbProducts = await ctx.prisma.billingVendorProduct.findMany({
@@ -1215,7 +1259,7 @@ export const billingRouter = router({
   // ─── Company Billing Assignments ─────────────────────────
 
   /** Get product assignments for a company */
-  getCompanyAssignments: protectedProcedure
+  getCompanyAssignments: requirePerm("billing.view")
     .input(z.object({ companyId: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.prisma.companyBillingAssignment.findMany({
@@ -1278,7 +1322,7 @@ export const billingRouter = router({
   // ─── Per-Company Vendor Products (Live) ─────────────────
 
   /** Fetch live vendor products for a specific company with mapping status */
-  getCompanyVendorProducts: protectedProcedure
+  getCompanyVendorProducts: requirePerm("billing.view")
     .input(z.object({ companyId: z.string() }))
     .query(async ({ ctx, input }) => {
       // Fetch live vendor counts for this company
@@ -1619,7 +1663,7 @@ export const billingRouter = router({
   }),
 
   /** Search CW product catalog for PSA side of mapping */
-  getCwProducts: protectedProcedure
+  getCwProducts: requirePerm("billing.view")
     .input(z.object({ searchTerm: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       try {
@@ -1653,7 +1697,7 @@ export const billingRouter = router({
 
   // ─── Agreement Data ──────────────────────────────────────
 
-  getCompanyAdditions: protectedProcedure
+  getCompanyAdditions: requirePerm("billing.view")
     .input(z.object({ companyId: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.prisma.agreementAddition.findMany({
@@ -1668,7 +1712,7 @@ export const billingRouter = router({
       });
     }),
 
-  getAgreementAdditions: protectedProcedure
+  getAgreementAdditions: requirePerm("billing.view")
     .input(z.object({ agreementId: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.prisma.agreementAddition.findMany({
@@ -1679,7 +1723,7 @@ export const billingRouter = router({
 
   // ─── Companies with Agreements (for filters) ────────────
 
-  getCompaniesWithAgreements: protectedProcedure.query(async ({ ctx }) => {
+  getCompaniesWithAgreements: requirePerm("billing.view").query(async ({ ctx }) => {
     return ctx.prisma.company.findMany({
       where: {
         agreements: { some: { cancelledFlag: false } },
@@ -1692,7 +1736,7 @@ export const billingRouter = router({
 
   // ─── Revenue & Profit (summary cards) ──────────────────
 
-  getRevenueAndProfit: protectedProcedure.query(async ({ ctx }) => {
+  getRevenueAndProfit: requirePerm("billing.view").query(async ({ ctx }) => {
     const additions = await ctx.prisma.agreementAddition.findMany({
       where: {
         cancelledFlag: false,
@@ -1723,7 +1767,7 @@ export const billingRouter = router({
 
   // ─── Billing Activity Log ──────────────────────────────
 
-  getBillingActivityLog: protectedProcedure
+  getBillingActivityLog: requirePerm("billing.view")
     .input(
       z.object({
         companyId: z.string().optional(),
@@ -1773,7 +1817,7 @@ export const billingRouter = router({
 
   // ─── Billing Settings ──────────────────────────────────
 
-  getBillingSettings: protectedProcedure.query(async ({ ctx }) => {
+  getBillingSettings: requirePerm("billing.view").query(async ({ ctx }) => {
     const settings = await ctx.prisma.billingSettings.findFirst();
     return (
       settings ?? {
@@ -1828,7 +1872,7 @@ export const billingRouter = router({
 
   // ─── Contract Insights ─────────────────────────────────
 
-  getContractInsights: protectedProcedure.query(async ({ ctx }) => {
+  getContractInsights: requirePerm("billing.view").query(async ({ ctx }) => {
     // Fetch all active additions with company and agreement info
     const additions = await ctx.prisma.agreementAddition.findMany({
       where: {

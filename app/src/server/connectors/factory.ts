@@ -22,7 +22,9 @@ import type { IMdrConnector } from "./_interfaces/mdr";
 import type { CIPPConnector } from "./cipp/connector";
 import type { IEmailSecurityConnector } from "./_interfaces/email-security";
 import type { IBackupConnector } from "./_interfaces/backup";
+import type { ISaasBackupConnector } from "./_interfaces/saas-backup";
 import type { ILicensingConnector } from "./_interfaces/licensing";
+import type { IDnsSecurityConnector } from "./_interfaces/dns-security";
 import { ConnectorNotConfiguredError } from "./_base/errors";
 import type { ConnectorConfig } from "./_base/types";
 import { CONNECTOR_REGISTRY, type ConnectorCategory } from "./registry";
@@ -38,7 +40,9 @@ type ConnectorTypeMap = {
   cipp: CIPPConnector;
   email_security: IEmailSecurityConnector;
   backup: IBackupConnector;
+  saas_backup: ISaasBackupConnector;
   licensing: ILicensingConnector;
+  dns_security: IDnsSecurityConnector;
 };
 
 /** Cached connector instances keyed by toolId */

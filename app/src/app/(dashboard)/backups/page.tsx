@@ -22,10 +22,16 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/hooks/use-permissions";
 import { BackupSummaryCards } from "./_components/backup-summary-cards";
 import { BackupDeviceTable } from "./_components/backup-device-table";
 import { BackupCharts } from "./_components/backup-charts";
 import { ColorBarLegend } from "./_components/color-bar";
+import { DropsuiteSummaryCards } from "./_components/dropsuite-summary-cards";
+import { DropsuiteCharts } from "./_components/dropsuite-charts";
+import { DropsuiteOrgTable } from "./_components/dropsuite-org-table";
+
+type SaasBackupHealth = "healthy" | "warning" | "overdue" | "failed" | "preparing" | "never_ran" | "unknown";
 
 /* ─── Tab Types ──────────────────────────────────────────────── */
 
@@ -479,7 +485,28 @@ export default function BackupsPage() {
 function BackupsPageInner() {
   const searchParams = useSearchParams();
   const initialDeviceId = searchParams.get("device") ?? undefined;
-  const [provider, setProvider] = useState<ProviderTab>("cove");
+  const initialTab = searchParams.get("tab") as ProviderTab | null;
+  const initialOrg = searchParams.get("org") ?? undefined;
+  const { has, isLoading: permsLoading } = usePermissions();
+
+  // Determine visible provider tabs based on permissions
+  const canViewCove = permsLoading || has("backups.cove.view");
+  const canViewDropsuite = permsLoading || has("backups.dropsuite.view");
+
+  const [provider, setProvider] = useState<ProviderTab>(
+    initialTab === "dropsuite" ? "dropsuite" : "cove"
+  );
+
+  // Switch to visible provider if current one becomes inaccessible after perms load
+  const [providerSynced, setProviderSynced] = useState(false);
+  if (!permsLoading && !providerSynced) {
+    if (!canViewCove && canViewDropsuite && provider === "cove") {
+      setProvider("dropsuite");
+    }
+    setProviderSynced(true);
+  }
+
+  const [dsHealthFilter, setDsHealthFilter] = useState<SaasBackupHealth | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [deviceTypeFilter, setDeviceTypeFilter] = useState<"workstation" | "server" | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState("");
@@ -520,6 +547,13 @@ function BackupsPageInner() {
     enabled: activeTab === "customers",
   });
 
+  // ─── Dropsuite queries (only when DropSuite tab active) ─────
+  const dsSummary = trpc.saasBackup.getDashboardSummary.useQuery(undefined, {
+    retry: false,
+    staleTime: STALE_TIME,
+    enabled: provider === "dropsuite",
+  });
+
   // Lightweight customer names — always enabled so the dropdown works on all tabs
   const customerNamesQuery = trpc.backup.getCustomerNames.useQuery(undefined, {
     retry: false,
@@ -553,6 +587,16 @@ function BackupsPageInner() {
 
   // Use filtered summary when customer selected, otherwise global summary
   const activeSummary = customerFilter && filteredSummary ? filteredSummary : summary.data ?? null;
+
+  // Build per-org storage map from dashboard summary (computed from backup accounts)
+  const dsOrgStorageMap = useMemo(() => {
+    if (!dsSummary.data?.orgSeatSummaries) return undefined;
+    const map: Record<string, number> = {};
+    for (const org of dsSummary.data.orgSeatSummaries) {
+      if (org.storageBytes > 0) map[org.orgId] = org.storageBytes;
+    }
+    return Object.keys(map).length > 0 ? map : undefined;
+  }, [dsSummary.data]);
 
   const handleSelectCustomer = (id: string) => {
     setCustomerFilter(id);
@@ -593,45 +637,51 @@ function BackupsPageInner() {
         </div>
       </div>
 
-      {/* Provider Tabs */}
-      <div className="flex items-center gap-1 bg-zinc-900 rounded-lg p-0.5 border border-zinc-800 w-fit">
-        <button
-          onClick={() => setProvider("cove")}
-          className={cn(
-            "px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
-            provider === "cove"
-              ? "bg-zinc-800 text-zinc-100"
-              : "text-zinc-400 hover:text-zinc-300"
-          )}
-        >
-          <Cloud className="h-3.5 w-3.5" />
-          Cove Data Protection
-        </button>
-        <button
-          onClick={() => setProvider("dropsuite")}
-          className={cn(
-            "px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
-            provider === "dropsuite"
-              ? "bg-zinc-800 text-zinc-100"
-              : "text-zinc-400 hover:text-zinc-300"
-          )}
-        >
-          <Cloud className="h-3.5 w-3.5" />
-          DropSuite (NinjaOne SaaS)
-        </button>
-      </div>
-
-      {/* DropSuite (NinjaOne SaaS Backup) — Coming Soon */}
-      {provider === "dropsuite" && (
-        <div className="flex flex-col items-center justify-center py-24 text-zinc-500">
-          <Clock className="h-12 w-12 mb-4 text-zinc-600" />
-          <p className="text-lg font-medium text-zinc-400 mb-1">
-            DropSuite (NinjaOne SaaS Backup) — Coming Soon
-          </p>
-          <p className="text-sm">
-            M365 email backup and archiving monitoring will be available in a future update
-          </p>
+      {/* Provider Tabs — only show if user has access to more than one */}
+      {(canViewCove && canViewDropsuite) && (
+        <div className="flex items-center gap-1 bg-zinc-900 rounded-lg p-0.5 border border-zinc-800 w-fit">
+          <button
+            onClick={() => setProvider("cove")}
+            className={cn(
+              "px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
+              provider === "cove"
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-400 hover:text-zinc-300"
+            )}
+          >
+            <Cloud className="h-3.5 w-3.5" />
+            Cove Data Protection
+          </button>
+          <button
+            onClick={() => setProvider("dropsuite")}
+            className={cn(
+              "px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
+              provider === "dropsuite"
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-400 hover:text-zinc-300"
+            )}
+          >
+            <Cloud className="h-3.5 w-3.5" />
+            DropSuite (NinjaOne SaaS)
+          </button>
         </div>
+      )}
+
+      {/* DropSuite (NinjaOne SaaS Backup) */}
+      {provider === "dropsuite" && canViewDropsuite && (
+        <>
+          <DropsuiteSummaryCards
+            summary={dsSummary.data}
+            isLoading={dsSummary.isLoading}
+            activeFilter={dsHealthFilter}
+            onFilterChange={setDsHealthFilter}
+          />
+          <DropsuiteCharts
+            summary={dsSummary.data}
+            isLoading={dsSummary.isLoading}
+          />
+          <DropsuiteOrgTable healthFilter={dsHealthFilter} orgStorageMap={dsOrgStorageMap} initialExpandOrg={initialOrg} />
+        </>
       )}
 
       {/* Cove — Not Connected */}

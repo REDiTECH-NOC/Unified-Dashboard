@@ -10,7 +10,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, adminProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import type { IEmailSecurityConnector } from "../connectors/_interfaces/email-security";
 import { auditLog } from "@/lib/audit";
@@ -117,7 +117,7 @@ export const emailSecurityRouter = router({
   // Security Events (Threats)
   // ═══════════════════════════════════════════════════════════════
 
-  getEvents: protectedProcedure
+  getEvents: requirePerm("alerts.avanan.view")
     .input(
       z.object({
         eventTypes: z.array(z.string()).optional(),
@@ -152,7 +152,7 @@ export const emailSecurityRouter = router({
       );
     }),
 
-  getEventById: protectedProcedure
+  getEventById: requirePerm("alerts.avanan.view")
     .input(
       z.object({
         eventId: z.string(),
@@ -173,7 +173,7 @@ export const emailSecurityRouter = router({
    * - Only blocks on the very first call with empty Redis cache.
    * - Data survives container restarts (persisted in Redis for 24h).
    */
-  getEventStats: protectedProcedure
+  getEventStats: requirePerm("alerts.avanan.view")
     .input(
       z.object({
         days: z.number().int().min(1).max(365).default(30),
@@ -191,7 +191,7 @@ export const emailSecurityRouter = router({
   // Secured Entities (Emails/Files)
   // ═══════════════════════════════════════════════════════════════
 
-  searchEntities: protectedProcedure
+  searchEntities: requirePerm("alerts.avanan.view")
     .input(
       z.object({
         saas: z.string().optional(),
@@ -236,7 +236,7 @@ export const emailSecurityRouter = router({
       );
     }),
 
-  getEntityById: protectedProcedure
+  getEntityById: requirePerm("alerts.avanan.view")
     .input(
       z.object({
         entityId: z.string(),
@@ -394,7 +394,7 @@ export const emailSecurityRouter = router({
   // Task Status (async action tracking)
   // ═══════════════════════════════════════════════════════════════
 
-  getTaskStatus: protectedProcedure
+  getTaskStatus: requirePerm("alerts.avanan.view")
     .input(z.object({ taskId: z.number() }))
     .query(async ({ ctx, input }) => {
       const connector = await getEmailSecurity(ctx.prisma);
@@ -405,7 +405,7 @@ export const emailSecurityRouter = router({
   // Exceptions (Allowlist/Blocklist)
   // ═══════════════════════════════════════════════════════════════
 
-  getExceptions: protectedProcedure
+  getExceptions: requirePerm("alerts.avanan.view")
     .input(
       z.object({
         type: z.string(),
@@ -495,14 +495,14 @@ export const emailSecurityRouter = router({
       return { success: true };
     }),
 
-  getWhitelist: protectedProcedure
+  getWhitelist: requirePerm("alerts.avanan.view")
     .input(z.object({ vendor: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await getEmailSecurity(ctx.prisma);
       return connector.getWhitelist(input.vendor);
     }),
 
-  getBlacklist: protectedProcedure
+  getBlacklist: requirePerm("alerts.avanan.view")
     .input(z.object({ vendor: z.string() }))
     .query(async ({ ctx, input }) => {
       const connector = await getEmailSecurity(ctx.prisma);
@@ -577,7 +577,7 @@ export const emailSecurityRouter = router({
   // MSP Multi-Tenant
   // ═══════════════════════════════════════════════════════════════
 
-  getScopes: protectedProcedure.query(async ({ ctx }) => {
+  getScopes: requirePerm("alerts.avanan.view").query(async ({ ctx }) => {
     const connector = await getEmailSecurity(ctx.prisma);
     return connector.getScopes();
   }),

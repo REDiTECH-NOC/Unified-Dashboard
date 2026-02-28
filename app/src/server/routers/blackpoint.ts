@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, adminProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import type { BlackpointConnector } from "../connectors/blackpoint/connector";
 import { auditLog } from "@/lib/audit";
@@ -33,7 +33,7 @@ export const blackpointRouter = router({
   // Detections (Alert Groups)
   // =========================================================================
 
-  getDetections: protectedProcedure
+  getDetections: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         tenantId: z.string().optional(),
@@ -92,7 +92,7 @@ export const blackpointRouter = router({
       });
     }),
 
-  getDetectionById: protectedProcedure
+  getDetectionById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -105,7 +105,7 @@ export const blackpointRouter = router({
       throw new Error("Detection not found across any tenant");
     }),
 
-  getDetectionAlerts: protectedProcedure
+  getDetectionAlerts: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         alertGroupId: z.string(),
@@ -126,7 +126,7 @@ export const blackpointRouter = router({
       throw new Error("Detection alerts not found across any tenant");
     }),
 
-  getDetectionCount: protectedProcedure
+  getDetectionCount: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         tenantId: z.string().optional(),
@@ -148,7 +148,7 @@ export const blackpointRouter = router({
         .reduce((sum, r) => sum + r.value, 0);
     }),
 
-  getDetectionsByWeek: protectedProcedure
+  getDetectionsByWeek: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         tenantId: z.string().optional(),
@@ -178,7 +178,7 @@ export const blackpointRouter = router({
         .sort((a, b) => a.date.getTime() - b.date.getTime());
     }),
 
-  getTopDetectionsByEntity: protectedProcedure
+  getTopDetectionsByEntity: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         tenantId: z.string().optional(),
@@ -206,7 +206,7 @@ export const blackpointRouter = router({
         .slice(0, input.limit);
     }),
 
-  getTopDetectionsByThreat: protectedProcedure
+  getTopDetectionsByThreat: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         tenantId: z.string().optional(),
@@ -242,7 +242,7 @@ export const blackpointRouter = router({
   // Assets
   // =========================================================================
 
-  getAssets: protectedProcedure
+  getAssets: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         tenantId: z.string().optional(),
@@ -281,7 +281,7 @@ export const blackpointRouter = router({
       return { data: allData.slice(0, input.pageSize), hasMore: allData.length > input.pageSize, totalCount };
     }),
 
-  getAssetById: protectedProcedure
+  getAssetById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -293,7 +293,7 @@ export const blackpointRouter = router({
       throw new Error("Asset not found across any tenant");
     }),
 
-  getAssetRelationships: protectedProcedure
+  getAssetRelationships: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         assetId: z.string(),
@@ -316,7 +316,7 @@ export const blackpointRouter = router({
   // Tenants
   // =========================================================================
 
-  getTenants: protectedProcedure
+  getTenants: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         page: z.number().min(1).default(1),
@@ -328,7 +328,7 @@ export const blackpointRouter = router({
       return bp.getTenants(input.page, input.pageSize);
     }),
 
-  getTenantById: protectedProcedure
+  getTenantById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ accountId: z.string(), tenantId: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -339,7 +339,7 @@ export const blackpointRouter = router({
   // Accounts
   // =========================================================================
 
-  getAccounts: protectedProcedure
+  getAccounts: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         skip: z.number().min(0).default(0),
@@ -351,7 +351,7 @@ export const blackpointRouter = router({
       return bp.getAccounts(input.skip, input.take);
     }),
 
-  getAccountById: protectedProcedure
+  getAccountById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ accountId: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -362,7 +362,7 @@ export const blackpointRouter = router({
   // Collections
   // =========================================================================
 
-  getCollections: protectedProcedure
+  getCollections: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         skip: z.number().min(0).default(0),
@@ -374,7 +374,7 @@ export const blackpointRouter = router({
       return bp.getCollections(input.skip, input.take);
     }),
 
-  getCollectionById: protectedProcedure
+  getCollectionById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -441,21 +441,21 @@ export const blackpointRouter = router({
   // Cloud MDR — M365
   // =========================================================================
 
-  getMs365Connections: protectedProcedure
+  getMs365Connections: requirePerm("alerts.blackpoint.view")
     .input(z.object({ tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getMs365Connections(input.tenantId);
     }),
 
-  getMs365ConnectionById: protectedProcedure
+  getMs365ConnectionById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ connectionId: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getMs365ConnectionById(input.connectionId);
     }),
 
-  getMs365ApprovedCountries: protectedProcedure
+  getMs365ApprovedCountries: requirePerm("alerts.blackpoint.view")
     .input(z.object({ connectionId: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -492,7 +492,7 @@ export const blackpointRouter = router({
       return { success: true };
     }),
 
-  getMs365Users: protectedProcedure
+  getMs365Users: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         connectionId: z.string(),
@@ -510,7 +510,7 @@ export const blackpointRouter = router({
   // Cloud MDR — Generic Connections
   // =========================================================================
 
-  getConnectionApprovedCountries: protectedProcedure
+  getConnectionApprovedCountries: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         connectionId: z.string(),
@@ -523,7 +523,7 @@ export const blackpointRouter = router({
       return bp.getConnectionApprovedCountries(input.connectionId, input.skip, input.take);
     }),
 
-  getConnectionUsers: protectedProcedure
+  getConnectionUsers: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         connectionId: z.string(),
@@ -536,7 +536,7 @@ export const blackpointRouter = router({
       return bp.getConnectionUsers(input.connectionId, input.skip, input.take);
     }),
 
-  getIsoCountries: protectedProcedure
+  getIsoCountries: requirePerm("alerts.blackpoint.view")
     .query(async ({ ctx }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getIsoCountries();
@@ -546,13 +546,13 @@ export const blackpointRouter = router({
   // Cloud MDR — Google
   // =========================================================================
 
-  getGoogleOnboardings: protectedProcedure
+  getGoogleOnboardings: requirePerm("alerts.blackpoint.view")
     .query(async ({ ctx }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getGoogleOnboardings();
     }),
 
-  getGoogleOnboardingById: protectedProcedure
+  getGoogleOnboardingById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ onboardingId: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -563,13 +563,13 @@ export const blackpointRouter = router({
   // Cloud MDR — Cisco Duo
   // =========================================================================
 
-  getCiscoDuoOnboardings: protectedProcedure
+  getCiscoDuoOnboardings: requirePerm("alerts.blackpoint.view")
     .query(async ({ ctx }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getCiscoDuoOnboardings();
     }),
 
-  getCiscoDuoOnboardingById: protectedProcedure
+  getCiscoDuoOnboardingById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ onboardingId: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -614,7 +614,7 @@ export const blackpointRouter = router({
   // Vulnerability Management — Vulnerabilities
   // =========================================================================
 
-  getVulnerabilities: protectedProcedure
+  getVulnerabilities: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         tenantId: z.string().optional(),
@@ -642,7 +642,7 @@ export const blackpointRouter = router({
       return { data: allData.slice(0, input.pageSize), meta: { currentPage: 1, totalItems: totalCount, totalPages: Math.ceil(totalCount / input.pageSize), pageSize: input.pageSize } };
     }),
 
-  getVulnerabilityById: protectedProcedure
+  getVulnerabilityById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -654,7 +654,7 @@ export const blackpointRouter = router({
       throw new Error("Vulnerability not found");
     }),
 
-  getVulnerabilityAssets: protectedProcedure
+  getVulnerabilityAssets: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         vulnId: z.string(),
@@ -673,7 +673,7 @@ export const blackpointRouter = router({
       throw new Error("Vulnerability assets not found");
     }),
 
-  getVulnerabilitySeverityStats: protectedProcedure
+  getVulnerabilitySeverityStats: requirePerm("alerts.blackpoint.view")
     .input(z.object({ tenantId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -691,7 +691,7 @@ export const blackpointRouter = router({
       return Array.from(severityMap.entries()).map(([severity, count]) => ({ severity, count }));
     }),
 
-  getVulnerabilityTenantStats: protectedProcedure
+  getVulnerabilityTenantStats: requirePerm("alerts.blackpoint.view")
     .query(async ({ ctx }) => {
       const bp = await getBP(ctx.prisma);
       const tenants = await getTenantIds(bp);
@@ -707,14 +707,14 @@ export const blackpointRouter = router({
   // Vulnerability Management — CVEs
   // =========================================================================
 
-  getCveById: protectedProcedure
+  getCveById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getCveById(input.id);
     }),
 
-  getCveReferences: protectedProcedure
+  getCveReferences: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -725,7 +725,7 @@ export const blackpointRouter = router({
   // Vulnerability Management — Scans
   // =========================================================================
 
-  getScans: protectedProcedure
+  getScans: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         skip: z.number().min(0).default(0),
@@ -737,7 +737,7 @@ export const blackpointRouter = router({
       return bp.getScans(input.skip, input.take);
     }),
 
-  getScanById: protectedProcedure
+  getScanById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -794,7 +794,7 @@ export const blackpointRouter = router({
       return { success: true };
     }),
 
-  getScanCves: protectedProcedure
+  getScanCves: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         scanId: z.string(),
@@ -811,7 +811,7 @@ export const blackpointRouter = router({
   // Vulnerability Management — Scan Schedules
   // =========================================================================
 
-  getScanSchedules: protectedProcedure
+  getScanSchedules: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         skip: z.number().min(0).default(0),
@@ -823,7 +823,7 @@ export const blackpointRouter = router({
       return bp.getScanSchedules(input.skip, input.take);
     }),
 
-  getScanScheduleById: protectedProcedure
+  getScanScheduleById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -888,7 +888,7 @@ export const blackpointRouter = router({
   // Vulnerability Management — Scans & Schedules Combined
   // =========================================================================
 
-  getScansAndSchedules: protectedProcedure
+  getScansAndSchedules: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         tenantId: z.string().optional(),
@@ -912,7 +912,7 @@ export const blackpointRouter = router({
       return { data: allData.slice(0, input.pageSize), meta: { currentPage: 1, totalItems: totalCount, totalPages: Math.ceil(totalCount / input.pageSize), pageSize: input.pageSize } };
     }),
 
-  getScansAndSchedulesStats: protectedProcedure
+  getScansAndSchedulesStats: requirePerm("alerts.blackpoint.view")
     .input(z.object({ tenantId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -936,28 +936,28 @@ export const blackpointRouter = router({
   // Vulnerability Management — External & Dark Web
   // =========================================================================
 
-  getExternalScanExposures: protectedProcedure
+  getExternalScanExposures: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getExternalScanExposures(input.id);
     }),
 
-  getExternalScanReport: protectedProcedure
+  getExternalScanReport: requirePerm("alerts.blackpoint.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getExternalScanReport(input.id);
     }),
 
-  getDarkwebScanExposures: protectedProcedure
+  getDarkwebScanExposures: requirePerm("alerts.blackpoint.view")
     .input(z.object({ tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getDarkwebScanExposures(input.tenantId);
     }),
 
-  getDarkwebScanReport: protectedProcedure
+  getDarkwebScanReport: requirePerm("alerts.blackpoint.view")
     .input(z.object({ tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -968,14 +968,14 @@ export const blackpointRouter = router({
   // Notification Channels
   // =========================================================================
 
-  getChannels: protectedProcedure
+  getChannels: requirePerm("alerts.blackpoint.view")
     .input(z.object({ accountId: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getChannels(input.accountId, input.tenantId);
     }),
 
-  getEmailChannels: protectedProcedure
+  getEmailChannels: requirePerm("alerts.blackpoint.view")
     .input(z.object({ accountId: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -1005,7 +1005,7 @@ export const blackpointRouter = router({
       return result;
     }),
 
-  getWebhookChannels: protectedProcedure
+  getWebhookChannels: requirePerm("alerts.blackpoint.view")
     .input(z.object({ accountId: z.string(), tenantId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -1069,7 +1069,7 @@ export const blackpointRouter = router({
   // Users
   // =========================================================================
 
-  getUsers: protectedProcedure
+  getUsers: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         skip: z.number().min(0).default(0),
@@ -1081,7 +1081,7 @@ export const blackpointRouter = router({
       return bp.getUsers(input.skip, input.take);
     }),
 
-  getAccountUsers: protectedProcedure
+  getAccountUsers: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         accountId: z.string(),
@@ -1094,7 +1094,7 @@ export const blackpointRouter = router({
       return bp.getAccountUsers(input.accountId, input.skip, input.take);
     }),
 
-  getTenantUsers: protectedProcedure
+  getTenantUsers: requirePerm("alerts.blackpoint.view")
     .input(
       z.object({
         accountId: z.string(),
@@ -1112,21 +1112,21 @@ export const blackpointRouter = router({
   // Contact Groups
   // =========================================================================
 
-  getContactGroups: protectedProcedure
+  getContactGroups: requirePerm("alerts.blackpoint.view")
     .input(z.object({ accountId: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getContactGroups(input.accountId);
     }),
 
-  getContactGroupById: protectedProcedure
+  getContactGroupById: requirePerm("alerts.blackpoint.view")
     .input(z.object({ accountId: z.string(), contactGroupId: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
       return bp.getContactGroupById(input.accountId, input.contactGroupId);
     }),
 
-  getContactGroupMembers: protectedProcedure
+  getContactGroupMembers: requirePerm("alerts.blackpoint.view")
     .input(z.object({ accountId: z.string(), contactGroupId: z.string() }))
     .query(async ({ ctx, input }) => {
       const bp = await getBP(ctx.prisma);
@@ -1175,7 +1175,7 @@ export const blackpointRouter = router({
   // Health Check
   // =========================================================================
 
-  healthCheck: protectedProcedure.query(async ({ ctx }) => {
+  healthCheck: requirePerm("alerts.blackpoint.view").query(async ({ ctx }) => {
     const bp = await getBP(ctx.prisma);
     return bp.healthCheck();
   }),

@@ -6,18 +6,18 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 
 export const licensingRouter = router({
   // ─── Companies ──────────────────────────────────────────────
 
-  getCompanies: protectedProcedure.query(async ({ ctx }) => {
+  getCompanies: requirePerm("billing.view").query(async ({ ctx }) => {
     const licensing = await ConnectorFactory.get("licensing", ctx.prisma);
     return licensing.getCompanies();
   }),
 
-  getCompanyById: protectedProcedure
+  getCompanyById: requirePerm("billing.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const licensing = await ConnectorFactory.get("licensing", ctx.prisma);
@@ -26,7 +26,7 @@ export const licensingRouter = router({
 
   // ─── Products ───────────────────────────────────────────────
 
-  getProducts: protectedProcedure
+  getProducts: requirePerm("billing.view")
     .input(
       z
         .object({ vendorName: z.string().optional() })
@@ -37,7 +37,7 @@ export const licensingRouter = router({
       return licensing.getProducts(input?.vendorName);
     }),
 
-  getProductById: protectedProcedure
+  getProductById: requirePerm("billing.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const licensing = await ConnectorFactory.get("licensing", ctx.prisma);
@@ -46,7 +46,7 @@ export const licensingRouter = router({
 
   // ─── Subscriptions ──────────────────────────────────────────
 
-  getSubscriptions: protectedProcedure
+  getSubscriptions: requirePerm("billing.view")
     .input(
       z
         .object({
@@ -61,7 +61,7 @@ export const licensingRouter = router({
       return licensing.getSubscriptions(input ?? undefined);
     }),
 
-  getSubscriptionById: protectedProcedure
+  getSubscriptionById: requirePerm("billing.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const licensing = await ConnectorFactory.get("licensing", ctx.prisma);
@@ -70,7 +70,7 @@ export const licensingRouter = router({
 
   // ─── Orders ─────────────────────────────────────────────────
 
-  getOrders: protectedProcedure
+  getOrders: requirePerm("billing.view")
     .input(
       z
         .object({ companyId: z.string().optional() })
@@ -83,7 +83,7 @@ export const licensingRouter = router({
 
   // ─── Invoices ───────────────────────────────────────────────
 
-  getInvoices: protectedProcedure
+  getInvoices: requirePerm("billing.view")
     .input(
       z
         .object({ companyId: z.string().optional() })
@@ -94,7 +94,7 @@ export const licensingRouter = router({
       return licensing.getInvoices(input?.companyId);
     }),
 
-  getInvoiceItems: protectedProcedure
+  getInvoiceItems: requirePerm("billing.view")
     .input(z.object({ invoiceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const licensing = await ConnectorFactory.get("licensing", ctx.prisma);
@@ -103,7 +103,7 @@ export const licensingRouter = router({
 
   // ─── Usage Summaries ────────────────────────────────────────
 
-  getUsageSummaries: protectedProcedure
+  getUsageSummaries: requirePerm("billing.view")
     .input(
       z
         .object({ companyId: z.string().optional() })

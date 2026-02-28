@@ -151,6 +151,12 @@ export const userRouter = router({
       const valid = PERMISSIONS.find((p) => p.key === input.permission);
       if (!valid) throw new Error("Invalid permission key");
 
+      // Capture before state for audit
+      const targetUser = await ctx.prisma.user.findUnique({ where: { id: input.userId }, select: { email: true, name: true } });
+      const existing = await ctx.prisma.userPermission.findUnique({
+        where: { userId_permission: { userId: input.userId, permission: input.permission } },
+      });
+
       const result = await ctx.prisma.userPermission.upsert({
         where: { userId_permission: { userId: input.userId, permission: input.permission } },
         update: { granted: input.granted, grantedBy: ctx.user.id, grantedAt: new Date() },
@@ -167,7 +173,13 @@ export const userRouter = router({
         category: "USER",
         actorId: ctx.user.id,
         resource: "user:" + input.userId,
-        detail: { permission: input.permission, granted: input.granted },
+        detail: {
+          targetEmail: targetUser?.email,
+          targetName: targetUser?.name,
+          permission: input.permission,
+          granted: input.granted,
+          previousGranted: existing?.granted ?? null,
+        },
       });
 
       return result;
@@ -180,6 +192,11 @@ export const userRouter = router({
       permission: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const targetUser = await ctx.prisma.user.findUnique({ where: { id: input.userId }, select: { email: true, name: true } });
+      const existing = await ctx.prisma.userPermission.findFirst({
+        where: { userId: input.userId, permission: input.permission },
+      });
+
       await ctx.prisma.userPermission.deleteMany({
         where: { userId: input.userId, permission: input.permission },
       });
@@ -189,7 +206,13 @@ export const userRouter = router({
         category: "USER",
         actorId: ctx.user.id,
         resource: "user:" + input.userId,
-        detail: { permission: input.permission, resetToRoleDefault: true },
+        detail: {
+          targetEmail: targetUser?.email,
+          targetName: targetUser?.name,
+          permission: input.permission,
+          previousGranted: existing?.granted ?? null,
+          resetToRoleDefault: true,
+        },
       });
 
       return { success: true };
@@ -198,6 +221,7 @@ export const userRouter = router({
   updateRole: adminProcedure
     .input(z.object({ userId: z.string(), role: z.enum(["ADMIN", "MANAGER", "USER", "CLIENT"]) }))
     .mutation(async ({ ctx, input }) => {
+      const before = await ctx.prisma.user.findUnique({ where: { id: input.userId }, select: { role: true, email: true, name: true } });
       const updated = await ctx.prisma.user.update({
         where: { id: input.userId },
         data: { role: input.role },
@@ -208,7 +232,12 @@ export const userRouter = router({
         category: "USER",
         actorId: ctx.user.id,
         resource: "user:" + input.userId,
-        detail: { newRole: input.role },
+        detail: {
+          targetEmail: before?.email,
+          targetName: before?.name,
+          previousRole: before?.role,
+          newRole: input.role,
+        },
       });
       return updated;
     }),
@@ -221,6 +250,11 @@ export const userRouter = router({
       value: z.union([z.string(), z.number(), z.boolean(), z.record(z.string(), z.unknown())]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const targetUser = await ctx.prisma.user.findUnique({ where: { id: input.userId }, select: { email: true, name: true } });
+      const existing = await ctx.prisma.userFeatureFlag.findUnique({
+        where: { userId_flag: { userId: input.userId, flag: input.flag } },
+      });
+
       const result = await ctx.prisma.userFeatureFlag.upsert({
         where: { userId_flag: { userId: input.userId, flag: input.flag } },
         update: { enabled: input.enabled, value: (input.value as any) ?? undefined, updatedBy: ctx.user.id },
@@ -237,7 +271,14 @@ export const userRouter = router({
         category: "USER",
         actorId: ctx.user.id,
         resource: "user:" + input.userId,
-        detail: { flag: input.flag, enabled: input.enabled },
+        detail: {
+          targetEmail: targetUser?.email,
+          targetName: targetUser?.name,
+          flag: input.flag,
+          enabled: input.enabled,
+          previousEnabled: existing?.enabled ?? null,
+          value: input.value,
+        },
       });
       return result;
     }),

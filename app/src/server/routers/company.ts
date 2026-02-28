@@ -11,7 +11,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
 import { ConnectorError } from "../connectors/_base/errors";
@@ -568,7 +568,7 @@ async function autoMatchVendorIntegrations(prisma: PrismaClient) {
 export const companyRouter = router({
   // ─── List & Read ───────────────────────────────────────────
 
-  list: protectedProcedure
+  list: requirePerm("clients.view")
     .input(
       z.object({
         searchTerm: z.string().optional(),
@@ -614,7 +614,7 @@ export const companyRouter = router({
       };
     }),
 
-  listTypes: protectedProcedure.query(async ({ ctx }) => {
+  listTypes: requirePerm("clients.view").query(async ({ ctx }) => {
     const rows = await ctx.prisma.company.findMany({
       where: { type: { not: null } },
       select: { type: true },
@@ -632,7 +632,7 @@ export const companyRouter = router({
     return [...all].sort();
   }),
 
-  getById: protectedProcedure
+  getById: requirePerm("clients.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const company = await ctx.prisma.company.findUnique({
@@ -782,7 +782,7 @@ export const companyRouter = router({
 
   // ─── Sync Status ────────────────────────────────────────────
 
-  getSyncedSourceIds: protectedProcedure.query(async ({ ctx }) => {
+  getSyncedSourceIds: requirePerm("clients.view").query(async ({ ctx }) => {
     const companies = await ctx.prisma.company.findMany({
       select: { psaSourceId: true, syncEnabled: true, syncSource: true },
     });
@@ -1076,7 +1076,7 @@ export const companyRouter = router({
 
   // ─── Sync Progress (polled by UI) ────────────────────────────
 
-  syncProgress: protectedProcedure.query(async () => {
+  syncProgress: requirePerm("clients.view").query(async () => {
     return getSyncProgress();
   }),
 
@@ -1294,7 +1294,7 @@ export const companyRouter = router({
 
   // ─── Integration Mappings ──────────────────────────────────
 
-  getMappingsByTool: protectedProcedure
+  getMappingsByTool: requirePerm("clients.view")
     .input(z.object({ toolId: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.prisma.companyIntegrationMapping.findMany({
@@ -1304,7 +1304,7 @@ export const companyRouter = router({
       });
     }),
 
-  getMappings: protectedProcedure
+  getMappings: requirePerm("clients.view")
     .input(z.object({ companyId: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.prisma.companyIntegrationMapping.findMany({
@@ -1384,7 +1384,7 @@ export const companyRouter = router({
 
   // ─── Lookup Helper ─────────────────────────────────────────
 
-  resolveExternalId: protectedProcedure
+  resolveExternalId: requirePerm("clients.view")
     .input(
       z.object({
         companyId: z.string(),

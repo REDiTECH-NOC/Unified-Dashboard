@@ -22,6 +22,8 @@ import {
   Clock,
   TrendingUp,
   TrendingDown,
+  MessageSquare,
+  Pencil,
 } from "lucide-react";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
@@ -55,6 +57,8 @@ const STATUS_COLORS: Record<string, string> = {
 export default function CompanyBillingPage() {
   const { companyId } = useParams<{ companyId: string }>();
   const [expandedAgreements, setExpandedAgreements] = useState<Set<string>>(new Set());
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
   const autoReconcileTriggered = useRef(false);
 
   const reconciliationQuery = trpc.billing.getCompanyReconciliation.useQuery(
@@ -79,6 +83,14 @@ export default function CompanyBillingPage() {
 
   const resolveItemMutation = trpc.billing.resolveItem.useMutation({
     onSuccess: () => reconciliationQuery.refetch(),
+  });
+
+  const updateNoteMutation = trpc.billing.updateItemNote.useMutation({
+    onSuccess: () => {
+      reconciliationQuery.refetch();
+      setEditingNoteId(null);
+      setNoteText("");
+    },
   });
 
   const data = reconciliationQuery.data;
@@ -278,102 +290,174 @@ export default function CompanyBillingPage() {
             </div>
 
             {items.map((item: any) => (
-              <div
-                key={item.id}
-                className="grid grid-cols-[1fr_1fr_90px_90px_90px_90px_100px_120px] px-4 py-3 border-b border-zinc-800/50 items-center hover:bg-zinc-900/30 transition-colors"
-              >
-                {/* Vendor product */}
-                <div>
-                  <div className="text-sm text-zinc-200">{item.vendorProductName ?? item.vendorToolId}</div>
-                  <div className="text-xs text-zinc-500">
-                    {VENDOR_LABELS[item.vendorToolId]?.label ?? item.vendorToolId}
+              <div key={item.id}>
+                <div className="grid grid-cols-[1fr_1fr_90px_90px_90px_90px_100px_120px] px-4 py-3 border-b border-zinc-800/50 items-center hover:bg-zinc-900/30 transition-colors">
+                  {/* Vendor product */}
+                  <div>
+                    <div className="text-sm text-zinc-200">{item.vendorProductName ?? item.vendorToolId}</div>
+                    <div className="text-xs text-zinc-500">
+                      {VENDOR_LABELS[item.vendorToolId]?.label ?? item.vendorToolId}
+                    </div>
+                    {item.resolvedNote && editingNoteId !== item.id && (
+                      <button
+                        onClick={() => { setEditingNoteId(item.id); setNoteText(item.resolvedNote ?? ""); }}
+                        className="flex items-center gap-1 mt-1 text-xs text-zinc-500 italic hover:text-zinc-400 transition-colors"
+                      >
+                        <MessageSquare className="h-3 w-3 shrink-0" />
+                        <span className="truncate max-w-[200px]">{item.resolvedNote}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* CW billing item */}
+                  <div className="text-sm text-zinc-300">
+                    {item.productName}
+                    {item.agreementName && (
+                      <div className="text-xs text-zinc-500 truncate">{item.agreementName}</div>
+                    )}
+                  </div>
+
+                  {/* CW Qty */}
+                  <div className="text-right text-sm text-zinc-400">{item.psaQty}</div>
+
+                  {/* Actual vendor count */}
+                  <div className="text-right text-sm text-zinc-200 font-medium">{item.vendorQty}</div>
+
+                  {/* Diff */}
+                  <div className={`text-right text-sm font-medium ${
+                    item.discrepancy > 0
+                      ? "text-red-400"
+                      : item.discrepancy < 0
+                      ? "text-amber-400"
+                      : "text-green-400"
+                  }`}>
+                    {item.discrepancy > 0 ? "+" : ""}{item.discrepancy}
+                  </div>
+
+                  {/* Revenue impact */}
+                  <div className={`text-right text-sm ${
+                    (item.revenueImpact ?? 0) > 0
+                      ? "text-red-400"
+                      : (item.revenueImpact ?? 0) < 0
+                      ? "text-amber-400"
+                      : "text-zinc-500"
+                  }`}>
+                    {item.revenueImpact
+                      ? `$${Math.abs(item.revenueImpact).toFixed(2)}`
+                      : "—"}
+                  </div>
+
+                  {/* Status */}
+                  <div className="flex justify-center">
+                    {item.discrepancy === 0 && item.status === "approved" ? (
+                      <CheckCircle className="h-4 w-4 text-green-400" />
+                    ) : (
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
+                        STATUS_COLORS[item.status] ?? STATUS_COLORS.pending
+                      }`}>
+                        {item.status}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex justify-center gap-1">
+                    <button
+                      onClick={() => {
+                        if (editingNoteId === item.id) {
+                          setEditingNoteId(null);
+                          setNoteText("");
+                        } else {
+                          setEditingNoteId(item.id);
+                          setNoteText(item.resolvedNote ?? "");
+                        }
+                      }}
+                      className={`h-7 w-7 flex items-center justify-center rounded text-[10px] border transition-colors ${
+                        item.resolvedNote
+                          ? "border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                          : "border-zinc-700 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-400"
+                      }`}
+                      title={item.resolvedNote ? "Edit note" : "Add note"}
+                    >
+                      {item.resolvedNote ? <MessageSquare className="h-3.5 w-3.5" /> : <Pencil className="h-3 w-3" />}
+                    </button>
+                    {item.status === "pending" && (
+                      <>
+                        {item.additionPsaId && item.discrepancy !== 0 && (
+                          <button
+                            onClick={() => reconcileItemMutation.mutate({ itemId: item.id })}
+                            disabled={reconcileItemMutation.isPending}
+                            className="h-7 px-2 rounded text-[10px] font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+                            title="Update CW quantity to match vendor count"
+                          >
+                            Fix
+                          </button>
+                        )}
+                        <button
+                          onClick={() => resolveItemMutation.mutate({ itemId: item.id, action: "approve", note: noteText && editingNoteId === item.id ? noteText : undefined })}
+                          disabled={resolveItemMutation.isPending}
+                          className="h-7 px-2 rounded text-[10px] border border-green-500/30 text-green-400 hover:bg-green-500/10 transition-colors disabled:opacity-50"
+                        >
+                          OK
+                        </button>
+                        {item.discrepancy !== 0 && (
+                          <button
+                            onClick={() => resolveItemMutation.mutate({ itemId: item.id, action: "dismiss", note: noteText && editingNoteId === item.id ? noteText : undefined })}
+                            disabled={resolveItemMutation.isPending}
+                            className="h-7 px-2 rounded text-[10px] border border-zinc-700 text-zinc-400 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                          >
+                            Skip
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {/* CW billing item */}
-                <div className="text-sm text-zinc-300">
-                  {item.productName}
-                  {item.agreementName && (
-                    <div className="text-xs text-zinc-500 truncate">{item.agreementName}</div>
-                  )}
-                </div>
-
-                {/* CW Qty */}
-                <div className="text-right text-sm text-zinc-400">{item.psaQty}</div>
-
-                {/* Actual vendor count */}
-                <div className="text-right text-sm text-zinc-200 font-medium">{item.vendorQty}</div>
-
-                {/* Diff */}
-                <div className={`text-right text-sm font-medium ${
-                  item.discrepancy > 0
-                    ? "text-red-400"
-                    : item.discrepancy < 0
-                    ? "text-amber-400"
-                    : "text-green-400"
-                }`}>
-                  {item.discrepancy > 0 ? "+" : ""}{item.discrepancy}
-                </div>
-
-                {/* Revenue impact */}
-                <div className={`text-right text-sm ${
-                  (item.revenueImpact ?? 0) > 0
-                    ? "text-red-400"
-                    : (item.revenueImpact ?? 0) < 0
-                    ? "text-amber-400"
-                    : "text-zinc-500"
-                }`}>
-                  {item.revenueImpact
-                    ? `$${Math.abs(item.revenueImpact).toFixed(2)}`
-                    : "—"}
-                </div>
-
-                {/* Status */}
-                <div className="flex justify-center">
-                  {item.discrepancy === 0 && item.status === "approved" ? (
-                    <CheckCircle className="h-4 w-4 text-green-400" />
-                  ) : (
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
-                      STATUS_COLORS[item.status] ?? STATUS_COLORS.pending
-                    }`}>
-                      {item.status}
-                    </span>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div className="flex justify-center gap-1">
-                  {item.status === "pending" && (
-                    <>
-                      {item.additionPsaId && item.discrepancy !== 0 && (
-                        <button
-                          onClick={() => reconcileItemMutation.mutate({ itemId: item.id })}
-                          disabled={reconcileItemMutation.isPending}
-                          className="h-7 px-2 rounded text-[10px] font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
-                          title="Update CW quantity to match vendor count"
-                        >
-                          Fix
-                        </button>
-                      )}
+                {/* Inline note editor */}
+                {editingNoteId === item.id && (
+                  <div className="px-4 py-2 bg-zinc-900/50 border-b border-zinc-800/50 flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-zinc-500 shrink-0" />
+                    <input
+                      type="text"
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          updateNoteMutation.mutate({ itemId: item.id, note: noteText });
+                        } else if (e.key === "Escape") {
+                          setEditingNoteId(null);
+                          setNoteText("");
+                        }
+                      }}
+                      placeholder="Add a note (e.g. &quot;free backups we are providing x5&quot;)..."
+                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => updateNoteMutation.mutate({ itemId: item.id, note: noteText })}
+                      disabled={updateNoteMutation.isPending}
+                      className="h-7 px-3 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+                    >
+                      {updateNoteMutation.isPending ? "..." : "Save"}
+                    </button>
+                    {item.resolvedNote && (
                       <button
-                        onClick={() => resolveItemMutation.mutate({ itemId: item.id, action: "approve" })}
-                        disabled={resolveItemMutation.isPending}
-                        className="h-7 px-2 rounded text-[10px] border border-green-500/30 text-green-400 hover:bg-green-500/10 transition-colors disabled:opacity-50"
+                        onClick={() => updateNoteMutation.mutate({ itemId: item.id, note: "" })}
+                        disabled={updateNoteMutation.isPending}
+                        className="h-7 px-2 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                       >
-                        OK
+                        Clear
                       </button>
-                      {item.discrepancy !== 0 && (
-                        <button
-                          onClick={() => resolveItemMutation.mutate({ itemId: item.id, action: "dismiss" })}
-                          disabled={resolveItemMutation.isPending}
-                          className="h-7 px-2 rounded text-[10px] border border-zinc-700 text-zinc-400 hover:bg-zinc-800 transition-colors disabled:opacity-50"
-                        >
-                          Skip
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
+                    )}
+                    <button
+                      onClick={() => { setEditingNoteId(null); setNoteText(""); }}
+                      className="h-7 w-7 flex items-center justify-center rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </>

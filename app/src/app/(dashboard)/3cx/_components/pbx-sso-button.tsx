@@ -4,6 +4,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { ExternalLink, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/hooks/use-permissions";
 
 interface PbxSsoButtonProps {
   instanceId: string;
@@ -16,6 +17,10 @@ export function PbxSsoButton({
   disabled,
   compact,
 }: PbxSsoButtonProps) {
+  const { has, isLoading: permsLoading } = usePermissions();
+
+  // Only admins with phone.sso.access can use SSO quick access
+  if (!permsLoading && !has("phone.sso.access")) return null;
   const [loading, setLoading] = useState(false);
 
   const ssoMutation = trpc.threecx.getSsoUrl.useMutation({

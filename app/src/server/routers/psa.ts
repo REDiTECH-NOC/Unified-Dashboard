@@ -6,14 +6,14 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
 
 export const psaRouter = router({
   // ─── Tickets ─────────────────────────────────────────────
 
-  getTickets: protectedProcedure
+  getTickets: requirePerm("tickets.view")
     .input(
       z.object({
         companyId: z.string().optional(),
@@ -46,7 +46,7 @@ export const psaRouter = router({
       );
     }),
 
-  getTicketById: protectedProcedure
+  getTicketById: requirePerm("tickets.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const psa = await ConnectorFactory.get("psa", ctx.prisma);
@@ -54,7 +54,7 @@ export const psaRouter = router({
     }),
 
   /** Find open tickets related to an alert by company + hostname */
-  findRelatedTickets: protectedProcedure
+  findRelatedTickets: requirePerm("tickets.view")
     .input(
       z.object({
         hostname: z.string().optional(),
@@ -123,7 +123,7 @@ export const psaRouter = router({
       };
     }),
 
-  createTicket: protectedProcedure
+  createTicket: requirePerm("tickets.create")
     .input(
       z.object({
         summary: z.string().min(1).max(500),
@@ -157,7 +157,7 @@ export const psaRouter = router({
       return ticket;
     }),
 
-  updateTicket: protectedProcedure
+  updateTicket: requirePerm("tickets.edit")
     .input(
       z.object({
         id: z.string(),
@@ -191,14 +191,14 @@ export const psaRouter = router({
       return ticket;
     }),
 
-  getTicketNotes: protectedProcedure
+  getTicketNotes: requirePerm("tickets.view")
     .input(z.object({ ticketId: z.string() }))
     .query(async ({ ctx, input }) => {
       const psa = await ConnectorFactory.get("psa", ctx.prisma);
       return psa.getTicketNotes(input.ticketId);
     }),
 
-  addTicketNote: protectedProcedure
+  addTicketNote: requirePerm("tickets.edit")
     .input(
       z.object({
         ticketId: z.string(),
@@ -235,7 +235,7 @@ export const psaRouter = router({
       return note;
     }),
 
-  addTimeEntry: protectedProcedure
+  addTimeEntry: requirePerm("tickets.edit")
     .input(
       z.object({
         ticketId: z.string(),
@@ -263,7 +263,7 @@ export const psaRouter = router({
       return entry;
     }),
 
-  getWorkTypes: protectedProcedure.query(async ({ ctx }) => {
+  getWorkTypes: requirePerm("tickets.view").query(async ({ ctx }) => {
     const psa = await ConnectorFactory.get("psa", ctx.prisma);
     if ("getWorkTypes" in psa && typeof (psa as any).getWorkTypes === "function") {
       return (psa as any).getWorkTypes() as Promise<Array<{ id: string; name: string }>>;
@@ -271,7 +271,7 @@ export const psaRouter = router({
     return [] as Array<{ id: string; name: string }>;
   }),
 
-  getTimeEntries: protectedProcedure
+  getTimeEntries: requirePerm("tickets.view")
     .input(z.object({ ticketId: z.string() }))
     .query(async ({ ctx, input }) => {
       const psa = await ConnectorFactory.get("psa", ctx.prisma);
@@ -301,7 +301,7 @@ export const psaRouter = router({
 
   // ─── Companies ───────────────────────────────────────────
 
-  getCompanies: protectedProcedure
+  getCompanies: requirePerm("clients.view")
     .input(
       z.object({
         searchTerm: z.string().optional(),
@@ -342,14 +342,14 @@ export const psaRouter = router({
       };
     }),
 
-  getCompanyById: protectedProcedure
+  getCompanyById: requirePerm("clients.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const psa = await ConnectorFactory.get("psa", ctx.prisma);
       return psa.getCompanyById(input.id);
     }),
 
-  getCompanyStatuses: protectedProcedure.query(async ({ ctx }) => {
+  getCompanyStatuses: requirePerm("clients.view").query(async ({ ctx }) => {
     const psa = await ConnectorFactory.get("psa", ctx.prisma);
     const connector = psa as { getCompanyStatuses?: () => Promise<Array<{ id: number; name: string }>> };
     if (typeof connector.getCompanyStatuses === "function") {
@@ -358,7 +358,7 @@ export const psaRouter = router({
     return [];
   }),
 
-  getCompanyTypes: protectedProcedure.query(async ({ ctx }) => {
+  getCompanyTypes: requirePerm("clients.view").query(async ({ ctx }) => {
     const psa = await ConnectorFactory.get("psa", ctx.prisma);
     const connector = psa as { getCompanyTypes?: () => Promise<Array<{ id: number; name: string }>> };
     if (typeof connector.getCompanyTypes === "function") {
@@ -369,7 +369,7 @@ export const psaRouter = router({
 
   // ─── Contacts ────────────────────────────────────────────
 
-  getContacts: protectedProcedure
+  getContacts: requirePerm("clients.view")
     .input(
       z.object({
         companyId: z.string().optional(),
@@ -388,7 +388,7 @@ export const psaRouter = router({
       );
     }),
 
-  getContactById: protectedProcedure
+  getContactById: requirePerm("clients.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const psa = await ConnectorFactory.get("psa", ctx.prisma);
@@ -397,26 +397,26 @@ export const psaRouter = router({
 
   // ─── Boards & Members ───────────────────────────────────
 
-  getBoards: protectedProcedure.query(async ({ ctx }) => {
+  getBoards: requirePerm("tickets.view").query(async ({ ctx }) => {
     const psa = await ConnectorFactory.get("psa", ctx.prisma);
     return psa.getBoards();
   }),
 
-  getBoardStatuses: protectedProcedure
+  getBoardStatuses: requirePerm("tickets.view")
     .input(z.object({ boardId: z.string() }))
     .query(async ({ ctx, input }) => {
       const psa = await ConnectorFactory.get("psa", ctx.prisma);
       return psa.getBoardStatuses(input.boardId);
     }),
 
-  getMembers: protectedProcedure.query(async ({ ctx }) => {
+  getMembers: requirePerm("tickets.view").query(async ({ ctx }) => {
     const psa = await ConnectorFactory.get("psa", ctx.prisma);
     return psa.getMembers();
   }),
 
   // ─── Multi-Board Data (dashboard module) ────────────────────
 
-  getMultiBoardData: protectedProcedure
+  getMultiBoardData: requirePerm("tickets.view")
     .input(
       z.object({
         boardIds: z.array(z.string()).min(1).max(10),

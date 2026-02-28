@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
-import { router, adminProcedure, protectedProcedure } from "../trpc";
+import { router, adminProcedure, protectedProcedure, requirePerm } from "../trpc";
 import { auditLog } from "@/lib/audit";
 import {
   encrypt,
@@ -20,7 +20,7 @@ const TOOL_REGISTRY = [
   { toolId: "sentinelone", displayName: "SentinelOne", category: "edr" },
   { toolId: "blackpoint", displayName: "Blackpoint CompassOne", category: "mdr" },
   { toolId: "avanan", displayName: "Avanan", category: "security" },
-  { toolId: "dnsfilter", displayName: "DNS Filter", category: "security" },
+  { toolId: "dnsfilter", displayName: "DNS Filter", category: "dns_security" },
   { toolId: "huntress", displayName: "Huntress SAT", category: "security" },
   { toolId: "duo", displayName: "Duo MFA", category: "identity" },
   { toolId: "autoelevate", displayName: "AutoElevate", category: "identity" },
@@ -40,7 +40,7 @@ const TOOL_REGISTRY = [
 ];
 
 export const integrationRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
+  list: requirePerm("settings.integrations").query(async ({ ctx }) => {
     const configs = await ctx.prisma.integrationConfig.findMany({
       orderBy: { category: "asc" },
     });

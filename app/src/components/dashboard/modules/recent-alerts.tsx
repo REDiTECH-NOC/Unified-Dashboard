@@ -17,6 +17,7 @@ const ALERT_SOURCES = [
   { id: "ninjaone", label: "NinjaRMM" },
   { id: "uptime", label: "Uptime Monitor" },
   { id: "cove", label: "Cove Backup" },
+  { id: "dropsuite", label: "DropSuite" },
 ];
 
 const SEVERITIES = [
@@ -43,6 +44,7 @@ const sourceColors: Record<string, string> = {
   ninjaone:    "text-emerald-400 bg-emerald-500/10",
   uptime:      "text-rose-400 bg-rose-500/10",
   cove:        "text-teal-400 bg-teal-500/10",
+  dropsuite:   "text-cyan-400 bg-cyan-500/10",
 };
 
 const sourceLabels: Record<string, string> = {
@@ -51,6 +53,7 @@ const sourceLabels: Record<string, string> = {
   ninjaone: "Ninja",
   uptime: "Uptime",
   cove: "Cove",
+  dropsuite: "DS",
 };
 
 /* ─── UNIFIED ALERT TYPE ────────────────────────────────────────── */
@@ -102,6 +105,11 @@ export function RecentAlertsModule({ config, onConfigChange, isConfigOpen, onCon
   const backupAlerts = trpc.backup.getAlerts.useQuery(
     undefined,
     { retry: 1, refetchInterval: 120_000, staleTime: 60_000, enabled: wantSource("cove") }
+  );
+
+  const dsBackupAlerts = trpc.saasBackup.getAlerts.useQuery(
+    undefined,
+    { retry: 1, refetchInterval: 120_000, staleTime: 60_000, enabled: wantSource("dropsuite") }
   );
 
   /* ── Build Unified Alert List ──────────────────────────────── */
@@ -194,8 +202,28 @@ export function RecentAlertsModule({ config, onConfigChange, isConfigOpen, onCon
       }
     }
 
+    // Dropsuite SaaS Backup alerts
+    if (dsBackupAlerts.data) {
+      for (const a of dsBackupAlerts.data as {
+        sourceId: string; title: string; severity: string;
+        severityScore: number; deviceHostname?: string;
+        organizationName?: string; createdAt: string | Date;
+      }[]) {
+        list.push({
+          id: `ds-${a.sourceId}`,
+          source: "dropsuite",
+          title: a.title,
+          severity: a.severity ?? "medium",
+          severityScore: (a.severityScore ?? 5) * 10,
+          deviceHostname: a.deviceHostname,
+          organizationName: a.organizationName,
+          detectedAt: new Date(a.createdAt),
+        });
+      }
+    }
+
     return list;
-  }, [s1Threats.data, bpDetections.data, ninjaAlerts.data, uptimeMonitors.data, backupAlerts.data]);
+  }, [s1Threats.data, bpDetections.data, ninjaAlerts.data, uptimeMonitors.data, backupAlerts.data, dsBackupAlerts.data]);
 
   /* ── Filter & Sort ─────────────────────────────────────────── */
 
@@ -234,14 +262,16 @@ export function RecentAlertsModule({ config, onConfigChange, isConfigOpen, onCon
     (wantSource("blackpoint") && bpDetections.isLoading) ||
     (wantSource("ninjaone") && ninjaAlerts.isLoading) ||
     (wantSource("uptime") && uptimeMonitors.isLoading) ||
-    (wantSource("cove") && backupAlerts.isLoading);
+    (wantSource("cove") && backupAlerts.isLoading) ||
+    (wantSource("dropsuite") && dsBackupAlerts.isLoading);
 
   const allErrored =
     (!wantSource("sentinelone") || s1Threats.isError) &&
     (!wantSource("blackpoint") || bpDetections.isError) &&
     (!wantSource("ninjaone") || ninjaAlerts.isError) &&
     (!wantSource("uptime") || uptimeMonitors.isError) &&
-    (!wantSource("cove") || backupAlerts.isError);
+    (!wantSource("cove") || backupAlerts.isError) &&
+    (!wantSource("dropsuite") || dsBackupAlerts.isError);
 
   const totalCount = alerts.length;
 

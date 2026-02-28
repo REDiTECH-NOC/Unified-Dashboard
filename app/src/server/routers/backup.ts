@@ -6,21 +6,26 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
-import type { BackupErrorDetail, RecoveryVerification } from "../connectors/_interfaces/backup";
+import type { IBackupConnector, BackupErrorDetail, RecoveryVerification } from "../connectors/_interfaces/backup";
 import { redis } from "@/lib/redis";
 import { cachedQuery } from "@/lib/query-cache";
 import { auditLog } from "@/lib/audit";
 
 const BACKUP_STALE = 10 * 60_000; // 10 min
 
+/** Always resolve to the Cove connector specifically (not generic "backup" category) */
+async function getCove(prisma: Parameters<typeof ConnectorFactory.getByToolId>[1]) {
+  return ConnectorFactory.getByToolId("cove", prisma) as Promise<IBackupConnector>;
+}
+
 export const backupRouter = router({
   // ─── Dashboard Summary ────────────────────────────────────────
 
-  getDashboardSummary: protectedProcedure.query(async ({ ctx }) => {
+  getDashboardSummary: requirePerm("backups.cove.view").query(async ({ ctx }) => {
     try {
-      const backup = await ConnectorFactory.get("backup", ctx.prisma);
+      const backup = await getCove(ctx.prisma);
       return await backup.getDashboardSummary();
     } catch (err) {
       console.error("[backup.getDashboardSummary] Error:", err);
@@ -30,9 +35,9 @@ export const backupRouter = router({
 
   // ─── Customers ────────────────────────────────────────────────
 
-  getCustomers: protectedProcedure.query(async ({ ctx }) => {
+  getCustomers: requirePerm("backups.cove.view").query(async ({ ctx }) => {
     try {
-      const backup = await ConnectorFactory.get("backup", ctx.prisma);
+      const backup = await getCove(ctx.prisma);
       return await backup.getCustomers();
     } catch (err) {
       console.error("[backup.getCustomers] Error:", err);
@@ -42,7 +47,7 @@ export const backupRouter = router({
 
   // ─── Devices ──────────────────────────────────────────────────
 
-  getDevices: protectedProcedure
+  getDevices: requirePerm("backups.cove.view")
     .input(
       z.object({
         customerId: z.string().optional(),
@@ -55,7 +60,7 @@ export const backupRouter = router({
     )
     .query(async ({ ctx, input }) => {
       try {
-        const backup = await ConnectorFactory.get("backup", ctx.prisma);
+        const backup = await getCove(ctx.prisma);
         return await backup.getDevices(input);
       } catch (err) {
         console.error("[backup.getDevices] Error:", err);
@@ -63,11 +68,11 @@ export const backupRouter = router({
       }
     }),
 
-  getDeviceById: protectedProcedure
+  getDeviceById: requirePerm("backups.cove.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       try {
-        const backup = await ConnectorFactory.get("backup", ctx.prisma);
+        const backup = await getCove(ctx.prisma);
         return await backup.getDeviceById(input.id);
       } catch (err) {
         console.error("[backup.getDeviceById] Error:", err);
@@ -77,7 +82,7 @@ export const backupRouter = router({
 
   // ─── Session History ────────────────────────────────────────────
 
-  getDeviceHistory: protectedProcedure
+  getDeviceHistory: requirePerm("backups.cove.view")
     .input(
       z.object({
         deviceId: z.string(),
@@ -86,7 +91,7 @@ export const backupRouter = router({
     )
     .query(async ({ ctx, input }) => {
       try {
-        const backup = await ConnectorFactory.get("backup", ctx.prisma);
+        const backup = await getCove(ctx.prisma);
         return await backup.getDeviceSessionHistory(input.deviceId, input.days);
       } catch (err) {
         console.error("[backup.getDeviceHistory] Error:", err);
@@ -96,11 +101,11 @@ export const backupRouter = router({
 
   // ─── Per-File Error Details (Cove Storage Node) ────────────────
 
-  getDeviceErrors: protectedProcedure
+  getDeviceErrors: requirePerm("backups.cove.view")
     .input(z.object({ deviceId: z.string() }))
     .query(async ({ ctx, input }) => {
       try {
-        const backup = await ConnectorFactory.get("backup", ctx.prisma);
+        const backup = await getCove(ctx.prisma);
         // Per-file errors use the Cove storage node API — not on IBackupConnector
         if ("getDeviceErrorDetails" in backup) {
           return await (backup as { getDeviceErrorDetails: (id: string) => Promise<BackupErrorDetail[]> })
@@ -115,11 +120,11 @@ export const backupRouter = router({
 
   // ─── Recovery Verification (DRaaS) ──────────────────────────────
 
-  getRecoveryVerification: protectedProcedure
+  getRecoveryVerification: requirePerm("backups.cove.view")
     .input(z.object({ deviceId: z.string() }))
     .query(async ({ ctx, input }) => {
       try {
-        const backup = await ConnectorFactory.get("backup", ctx.prisma);
+        const backup = await getCove(ctx.prisma);
         if ("getRecoveryVerification" in backup) {
           return await (backup as { getRecoveryVerification: (id: string) => Promise<RecoveryVerification> })
             .getRecoveryVerification(input.deviceId);
@@ -133,9 +138,9 @@ export const backupRouter = router({
 
   // ─── Bulk Recovery-Enabled Devices (DRaaS) ─────────────────────
 
-  getRecoveryEnabledDevices: protectedProcedure.query(async ({ ctx }) => {
+  getRecoveryEnabledDevices: requirePerm("backups.cove.view").query(async ({ ctx }) => {
     try {
-      const backup = await ConnectorFactory.get("backup", ctx.prisma);
+      const backup = await getCove(ctx.prisma);
       if ("getRecoveryEnabledDevices" in backup) {
         return await (
           backup as {
@@ -154,10 +159,10 @@ export const backupRouter = router({
 
   // ─── Alerts ───────────────────────────────────────────────────
 
-  getAlerts: protectedProcedure.query(async ({ ctx }) => {
+  getAlerts: requirePerm("backups.cove.view").query(async ({ ctx }) => {
     return cachedQuery("backup", BACKUP_STALE, "alerts", async () => {
       try {
-        const backup = await ConnectorFactory.get("backup", ctx.prisma);
+        const backup = await getCove(ctx.prisma);
         return await backup.getActiveAlerts();
       } catch (err) {
         console.error("[backup.getAlerts] Error:", err);
@@ -168,11 +173,11 @@ export const backupRouter = router({
 
   // ─── Storage ──────────────────────────────────────────────────
 
-  getStorage: protectedProcedure
+  getStorage: requirePerm("backups.cove.view")
     .input(z.object({ customerId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       try {
-        const backup = await ConnectorFactory.get("backup", ctx.prisma);
+        const backup = await getCove(ctx.prisma);
         return await backup.getStorageStatistics(input.customerId);
       } catch (err) {
         console.error("[backup.getStorage] Error:", err);
@@ -182,9 +187,9 @@ export const backupRouter = router({
 
   // ─── Customer Names (lightweight — always callable) ───────
 
-  getCustomerNames: protectedProcedure.query(async ({ ctx }) => {
+  getCustomerNames: requirePerm("backups.cove.view").query(async ({ ctx }) => {
     try {
-      const backup = await ConnectorFactory.get("backup", ctx.prisma);
+      const backup = await getCove(ctx.prisma);
       const customers = await backup.getCustomers();
       return customers.map((c) => ({ id: c.sourceId, name: c.name }));
     } catch (err) {
@@ -195,7 +200,7 @@ export const backupRouter = router({
 
   // ─── Customer Notes ─────────────────────────────────────────
 
-  getCustomerNote: protectedProcedure
+  getCustomerNote: requirePerm("backups.cove.view")
     .input(z.object({ covePartnerId: z.string() }))
     .query(async ({ ctx, input }) => {
       const note = await ctx.prisma.backupCustomerNote.findUnique({
@@ -204,7 +209,7 @@ export const backupRouter = router({
       return note;
     }),
 
-  setCustomerNote: protectedProcedure
+  setCustomerNote: requirePerm("backups.cove.manage")
     .input(z.object({ covePartnerId: z.string(), note: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const result = await ctx.prisma.backupCustomerNote.upsert({
@@ -233,7 +238,7 @@ export const backupRouter = router({
   // The Cove portal URLs require the root partner ID:
   // https://backup.management/#/backup/overview/view/{partnerId}(panel:device-properties/{deviceId}/errors)
 
-  getCovePartnerId: protectedProcedure.query(async ({ ctx }) => {
+  getCovePartnerId: requirePerm("backups.cove.view").query(async ({ ctx }) => {
     try {
       const config = await ctx.prisma.integrationConfig.findFirst({
         where: { toolId: "cove" },
@@ -245,7 +250,7 @@ export const backupRouter = router({
       if (cached) return Number(cached);
 
       // If not cached, trigger a device fetch which forces login → caches partner ID
-      const backup = await ConnectorFactory.get("backup", ctx.prisma);
+      const backup = await getCove(ctx.prisma);
       await backup.getDevices({ searchTerm: "__force_login__" });
 
       const afterLogin = await redis.get(`cove:rootpartner:${config.toolId}`);
@@ -259,7 +264,7 @@ export const backupRouter = router({
   // ─── Cache Info ─────────────────────────────────────────────
   // Returns cache freshness timestamps so the UI can show "Last updated X ago"
 
-  getCacheInfo: protectedProcedure.query(async ({ ctx }) => {
+  getCacheInfo: requirePerm("backups.cove.view").query(async ({ ctx }) => {
     try {
       // Find the Cove tool config to get the toolId for cache keys
       const config = await ctx.prisma.integrationConfig.findFirst({

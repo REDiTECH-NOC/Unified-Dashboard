@@ -21,6 +21,7 @@ import type { SentinelOneEdrConnector } from "../connectors/sentinelone/connecto
 import type { Pax8LicensingConnector } from "../connectors/pax8/connector";
 import type { BlackpointConnector } from "../connectors/blackpoint/connector";
 import type { AvananEmailSecurityConnector } from "../connectors/avanan/connector";
+import type { ISaasBackupConnector } from "../connectors/_interfaces/saas-backup";
 import { isM365Tenant } from "../connectors/cove/mappers";
 
 // ─── Types ──────────────────────────────────────────────────
@@ -73,6 +74,9 @@ const KNOWN_VENDOR_PRODUCTS: Array<{ vendorToolId: string; productKey: string; p
   // Avanan: common packages seeded — additional packages auto-discovered from tenant data
   { vendorToolId: "avanan", productKey: "advanced_email_security", productName: "Avanan Advanced Email Security", unit: "users" },
   { vendorToolId: "avanan", productKey: "complete_email_security", productName: "Avanan Complete Email Security", unit: "users" },
+  // Dropsuite: SaaS backup seat counts per organization
+  { vendorToolId: "dropsuite", productKey: "m365_mailbox_backup", productName: "Dropsuite M365 Mailbox Backup", unit: "mailboxes" },
+  { vendorToolId: "dropsuite", productKey: "m365_archive", productName: "Dropsuite M365 Archive", unit: "mailboxes" },
 ];
 
 /** Ensure all known vendor products exist in DB (idempotent) */
@@ -105,7 +109,7 @@ export async function getVendorCountsForCompany(
   });
 
   const counts: VendorCount[] = [];
-  const targetTools = toolIds ?? ["ninjaone", "sentinelone", "cove", "pax8", "blackpoint", "avanan"];
+  const targetTools = toolIds ?? ["ninjaone", "sentinelone", "cove", "pax8", "blackpoint", "avanan", "dropsuite"];
 
   for (const mapping of mappings) {
     if (!targetTools.includes(mapping.toolId)) continue;
@@ -154,6 +158,13 @@ export async function getVendorCountsForCompany(
           );
           break;
         }
+        case "dropsuite": {
+          const toolCounts = await getDropsuiteCounts(mapping.externalId, prisma);
+          counts.push(
+            ...toolCounts.map((c) => ({ ...c, companyExternalId: mapping.externalId }))
+          );
+          break;
+        }
       }
     } catch (err) {
       console.error(`[Billing] Vendor count error for ${mapping.toolId} (${mapping.externalId}):`, err instanceof Error ? err.message : err);
@@ -171,7 +182,7 @@ export async function getAllVendorCounts(
   prisma: PrismaClient
 ): Promise<Map<string, VendorCount[]>> {
   const allMappings = await prisma.companyIntegrationMapping.findMany({
-    where: { toolId: { in: ["ninjaone", "sentinelone", "cove", "pax8", "blackpoint", "avanan"] } },
+    where: { toolId: { in: ["ninjaone", "sentinelone", "cove", "pax8", "blackpoint", "avanan", "dropsuite"] } },
     include: { company: { select: { id: true } } },
   });
 
@@ -451,6 +462,37 @@ export async function getAllVendorCounts(
     // Avanan not configured
   }
 
+  // ─── Dropsuite: per-org active seat counts ──────────────
+  try {
+    const dsMappings = byTool.get("dropsuite");
+    if (dsMappings?.length) {
+      const ds = await ConnectorFactory.getByToolId<"saas_backup">("dropsuite", prisma) as ISaasBackupConnector;
+      const allOrgs = await ds.getOrganizations();
+
+      const orgById = new Map(allOrgs.map((o) => [o.sourceId, o]));
+
+      for (const mapping of dsMappings) {
+        const org = orgById.get(mapping.externalId);
+        if (!org || org.isDeactivated) continue;
+
+        const now = new Date();
+        if (org.activeSeats > 0) {
+          appendCounts(mapping.companyId, [{
+            toolId: "dropsuite",
+            productKey: org.archive ? "m365_archive" : "m365_mailbox_backup",
+            productName: org.archive ? "Dropsuite M365 Archive" : "Dropsuite M365 Mailbox Backup",
+            count: org.activeSeats,
+            unit: "mailboxes",
+            companyExternalId: mapping.externalId,
+            lastSyncedAt: now,
+          }]);
+        }
+      }
+    }
+  } catch {
+    // Dropsuite not configured
+  }
+
   return result;
 }
 
@@ -645,6 +687,26 @@ async function getAvananCounts(
   }];
 }
 
+async function getDropsuiteCounts(
+  orgSourceId: string,
+  prisma: PrismaClient
+): Promise<Omit<VendorCount, "companyExternalId">[]> {
+  const ds = await ConnectorFactory.getByToolId<"saas_backup">("dropsuite", prisma) as ISaasBackupConnector;
+  const orgs = await ds.getOrganizations();
+  const org = orgs.find((o) => o.sourceId === orgSourceId);
+
+  if (!org || org.isDeactivated || org.activeSeats === 0) return [];
+
+  return [{
+    toolId: "dropsuite",
+    productKey: org.archive ? "m365_archive" : "m365_mailbox_backup",
+    productName: org.archive ? "Dropsuite M365 Archive" : "Dropsuite M365 Mailbox Backup",
+    count: org.activeSeats,
+    unit: "mailboxes",
+    lastSyncedAt: new Date(),
+  }];
+}
+
 // ─── Reconciliation Engine ──────────────────────────────────
 
 /**
@@ -717,6 +779,32 @@ export async function reconcileCompany(
 
   console.log(`[Billing] Active mappings: ${mappings.length}`, mappings.map(m => `${m.vendorToolId}:${m.vendorProductKey} → "${m.psaProductName}"`).join(", "));
 
+  // 3b. Fetch previous snapshot items for note/status carry-forward
+  const prevSnapshot = await prisma.reconciliationSnapshot.findFirst({
+    where: { companyId, status: "completed" },
+    orderBy: { snapshotAt: "desc" },
+    include: {
+      items: {
+        select: {
+          vendorToolId: true,
+          vendorProductKey: true,
+          productName: true,
+          resolvedNote: true,
+          status: true,
+          discrepancy: true,
+        },
+      },
+    },
+  });
+  // Key: "toolId:productKey" → previous item data
+  const prevItemMap = new Map<string, { note: string | null; status: string; discrepancy: number }>();
+  if (prevSnapshot) {
+    for (const pi of prevSnapshot.items) {
+      const key = `${pi.vendorToolId}:${pi.vendorProductKey ?? pi.productName}`;
+      prevItemMap.set(key, { note: pi.resolvedNote, status: pi.status, discrepancy: pi.discrepancy });
+    }
+  }
+
   // 4. Create snapshot
   const snapshot = await prisma.reconciliationSnapshot.create({
     data: {
@@ -753,6 +841,12 @@ export async function reconcileCompany(
 
       if (matchingAdditions.length === 0) {
         // Vendor has counts but no PSA addition found — still create an item
+        // Carry forward note/status from previous snapshot
+        const prevKey = `${vc.toolId}:${vc.productKey}`;
+        const prev = prevItemMap.get(prevKey);
+        const carryStatus = prev?.note && prev.status !== "pending" && prev.discrepancy === vc.count
+          ? prev.status : "pending";
+
         const createdItem = await prisma.reconciliationItem.create({
           data: {
             snapshotId: snapshot.id,
@@ -766,7 +860,8 @@ export async function reconcileCompany(
             discrepancy: vc.count,
             unitPrice: null,
             revenueImpact: null,
-            status: "pending",
+            status: carryStatus,
+            resolvedNote: prev?.note ?? null,
           },
         });
 
@@ -808,6 +903,15 @@ export async function reconcileCompany(
       // Use first matching addition for the write-back IDs
       const firstAdd = matchingAdditions[0];
 
+      // Carry forward note/status from previous snapshot
+      const prevKey2 = `${vc.toolId}:${vc.productKey}`;
+      const prev2 = prevItemMap.get(prevKey2);
+      const carryStatus2 = diff === 0
+        ? "approved"
+        : (prev2?.note && prev2.status !== "pending" && prev2.discrepancy === diff)
+          ? prev2.status
+          : "pending";
+
       const createdItem2 = await prisma.reconciliationItem.create({
         data: {
           snapshotId: snapshot.id,
@@ -825,7 +929,8 @@ export async function reconcileCompany(
           discrepancy: diff,
           unitPrice: avgPrice || null,
           revenueImpact: impact || null,
-          status: diff === 0 ? "approved" : "pending",
+          status: carryStatus2,
+          resolvedNote: prev2?.note ?? null,
         },
       });
 
@@ -953,6 +1058,13 @@ export async function getLiveVendorCount(
     }
     case "avanan": {
       const counts = await getAvananCounts(externalId, prisma);
+      if (productKey) {
+        return counts.find((c) => c.productKey === productKey)?.count ?? 0;
+      }
+      return counts.reduce((sum, c) => sum + c.count, 0);
+    }
+    case "dropsuite": {
+      const counts = await getDropsuiteCounts(externalId, prisma);
       if (productKey) {
         return counts.find((c) => c.productKey === productKey)?.count ?? 0;
       }

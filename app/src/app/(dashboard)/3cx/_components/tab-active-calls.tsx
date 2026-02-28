@@ -22,7 +22,8 @@ function callDuration(startTime: string | undefined): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function stateColor(state: string): string {
+function stateColor(state: string | undefined): string {
+  if (!state) return "text-foreground";
   const s = state.toLowerCase();
   if (s.includes("talking") || s.includes("connected")) return "text-green-500";
   if (s.includes("ringing") || s.includes("dialing")) return "text-yellow-500";
@@ -32,15 +33,24 @@ function stateColor(state: string): string {
 }
 
 export function TabActiveCalls({ instanceId }: TabActiveCallsProps) {
-  const { data: calls, isLoading } = trpc.threecx.getActiveCalls.useQuery(
+  const { data: calls, isLoading, isError, error } = trpc.threecx.getActiveCalls.useQuery(
     { instanceId },
-    { refetchInterval: 5000 } // Refresh every 5s for live calls
+    { refetchInterval: 5000, retry: 2 } // Refresh every 5s for live calls
   );
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
         <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="text-center py-16 text-muted-foreground text-sm">
+        <p>Failed to load active calls.</p>
+        <p className="text-xs mt-1 opacity-60">{error?.message ?? "The PBX may be offline."}</p>
       </div>
     );
   }

@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { ConfirmationDialog } from "./confirmation-dialog";
 import { CoveAlertDetail } from "./cove-alert-detail";
+import { DropsuiteAlertDetail } from "./dropsuite-alert-detail";
 import { AlertTicketLink } from "./alert-ticket-link";
 
 /* ─── TYPES ────────────────────────────────────────────── */
@@ -931,6 +932,21 @@ export function AlertExpanded({ source, alerts, onOpenDetail, onClose }: AlertEx
   // Blackpoint standalone alerts: rich detail view
   if (source === "blackpoint") {
     return <BlackpointAlertDetail alert={currentAlert} onClose={onClose} />;
+  }
+
+  // Dropsuite SaaS backup alerts: account-level detail view
+  if (source === "dropsuite") {
+    return (
+      <div className="px-6 py-4 bg-accent/30 border-t border-border/50 space-y-3">
+        <DropsuiteAlertDetail
+          key={currentAlert.sourceId}
+          alert={currentAlert}
+        />
+        <button onClick={onClose} className="text-xs text-red-500 hover:text-red-400">
+          Close
+        </button>
+      </div>
+    );
   }
 
   // Other non-S1 sources: placeholder with ticket link

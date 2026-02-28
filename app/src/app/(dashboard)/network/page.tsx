@@ -1,28 +1,65 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import {
   Wifi,
   Shield,
+  Globe,
   Search,
   Loader2,
   Settings,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/hooks/use-permissions";
 import { NetworkSummaryCards } from "./_components/network-summary-cards";
 import { SiteTable } from "./_components/site-table";
+import { DnsFilterTab } from "./_components/dns-filter-tab-wrapper";
 
 /* ─── Types ──────────────────────────────────────────────── */
 
-type ProviderTab = "unifi" | "watchguard";
+type ProviderTab = "unifi" | "dns-filter" | "watchguard";
 type StatusFilter = "all" | "online" | "offline" | "updates";
 
-/* ─── Page ───────────────────────────────────────────────── */
+/* ─── Page (Suspense wrapper for useSearchParams) ────────── */
 
 export default function NetworkPage() {
-  const [provider, setProvider] = useState<ProviderTab>("unifi");
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
+      <NetworkPageInner />
+    </Suspense>
+  );
+}
+
+function NetworkPageInner() {
+  const searchParams = useSearchParams();
+  const { has, isLoading: permsLoading } = usePermissions();
+
+  // Determine visible provider tabs based on permissions
+  const canViewUnifi = permsLoading || has("network.unifi.view");
+  const canViewDnsFilter = permsLoading || has("network.dnsfilter.view");
+
+  const initialTab = (searchParams.get("tab") as ProviderTab) || "unifi";
+  const [provider, setProvider] = useState<ProviderTab>(initialTab);
+
+  // Sync tab from URL if it changes (only if user has access)
+  useEffect(() => {
+    const tab = searchParams.get("tab") as ProviderTab;
+    if (tab && ["unifi", "dns-filter", "watchguard"].includes(tab)) {
+      setProvider(tab);
+    }
+  }, [searchParams]);
+
+  // Switch to visible provider if current one becomes inaccessible after perms load
+  const [providerSynced, setProviderSynced] = useState(false);
+  if (!permsLoading && !providerSynced) {
+    if (!canViewUnifi && canViewDnsFilter && provider === "unifi") {
+      setProvider("dns-filter");
+    }
+    setProviderSynced(true);
+  }
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [hostFilter, setHostFilter] = useState<string>("all");
@@ -79,12 +116,26 @@ export default function NetworkPage() {
 
   const hasFilters = search || statusFilter !== "all" || hostFilter !== "all";
 
-  /* ── Tab buttons ──────────────────────────────────────── */
+  /* ── Tab buttons (filtered by permissions) ────────────── */
 
-  const providerTabs: { id: ProviderTab; label: string; icon: React.ElementType }[] = [
-    { id: "unifi", label: "UniFi", icon: Wifi },
-    { id: "watchguard", label: "WatchGuard", icon: Shield },
-  ];
+  const PROVIDER_PERMISSION_MAP: Record<ProviderTab, string | null> = {
+    "unifi": "network.unifi.view",
+    "dns-filter": "network.dnsfilter.view",
+    "watchguard": null, // Coming soon — show to all who have network.view
+  };
+
+  const providerTabs = useMemo(() => {
+    const allTabs: { id: ProviderTab; label: string; icon: React.ElementType }[] = [
+      { id: "unifi", label: "UniFi", icon: Wifi },
+      { id: "dns-filter", label: "DNS Filter", icon: Globe },
+      { id: "watchguard", label: "WatchGuard", icon: Shield },
+    ];
+    if (permsLoading) return allTabs;
+    return allTabs.filter((tab) => {
+      const perm = PROVIDER_PERMISSION_MAP[tab.id];
+      return !perm || has(perm);
+    });
+  }, [permsLoading, has]);
 
   /* ── Render ───────────────────────────────────────────── */
 
@@ -120,7 +171,7 @@ export default function NetworkPage() {
       </div>
 
       {/* UniFi tab content */}
-      {provider === "unifi" && (
+      {provider === "unifi" && canViewUnifi && (
         <>
           {/* Error state — not configured */}
           {isError && (
@@ -244,6 +295,9 @@ export default function NetworkPage() {
         </>
       )}
 
+      {/* DNS Filter tab */}
+      {provider === "dns-filter" && canViewDnsFilter && <DnsFilterTab />}
+
       {/* WatchGuard tab — Coming Soon */}
       {provider === "watchguard" && (
         <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-card py-16">
@@ -256,6 +310,7 @@ export default function NetworkPage() {
           </p>
         </div>
       )}
+
     </div>
   );
 }

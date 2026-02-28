@@ -10,7 +10,7 @@
  */
 
 import { z } from "zod";
-import { router, adminProcedure, protectedProcedure } from "../trpc";
+import { router, adminProcedure, protectedProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { ConnectorNotConfiguredError } from "../connectors/_base/errors";
 import { auditLog } from "@/lib/audit";
@@ -410,7 +410,7 @@ export const companyMatchingRouter = router({
       return mapping;
     }),
 
-  getUserMappings: protectedProcedure.query(async ({ ctx }) => {
+  getUserMappings: requirePerm("clients.view").query(async ({ ctx }) => {
     return ctx.prisma.userIntegrationMapping.findMany({
       include: {
         user: { select: { id: true, name: true, email: true } },

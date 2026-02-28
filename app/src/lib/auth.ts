@@ -7,6 +7,7 @@ import { prisma } from "./prisma";
 import { auditLog } from "./audit";
 import { authRateLimit, totpRateLimit, getClientIp } from "./rate-limit";
 import bcrypt from "bcryptjs";
+import { ConnectorFactory } from "@/server/connectors/factory";
 
 // SSO config — read from env vars (populated by instrumentation.ts from DB, or directly from Docker env)
 const tenantId = process.env.AZURE_AD_TENANT_ID || "";
@@ -25,6 +26,136 @@ async function getGroupMembership(accessToken: string): Promise<string[]> {
     return data.value?.map((g: { id: string }) => g.id) || [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Auto-match a user to their ConnectWise member record by exact email match.
+ * Called during sign-in so the user has their CW identity from their very first session.
+ * Silently no-ops if CW isn't configured, user is already mapped, or no email match found.
+ */
+async function tryAutoMatchCwMember(userId: string, email: string): Promise<void> {
+  try {
+    // Skip if user already has a CW mapping
+    const existing = await prisma.userIntegrationMapping.findUnique({
+      where: { userId_toolId: { userId, toolId: "connectwise" } },
+    });
+    if (existing) return;
+
+    // Get PSA connector (throws if not configured — caught below)
+    const psa = await ConnectorFactory.get("psa", prisma);
+    const members = await psa.getMembers(); // Redis-cached
+
+    // Exact email match (case-insensitive)
+    const match = members.find(
+      (m) => m.email && m.email.toLowerCase() === email.toLowerCase()
+    );
+    if (!match) return;
+
+    // Ensure this CW member isn't already mapped to a different user
+    const memberAlreadyMapped = await prisma.userIntegrationMapping.findFirst({
+      where: { toolId: "connectwise", externalId: match.id },
+    });
+    if (memberAlreadyMapped) return;
+
+    await prisma.userIntegrationMapping.create({
+      data: {
+        userId,
+        toolId: "connectwise",
+        externalId: match.id,
+        externalName: match.name,
+        externalEmail: match.email,
+        matchMethod: "auto_email",
+      },
+    });
+
+    await auditLog({
+      action: "member.matching.auto_login",
+      category: "INTEGRATION",
+      actorId: userId,
+      detail: {
+        toolId: "connectwise",
+        externalId: match.id,
+        externalName: match.name,
+        trigger: "login",
+      },
+    });
+  } catch {
+    // Never block login — CW may not be configured or reachable
+  }
+}
+
+/**
+ * Sync a user's permission roles based on their Entra group memberships.
+ * On every Entra login: fetch EntraGroupRoleMapping entries for the user's groups,
+ * then SET their UserPermissionRole records to match exactly.
+ * Roles not linked to any of their groups are REMOVED.
+ * Per-user overrides (UserPermission) are NEVER touched.
+ * No-ops if no mappings exist (backward compatible).
+ */
+async function syncPermissionRolesFromGroups(userId: string, entraGroupIds: string[]): Promise<void> {
+  try {
+    if (entraGroupIds.length === 0) return;
+
+    // 1. Get all group → role mappings for this user's groups
+    const mappings = await prisma.entraGroupRoleMapping.findMany({
+      where: { entraGroupId: { in: entraGroupIds } },
+      select: { permissionRoleId: true, entraGroupName: true },
+    });
+
+    // If no mappings configured at all, skip sync entirely (preserve manual assignments)
+    const anyMappingsExist = await prisma.entraGroupRoleMapping.count();
+    if (anyMappingsExist === 0) return;
+
+    // 2. Compute the set of permission role IDs this user SHOULD have
+    const targetRoleIds = new Set(mappings.map((m: { permissionRoleId: string }) => m.permissionRoleId));
+
+    // 3. Get current assignments
+    const currentAssignments = await prisma.userPermissionRole.findMany({
+      where: { userId },
+      select: { permissionRoleId: true, permissionRole: { select: { name: true } } },
+    });
+    const currentRoleIds = new Set(currentAssignments.map((a) => a.permissionRoleId));
+
+    // 4. Compute diff
+    const toAdd = ([...targetRoleIds] as string[]).filter((id) => !currentRoleIds.has(id));
+    const toRemove = currentAssignments.filter((a) => !targetRoleIds.has(a.permissionRoleId));
+
+    // 5. No changes needed
+    if (toAdd.length === 0 && toRemove.length === 0) return;
+
+    // 6. Apply changes in a transaction
+    await prisma.$transaction([
+      // Remove roles user no longer qualifies for
+      ...toRemove.map((a) =>
+        prisma.userPermissionRole.delete({
+          where: { userId_permissionRoleId: { userId, permissionRoleId: a.permissionRoleId } },
+        })
+      ),
+      // Add new roles from group mappings
+      ...toAdd.map((roleId: string) =>
+        prisma.userPermissionRole.create({
+          data: { userId, permissionRoleId: roleId, assignedBy: "entra_group_sync" },
+        })
+      ),
+    ]);
+
+    // 7. Audit log the sync
+    await auditLog({
+      action: "permission_roles.entra_synced",
+      category: "USER",
+      actorId: userId,
+      resource: `user:${userId}`,
+      detail: {
+        added: toAdd.length,
+        removed: toRemove.length,
+        removedRoles: toRemove.map((a) => a.permissionRole.name),
+        totalMappedGroups: mappings.length,
+        source: "entra_group_sync",
+      },
+    });
+  } catch {
+    // Never block login — silently fail if mappings table doesn't exist yet
   }
 }
 
@@ -52,8 +183,9 @@ const providers: Provider[] = [
         await auditLog({
           action: "auth.local.ratelimited",
           category: "SECURITY",
-          detail: { email, ip, retryAfter: ipLimit.retryAfter },
+          detail: { email, retryAfter: ipLimit.retryAfter },
           outcome: "denied",
+          ip,
         });
         throw new Error("AUTH_RATE_LIMITED");
       }
@@ -65,6 +197,7 @@ const providers: Provider[] = [
           category: "AUTH",
           detail: { email, reason: "invalid_credentials" },
           outcome: "failure",
+          ip,
         });
         return null;
       }
@@ -77,6 +210,7 @@ const providers: Provider[] = [
           actorId: user.id,
           detail: { email, reason: "wrong_password" },
           outcome: "failure",
+          ip,
         });
         return null;
       }
@@ -96,6 +230,7 @@ const providers: Provider[] = [
             actorId: user.id,
             detail: { email, retryAfter: limit.retryAfter },
             outcome: "denied",
+            ip,
           });
           throw new Error("TOTP_RATE_LIMITED");
         }
@@ -112,6 +247,7 @@ const providers: Provider[] = [
             actorId: user.id,
             detail: { email },
             outcome: "failure",
+            ip,
           });
           throw new Error("TOTP_INVALID");
         }
@@ -128,6 +264,7 @@ const providers: Provider[] = [
         category: "AUTH",
         actorId: user.id,
         detail: { email, role: user.role },
+        ip,
       });
 
       return {
@@ -167,7 +304,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async signIn({ user, account }) {
       // Local auth — already validated in authorize()
-      if (account?.provider === "local") return true;
+      if (account?.provider === "local") {
+        if (user.id && user.email) {
+          await tryAutoMatchCwMember(user.id, user.email);
+        }
+        return true;
+      }
 
       // Entra ID flow
       if (!account?.access_token || !user.email) return false;
@@ -243,6 +385,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         actorId: dbUser.id,
         detail: { email: dbUser.email, role: dbUser.role },
       });
+
+      // Auto-match to ConnectWise member by email (runs on every login, no-ops if already mapped)
+      await tryAutoMatchCwMember(dbUser.id, dbUser.email);
+
+      // Sync permission roles from Entra group memberships
+      await syncPermissionRolesFromGroups(dbUser.id, groups);
 
       return true;
     },

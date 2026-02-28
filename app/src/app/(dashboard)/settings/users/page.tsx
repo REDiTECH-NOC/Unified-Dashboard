@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,8 @@ import {
 } from "@/components/ui/dialog";
 import {
   Lock, Plus, Copy, Check, UserCog, ShieldCheck, Pencil, Trash2,
-  Users as UsersIcon,
+  Users as UsersIcon, Search, ChevronDown, ChevronRight, Link2, Loader2,
+  Info, X,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -29,61 +30,9 @@ const roleColors: Record<string, string> = {
   CLIENT: "secondary",
 };
 
-// Permission modules for the Roles tab
-const PERMISSION_MODULES: Record<string, { key: string; label: string; description: string }[]> = {
-  Dashboard: [
-    { key: "dashboard.view", label: "View Dashboard", description: "Access the main dashboard" },
-  ],
-  Tickets: [
-    { key: "tickets.view", label: "View Tickets", description: "View ticket lists and details" },
-    { key: "tickets.create", label: "Create Tickets", description: "Create new tickets via UI or AI" },
-    { key: "tickets.edit", label: "Edit Tickets", description: "Update ticket status, notes, assignments" },
-  ],
-  Alerts: [
-    { key: "alerts.view", label: "View Alerts", description: "View alert feed and details" },
-    { key: "alerts.manage", label: "Manage Alerts", description: "Acknowledge, escalate, dismiss alerts" },
-  ],
-  Clients: [
-    { key: "clients.view", label: "View Clients", description: "View client list and details" },
-  ],
-  AI: [
-    { key: "ai.chat", label: "Use AI Chat", description: "Access the AI operations assistant" },
-    { key: "ai.kb.read", label: "Read Knowledge Base", description: "Query the knowledge base via AI" },
-    { key: "ai.kb.write", label: "Write to Knowledge Base", description: "Add/update knowledge base articles via AI" },
-    { key: "ai.passwords", label: "Access Passwords", description: "Retrieve passwords and TOTP codes via AI" },
-    { key: "ai.tickets", label: "AI Ticket Operations", description: "Create/update tickets via AI agent" },
-  ],
-  Audit: [
-    { key: "audit.view", label: "View Audit Logs", description: "Access the full audit log" },
-    { key: "audit.export", label: "Export Audit Logs", description: "Export audit data to CSV/PDF" },
-  ],
-  Users: [
-    { key: "users.view", label: "View Users", description: "View user list and profiles" },
-    { key: "users.manage", label: "Manage Users", description: "Edit roles, permissions, feature flags" },
-    { key: "users.create", label: "Create Users", description: "Create local user accounts and send invites" },
-  ],
-  Settings: [
-    { key: "settings.view", label: "View Settings", description: "Access the settings pages" },
-    { key: "settings.integrations", label: "Manage Integrations", description: "Configure API credentials and connections" },
-    { key: "settings.branding", label: "Manage Branding", description: "Change logo and company name" },
-    { key: "settings.ai", label: "Manage AI Settings", description: "Configure models, budgets, rate limits" },
-    { key: "settings.notifications", label: "Manage Notifications", description: "Configure notification channels and rules" },
-  ],
-  Phone: [
-    { key: "phone.view", label: "View Phone Dashboard", description: "View 3CX call logs and PBX status" },
-    { key: "phone.manage", label: "Manage Phone Settings", description: "Configure 3CX instances and webhooks" },
-  ],
-  Reports: [
-    { key: "reports.view", label: "View Reports", description: "Access dashboards and QBR reports" },
-    { key: "reports.export", label: "Export Reports", description: "Export reports to PDF/CSV" },
-  ],
-  Tools: [
-    { key: "tools.grafana", label: "Access Grafana", description: "View embedded Grafana analytics dashboards" },
-    { key: "tools.grafana.edit", label: "Edit Grafana Dashboards", description: "Create and edit dashboards in Grafana" },
-    { key: "tools.grafana.admin", label: "Grafana Admin", description: "Full Grafana admin (users, data sources, etc)" },
-    { key: "tools.uptime", label: "Access Uptime Monitor", description: "View and manage uptime monitors" },
-  ],
-};
+// Permission tree is now fetched from the server via permissionRole.getPermissionTree
+// This eliminates the stale PERMISSION_MODULES duplicate and ensures the admin UI
+// is always in sync with the server-side PERMISSIONS registry.
 
 export default function UsersPage() {
   return (
@@ -96,7 +45,8 @@ export default function UsersPage() {
 function UsersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const activeTab = searchParams.get("tab") === "roles" ? "roles" : "users";
+  const tabParam = searchParams.get("tab");
+  const activeTab = tabParam === "roles" ? "roles" : tabParam === "group-sync" ? "group-sync" : "users";
   const utils = trpc.useUtils();
 
   // ── Users tab state ──
@@ -145,6 +95,9 @@ function UsersContent() {
 
   // ── Roles tab state ──
   const { data: permRoles, isLoading: rolesLoading } = trpc.permissionRole.list.useQuery();
+  const { data: permTree } = trpc.permissionRole.getPermissionTree.useQuery(undefined, {
+    staleTime: 10 * 60_000,
+  });
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<{
     id: string;
@@ -156,6 +109,39 @@ function UsersContent() {
   const [roleName, setRoleName] = useState("");
   const [roleDesc, setRoleDesc] = useState("");
   const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set());
+  const [permSearch, setPermSearch] = useState("");
+  const [collapsedModules, setCollapsedModules] = useState<Set<string>>(new Set());
+
+  // Filter permission tree by search
+  const filteredTree = useMemo(() => {
+    if (!permTree) return [];
+    if (!permSearch.trim()) return permTree;
+    const q = permSearch.toLowerCase();
+    return permTree
+      .map((node) => ({
+        ...node,
+        subModules: node.subModules.map((sm) => ({
+          ...sm,
+          permissions: sm.permissions.filter(
+            (p) =>
+              p.key.toLowerCase().includes(q) ||
+              p.label.toLowerCase().includes(q) ||
+              p.description.toLowerCase().includes(q) ||
+              (p.subModule && p.subModule.toLowerCase().includes(q)) ||
+              node.module.toLowerCase().includes(q)
+          ),
+        })).filter((sm) => sm.permissions.length > 0),
+      }))
+      .filter((node) => node.subModules.length > 0);
+  }, [permTree, permSearch]);
+
+  function toggleModuleCollapse(module: string) {
+    setCollapsedModules((prev) => {
+      const next = new Set(prev);
+      next.has(module) ? next.delete(module) : next.add(module);
+      return next;
+    });
+  }
 
   const createRole = trpc.permissionRole.create.useMutation({
     onSuccess: () => { utils.permissionRole.list.invalidate(); closeRoleDialog(); },
@@ -189,6 +175,8 @@ function UsersContent() {
     setRoleName("");
     setRoleDesc("");
     setSelectedPerms(new Set());
+    setPermSearch("");
+    setCollapsedModules(new Set());
   }
 
   function togglePerm(key: string) {
@@ -199,12 +187,12 @@ function UsersContent() {
     });
   }
 
-  function toggleModule(modulePerms: { key: string }[]) {
-    const allSelected = modulePerms.every((p) => selectedPerms.has(p.key));
+  function toggleModule(keys: string[]) {
+    const allSelected = keys.every((k) => selectedPerms.has(k));
     setSelectedPerms((prev) => {
       const next = new Set(prev);
-      for (const p of modulePerms) {
-        allSelected ? next.delete(p.key) : next.add(p.key);
+      for (const k of keys) {
+        allSelected ? next.delete(k) : next.add(k);
       }
       return next;
     });
@@ -221,9 +209,42 @@ function UsersContent() {
 
   const isRoleSaving = createRole.isPending || updateRole.isPending;
 
-  function setTab(tab: "users" | "roles") {
-    router.push(`/settings/users${tab === "roles" ? "?tab=roles" : ""}`);
+  function setTab(tab: "users" | "roles" | "group-sync") {
+    router.push(`/settings/users${tab !== "users" ? `?tab=${tab}` : ""}`);
   }
+
+  // ── Group Sync tab state ──
+  const { data: groupMappings, isLoading: mappingsLoading } = trpc.permissionRole.listGroupMappings.useQuery();
+  const [groupSearch, setGroupSearch] = useState("");
+  const [groupSearchDebounced, setGroupSearchDebounced] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState<{ id: string; displayName: string } | null>(null);
+  const [selectedMappingRole, setSelectedMappingRole] = useState("");
+  const [groupDropdownOpen, setGroupDropdownOpen] = useState(false);
+
+  // Debounce search input
+  const handleGroupSearchChange = (val: string) => {
+    setGroupSearch(val);
+    // Simple debounce using setTimeout
+    clearTimeout((window as any).__groupSearchTimer);
+    (window as any).__groupSearchTimer = setTimeout(() => setGroupSearchDebounced(val), 300);
+  };
+
+  const { data: entraGroups, isLoading: groupsSearching, error: groupsError } = trpc.permissionRole.searchEntraGroups.useQuery(
+    { search: groupSearchDebounced || undefined },
+    { enabled: groupDropdownOpen, staleTime: 30_000, retry: false }
+  );
+
+  const createMapping = trpc.permissionRole.createGroupMapping.useMutation({
+    onSuccess: () => {
+      utils.permissionRole.listGroupMappings.invalidate();
+      setSelectedGroup(null);
+      setSelectedMappingRole("");
+      setGroupSearch("");
+    },
+  });
+  const deleteMapping = trpc.permissionRole.deleteGroupMapping.useMutation({
+    onSuccess: () => utils.permissionRole.listGroupMappings.invalidate(),
+  });
 
   return (
     <div className="space-y-6">
@@ -235,12 +256,13 @@ function UsersContent() {
             Manage users, roles, permissions, and feature flags.
           </p>
         </div>
-        {activeTab === "users" ? (
+        {activeTab === "users" && (
           <Button onClick={openCreate} className="gap-1.5">
             <Plus className="h-4 w-4" />
             Create User
           </Button>
-        ) : (
+        )}
+        {activeTab === "roles" && (
           <Button onClick={openCreateRole} className="gap-1.5">
             <Plus className="h-4 w-4" />
             Create Role
@@ -278,6 +300,21 @@ function UsersContent() {
           Permission Roles
           {permRoles && (
             <Badge variant="secondary" className="text-[10px] ml-1">{permRoles.length}</Badge>
+          )}
+        </button>
+        <button
+          onClick={() => setTab("group-sync")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
+            activeTab === "group-sync"
+              ? "border-primary text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Link2 className="h-4 w-4" />
+          Group Sync
+          {groupMappings && groupMappings.length > 0 && (
+            <Badge variant="secondary" className="text-[10px] ml-1">{groupMappings.length}</Badge>
           )}
         </button>
       </div>
@@ -400,12 +437,29 @@ function UsersContent() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-1 mt-3">
-                      {role.permissions.slice(0, 6).map((perm) => (
-                        <Badge key={perm} variant="secondary" className="text-[10px]">{perm}</Badge>
-                      ))}
-                      {role.permissions.length > 6 && (
-                        <Badge variant="outline" className="text-[10px]">+{role.permissions.length - 6} more</Badge>
-                      )}
+                      {(() => {
+                        // Group permissions by module prefix for a cleaner display
+                        const moduleMap = new Map<string, number>();
+                        for (const p of role.permissions) {
+                          const mod = p.split(".")[0];
+                          const label = mod.charAt(0).toUpperCase() + mod.slice(1);
+                          moduleMap.set(label, (moduleMap.get(label) || 0) + 1);
+                        }
+                        const entries = Array.from(moduleMap.entries()).slice(0, 6);
+                        const remaining = moduleMap.size - entries.length;
+                        return (
+                          <>
+                            {entries.map(([mod, count]) => (
+                              <Badge key={mod} variant="secondary" className="text-[10px]">
+                                {mod}: {count}
+                              </Badge>
+                            ))}
+                            {remaining > 0 && (
+                              <Badge variant="outline" className="text-[10px]">+{remaining} more</Badge>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </CardContent>
                 </Card>
@@ -421,6 +475,219 @@ function UsersContent() {
             </Card>
           )}
         </>
+      )}
+
+      {/* ═══ Group Sync Tab Content ═══ */}
+      {activeTab === "group-sync" && (
+        <div className="space-y-6">
+          {/* Info banner */}
+          <div className="flex items-start gap-3 rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
+            <Info className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm space-y-1">
+              <p className="font-medium text-blue-300">How Group Sync works</p>
+              <p className="text-muted-foreground">
+                Map Entra ID (Microsoft 365) groups to permission roles. On every login,
+                a user&apos;s permission roles are <strong>fully synced</strong> to match
+                their group memberships &mdash; roles are added and removed automatically.
+              </p>
+              <p className="text-muted-foreground">
+                Per-user permission overrides (set on individual user pages) are
+                <strong> never changed</strong> by group sync &mdash; those are sacred manual decisions.
+              </p>
+            </div>
+          </div>
+
+          {/* Add Mapping form */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Link Group to Role</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col sm:flex-row gap-3">
+                {/* Entra Group selector */}
+                <div className="flex-1 relative">
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                    Entra ID Group
+                  </label>
+                  {selectedGroup ? (
+                    <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-border bg-muted/30">
+                      <span className="text-sm flex-1 truncate">{selectedGroup.displayName}</span>
+                      <button
+                        onClick={() => { setSelectedGroup(null); setGroupSearch(""); }}
+                        className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-border bg-background">
+                        <Search className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                        <input
+                          type="text"
+                          placeholder="Search 365 groups..."
+                          value={groupSearch}
+                          onChange={(e) => handleGroupSearchChange(e.target.value)}
+                          onFocus={() => setGroupDropdownOpen(true)}
+                          onBlur={() => setTimeout(() => setGroupDropdownOpen(false), 200)}
+                          className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+                        />
+                        {groupsSearching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                      </div>
+
+                      {/* Dropdown results */}
+                      {groupDropdownOpen && (
+                        <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
+                          {groupsError ? (
+                            <div className="px-3 py-4 text-xs text-red-400 space-y-1">
+                              <p className="font-medium">Failed to load groups</p>
+                              <p className="text-red-400/70">{groupsError.message}</p>
+                            </div>
+                          ) : !entraGroups && groupsSearching ? (
+                            <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Loading groups...
+                            </div>
+                          ) : entraGroups && entraGroups.length > 0 ? (
+                            entraGroups.map((g: { id: string; displayName: string; description: string | null; isSecurityGroup: boolean }) => (
+                              <button
+                                key={g.id}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setSelectedGroup({ id: g.id, displayName: g.displayName });
+                                  setGroupDropdownOpen(false);
+                                  setGroupSearch("");
+                                }}
+                                className="w-full text-left px-3 py-2 hover:bg-muted/50 transition-colors"
+                              >
+                                <p className="text-sm font-medium truncate">{g.displayName}</p>
+                                {g.description && (
+                                  <p className="text-[10px] text-muted-foreground truncate">{g.description}</p>
+                                )}
+                                {g.isSecurityGroup && (
+                                  <Badge variant="secondary" className="text-[9px] mt-1">Security Group</Badge>
+                                )}
+                              </button>
+                            ))
+                          ) : entraGroups && entraGroups.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-6">
+                              {groupSearchDebounced ? "No groups match your search" : "No groups found"}
+                            </p>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Permission Role selector */}
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                    Permission Role
+                  </label>
+                  <select
+                    value={selectedMappingRole}
+                    onChange={(e) => setSelectedMappingRole(e.target.value)}
+                    className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none"
+                  >
+                    <option value="">Select a role...</option>
+                    {permRoles?.map((r) => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Link button */}
+                <div className="flex items-end">
+                  <Button
+                    onClick={() => {
+                      if (selectedGroup && selectedMappingRole) {
+                        createMapping.mutate({
+                          entraGroupId: selectedGroup.id,
+                          entraGroupName: selectedGroup.displayName,
+                          permissionRoleId: selectedMappingRole,
+                        });
+                      }
+                    }}
+                    disabled={!selectedGroup || !selectedMappingRole || createMapping.isPending}
+                    className="gap-1.5"
+                  >
+                    {createMapping.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Link2 className="h-4 w-4" />
+                    )}
+                    Link
+                  </Button>
+                </div>
+              </div>
+              {createMapping.error && (
+                <p className="text-sm text-red-400 mt-2">{createMapping.error.message}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Current Mappings table */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Current Mappings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {mappingsLoading ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading mappings...
+                </div>
+              ) : groupMappings && groupMappings.length > 0 ? (
+                <div className="rounded-md border border-border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/30">
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Entra Group</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Permission Role</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Created</th>
+                        <th className="w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupMappings.map((m) => (
+                        <tr key={m.id} className="border-b border-border/50 last:border-0">
+                          <td className="px-4 py-3">
+                            <p className="font-medium">{m.entraGroupName}</p>
+                            <p className="text-[10px] text-muted-foreground font-mono">{m.entraGroupId}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="secondary">{m.permissionRole.name}</Badge>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
+                            {new Date(m.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-red-400 hover:text-red-300"
+                              onClick={() => deleteMapping.mutate({ id: m.id })}
+                              disabled={deleteMapping.isPending}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <Link2 className="mb-3 h-8 w-8 opacity-50" />
+                  <p className="text-sm">No group mappings configured</p>
+                  <p className="text-xs">Roles are assigned manually until you link a group above.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* ═══ Create User Dialog ═══ */}
@@ -513,7 +780,7 @@ function UsersContent() {
 
       {/* ═══ Create / Edit Role Dialog ═══ */}
       <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-        <DialogContent onClose={closeRoleDialog} className="max-w-2xl">
+        <DialogContent onClose={closeRoleDialog} className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>{editingRole ? "Edit Permission Role" : "Create Permission Role"}</DialogTitle>
             <DialogDescription>
@@ -536,65 +803,178 @@ function UsersContent() {
             </div>
 
             <div>
-              <p className="text-xs font-medium text-muted-foreground mb-2">
-                Permissions ({selectedPerms.size} selected)
-              </p>
-              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
-                {Object.entries(PERMISSION_MODULES).map(([module, perms]) => {
-                  const allSelected = perms.every((p) => selectedPerms.has(p.key));
-                  const someSelected = perms.some((p) => selectedPerms.has(p.key));
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Permissions ({selectedPerms.size} selected)
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedModules(new Set())}
+                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Expand All
+                  </button>
+                  <span className="text-[10px] text-muted-foreground/40">|</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (filteredTree) setCollapsedModules(new Set(filteredTree.map((n) => n.module)));
+                    }}
+                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Collapse All
+                  </button>
+                </div>
+              </div>
+
+              {/* Search */}
+              <div className="flex items-center gap-2 h-8 px-3 rounded-md bg-accent mb-3">
+                <Search className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search permissions..."
+                  value={permSearch}
+                  onChange={(e) => setPermSearch(e.target.value)}
+                  className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
+                />
+                {permSearch && (
+                  <button onClick={() => setPermSearch("")} className="text-muted-foreground hover:text-foreground text-xs">
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Permission tree */}
+              <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
+                {filteredTree?.map((node) => {
+                  const allKeys = node.subModules.flatMap((sm) => sm.permissions.map((p) => p.key));
+                  const allSelected = allKeys.length > 0 && allKeys.every((k) => selectedPerms.has(k));
+                  const someSelected = allKeys.some((k) => selectedPerms.has(k));
+                  const isCollapsed = collapsedModules.has(node.module) && !permSearch.trim();
+
                   return (
-                    <div key={module} className="rounded-md border border-border/50 p-3">
-                      <button
-                        type="button"
-                        onClick={() => toggleModule(perms)}
-                        className="flex items-center gap-2 text-sm font-medium mb-2 hover:text-foreground transition-colors"
-                      >
-                        <div
-                          className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${
-                            allSelected
-                              ? "bg-primary border-primary"
-                              : someSelected
-                              ? "bg-primary/30 border-primary"
-                              : "border-muted-foreground/50"
-                          }`}
+                    <div key={node.module} className="rounded-md border border-border/50">
+                      {/* Module header */}
+                      <div className="flex items-center gap-2 p-2.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleModuleCollapse(node.module)}
+                          className="flex-shrink-0"
                         >
-                          {allSelected && <Check className="h-3 w-3 text-primary-foreground" />}
-                          {someSelected && !allSelected && (
-                            <div className="h-1.5 w-1.5 rounded-sm bg-primary-foreground" />
-                          )}
-                        </div>
-                        {module}
-                      </button>
-                      <div className="grid gap-1 ml-6">
-                        {perms.map((perm) => (
-                          <button
-                            key={perm.key}
-                            type="button"
-                            onClick={() => togglePerm(perm.key)}
-                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted/30 transition-colors"
+                          {isCollapsed
+                            ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                            : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                          }
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleModule(allKeys)}
+                          className="flex items-center gap-2 text-sm font-medium hover:text-foreground transition-colors"
+                        >
+                          <div
+                            className={cn(
+                              "h-4 w-4 rounded border flex items-center justify-center transition-colors",
+                              allSelected
+                                ? "bg-primary border-primary"
+                                : someSelected
+                                ? "bg-primary/30 border-primary"
+                                : "border-muted-foreground/50"
+                            )}
                           >
-                            <div
-                              className={`h-3.5 w-3.5 rounded border flex items-center justify-center transition-colors ${
-                                selectedPerms.has(perm.key)
-                                  ? "bg-primary border-primary"
-                                  : "border-muted-foreground/50"
-                              }`}
-                            >
-                              {selectedPerms.has(perm.key) && (
-                                <Check className="h-2.5 w-2.5 text-primary-foreground" />
-                              )}
-                            </div>
-                            <div>
-                              <p className="text-xs font-medium">{perm.label}</p>
-                              <p className="text-[10px] text-muted-foreground">{perm.description}</p>
-                            </div>
-                          </button>
-                        ))}
+                            {allSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+                            {someSelected && !allSelected && (
+                              <div className="h-1.5 w-1.5 rounded-sm bg-primary-foreground" />
+                            )}
+                          </div>
+                          {node.module}
+                        </button>
+                        <Badge variant="secondary" className="text-[9px] ml-auto">
+                          {allKeys.filter((k) => selectedPerms.has(k)).length}/{allKeys.length}
+                        </Badge>
                       </div>
+
+                      {/* Expanded content */}
+                      {!isCollapsed && (
+                        <div className="px-2.5 pb-2.5">
+                          {node.subModules.map((sm) => (
+                            <div key={sm.name ?? "_root"}>
+                              {/* Sub-module header (if named) */}
+                              {sm.name && (
+                                <div className="flex items-center gap-2 ml-6 mt-2 mb-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleModule(sm.permissions.map((p) => p.key))}
+                                    className="flex items-center gap-2"
+                                  >
+                                    {(() => {
+                                      const smKeys = sm.permissions.map((p) => p.key);
+                                      const smAll = smKeys.every((k) => selectedPerms.has(k));
+                                      const smSome = smKeys.some((k) => selectedPerms.has(k));
+                                      return (
+                                        <div
+                                          className={cn(
+                                            "h-3.5 w-3.5 rounded border flex items-center justify-center transition-colors",
+                                            smAll
+                                              ? "bg-primary border-primary"
+                                              : smSome
+                                              ? "bg-primary/30 border-primary"
+                                              : "border-muted-foreground/50"
+                                          )}
+                                        >
+                                          {smAll && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+                                          {smSome && !smAll && (
+                                            <div className="h-1 w-1 rounded-sm bg-primary-foreground" />
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
+                                    <span className="text-xs font-medium text-muted-foreground">{sm.name}</span>
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Permission rows */}
+                              <div className={cn("grid gap-0.5", sm.name ? "ml-10" : "ml-6")}>
+                                {sm.permissions.map((perm) => (
+                                  <button
+                                    key={perm.key}
+                                    type="button"
+                                    onClick={() => togglePerm(perm.key)}
+                                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted/30 transition-colors"
+                                  >
+                                    <div
+                                      className={cn(
+                                        "h-3.5 w-3.5 rounded border flex items-center justify-center transition-colors flex-shrink-0",
+                                        selectedPerms.has(perm.key)
+                                          ? "bg-primary border-primary"
+                                          : "border-muted-foreground/50"
+                                      )}
+                                    >
+                                      {selectedPerms.has(perm.key) && (
+                                        <Check className="h-2.5 w-2.5 text-primary-foreground" />
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-medium">{perm.label}</p>
+                                      <p className="text-[10px] text-muted-foreground truncate">{perm.description}</p>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
+
+                {filteredTree?.length === 0 && permSearch && (
+                  <p className="text-xs text-muted-foreground text-center py-6">
+                    No permissions match &ldquo;{permSearch}&rdquo;
+                  </p>
+                )}
               </div>
             </div>
           </div>
