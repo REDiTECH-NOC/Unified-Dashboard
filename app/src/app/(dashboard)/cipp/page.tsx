@@ -20,8 +20,6 @@ import {
   AlertTriangle,
   Monitor,
 } from "lucide-react";
-import { CIPPEmbed } from "./_components/cipp-embed";
-
 // ─── Tab Config ─────────────────────────────────────────────────────
 const TABS = [
   { id: "tenants", label: "Tenants", icon: Building2 },
@@ -345,10 +343,7 @@ function CIPPPageInner() {
       {activeTab !== "tenants" && activeTab !== "fullui" && (
         <PlaceholderTab tab={activeTab} selectedTenant={selectedTenant} />
       )}
-      {/* Always mounted so the iframe stays alive across tab switches */}
-      <div className={activeTab === "fullui" ? "" : "hidden"}>
-        <CIPPEmbed />
-      </div>
+      {/* fullui tab: persistent iframe overlay is rendered from the dashboard layout */}
     </div>
   );
 }

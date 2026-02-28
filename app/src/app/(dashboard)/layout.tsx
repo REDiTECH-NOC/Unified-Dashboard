@@ -3,6 +3,7 @@ import { Header } from "@/components/header";
 import { BrandingProvider } from "@/contexts/branding-context";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
 import { PermissionGate } from "@/components/permission-gate";
+import { PersistentCIPPIframe } from "@/components/persistent-cipp-iframe";
 
 export default function DashboardLayout({
   children,
@@ -20,6 +21,7 @@ export default function DashboardLayout({
             <main className="flex-1 p-4 sm:p-5 lg:p-6 xl:p-8">{children}</main>
           </div>
         </div>
+        <PersistentCIPPIframe />
       </PermissionGate>
     </BrandingProvider>
   );
