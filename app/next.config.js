@@ -41,7 +41,7 @@ const nextConfig = {
               "img-src 'self' data: blob: https:",
               "font-src 'self' data:",
               "connect-src 'self' https://login.microsoftonline.com https://graph.microsoft.com https://*.s3.amazonaws.com",
-              "frame-src 'self'",
+              "frame-src 'self' https://cipp.reditech.com",
               "frame-ancestors 'self'",
               "form-action 'self' https://login.microsoftonline.com",
               "base-uri 'self'",

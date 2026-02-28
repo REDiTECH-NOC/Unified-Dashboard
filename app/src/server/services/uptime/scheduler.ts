@@ -2,6 +2,8 @@ import type { Monitor, MonitorStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getExecutor } from "./executors/registry";
 import type { ExecutorResult } from "./types";
+import { notifyUsersForAlert } from "@/lib/notification-engine";
+import { auditLog } from "@/lib/audit";
 
 export class UptimeScheduler {
   private timers = new Map<string, NodeJS.Timeout>();
@@ -103,32 +105,52 @@ export class UptimeScheduler {
       };
     }
 
-    // Handle retry logic
+    // Determine final user-visible status
     const retryCount = this.retryCounters.get(monitorId) || 0;
     let finalStatus: MonitorStatus;
+    let isRetrying = false;
+    let warningReasons: string[] = [];
 
     if (result.status === "DOWN") {
       if (retryCount < monitor.maxRetries) {
-        // Still in retry phase — mark as PENDING, increment counter
+        // Still in retry phase — keep the current visible status, don't expose PENDING
         this.retryCounters.set(monitorId, retryCount + 1);
-        finalStatus = "PENDING";
+        isRetrying = true;
+        // Preserve whatever the monitor was showing before
+        finalStatus = monitor.status === "PENDING" || monitor.status === "UNKNOWN"
+          ? "UNKNOWN"
+          : monitor.status;
       } else {
         // Max retries exceeded — confirmed DOWN
         finalStatus = "DOWN";
       }
     } else {
-      // UP — reset retry counter
+      // Check succeeded — reset retry counter
       this.retryCounters.set(monitorId, 0);
-      finalStatus = "UP";
+
+      // Evaluate WARNING conditions
+      if (monitor.latencyWarningMs && result.latencyMs > monitor.latencyWarningMs) {
+        warningReasons.push(`high_latency:${result.latencyMs}ms>${monitor.latencyWarningMs}ms`);
+      }
+      if (
+        monitor.packetLossWarningPct &&
+        result.packetLoss !== undefined &&
+        result.packetLoss > 0 &&
+        result.packetLoss > monitor.packetLossWarningPct
+      ) {
+        warningReasons.push(`packet_loss:${result.packetLoss}%>${monitor.packetLossWarningPct}%`);
+      }
+
+      finalStatus = warningReasons.length > 0 ? "WARNING" : "UP";
     }
 
-    const isStatusChange = monitor.status !== finalStatus;
+    // Write heartbeat — record PENDING for retries (raw internal data)
+    const heartbeatStatus: MonitorStatus = isRetrying ? "PENDING" : finalStatus;
 
-    // Write heartbeat
     await prisma.heartbeat.create({
       data: {
         monitorId: monitor.id,
-        status: finalStatus,
+        status: heartbeatStatus,
         latencyMs: result.latencyMs,
         message: result.message,
         tlsInfo: result.tlsInfo
@@ -140,15 +162,30 @@ export class UptimeScheduler {
       },
     });
 
-    // Update monitor status
-    await prisma.monitor.update({
-      where: { id: monitor.id },
-      data: {
-        status: finalStatus,
-        lastCheckedAt: new Date(),
-        ...(isStatusChange ? { lastStatusChange: new Date() } : {}),
-      },
-    });
+    // Handle status transitions and incidents (only on actual visible changes)
+    if (!isRetrying) {
+      const isStatusChange = monitor.status !== finalStatus;
+
+      if (isStatusChange) {
+        await this.handleStatusTransition(monitor, finalStatus, result, warningReasons);
+      }
+
+      // Update monitor status
+      await prisma.monitor.update({
+        where: { id: monitor.id },
+        data: {
+          status: finalStatus,
+          lastCheckedAt: new Date(),
+          ...(isStatusChange ? { lastStatusChange: new Date() } : {}),
+        },
+      });
+    } else {
+      // During retry phase, only update lastCheckedAt
+      await prisma.monitor.update({
+        where: { id: monitor.id },
+        data: { lastCheckedAt: new Date() },
+      });
+    }
 
     // If retry, temporarily reschedule to retrySeconds interval
     if (result.status === "DOWN" && retryCount < monitor.maxRetries) {
@@ -172,6 +209,159 @@ export class UptimeScheduler {
         }
       }, monitor.retrySeconds * 1000);
       this.timers.set(monitorId, retryTimer as unknown as NodeJS.Timeout);
+    }
+  }
+
+  /**
+   * Handle a user-visible status transition: create/close incidents and send alerts.
+   */
+  private async handleStatusTransition(
+    monitor: Monitor,
+    newStatus: MonitorStatus,
+    result: ExecutorResult,
+    warningReasons: string[]
+  ): Promise<void> {
+    const now = new Date();
+
+    // 1. Close any open incident for this monitor (recovery or status change)
+    if (monitor.status === "DOWN" || monitor.status === "WARNING") {
+      const openIncident = await prisma.monitorIncident.findFirst({
+        where: { monitorId: monitor.id, resolvedAt: null },
+        orderBy: { startedAt: "desc" },
+      });
+
+      if (openIncident) {
+        const durationSecs = Math.round(
+          (now.getTime() - openIncident.startedAt.getTime()) / 1000
+        );
+        await prisma.monitorIncident.update({
+          where: { id: openIncident.id },
+          data: { resolvedAt: now, durationSecs, recoverySentAt: now },
+        });
+
+        // Send recovery notification only for DOWN → UP/WARNING transitions
+        if (openIncident.status === "DOWN" && newStatus !== "DOWN") {
+          await this.sendRecoveryAlert(monitor, openIncident, durationSecs);
+        }
+
+        await auditLog({
+          action: "uptime.incident.resolved",
+          category: "INTEGRATION",
+          detail: {
+            incidentId: openIncident.id,
+            monitorName: monitor.name,
+            previousStatus: openIncident.status,
+            newStatus,
+            durationSecs,
+          },
+        });
+      }
+    }
+
+    // 2. Open a new incident if transitioning to DOWN or WARNING
+    if (newStatus === "DOWN" || newStatus === "WARNING") {
+      const cause =
+        newStatus === "DOWN"
+          ? "unreachable"
+          : warningReasons.join(", ");
+
+      const incident = await prisma.monitorIncident.create({
+        data: {
+          monitorId: monitor.id,
+          status: newStatus,
+          cause,
+          alertSentAt: now,
+        },
+      });
+
+      // Send alert notification
+      await this.sendIncidentAlert(monitor, incident, result);
+
+      await auditLog({
+        action: "uptime.incident.created",
+        category: "INTEGRATION",
+        detail: {
+          incidentId: incident.id,
+          monitorName: monitor.name,
+          status: newStatus,
+          cause,
+          message: result.message,
+        },
+      });
+    }
+  }
+
+  /**
+   * Send an alert notification for a new incident (DOWN or WARNING).
+   */
+  private async sendIncidentAlert(
+    monitor: Monitor,
+    incident: { id: string; status: MonitorStatus; cause: string | null },
+    result: ExecutorResult
+  ): Promise<void> {
+    let companyName: string | undefined;
+    if (monitor.companyId) {
+      const company = await prisma.company.findUnique({
+        where: { id: monitor.companyId },
+        select: { name: true },
+      });
+      companyName = company?.name;
+    }
+
+    const severity = incident.status === "DOWN" ? "critical" : "medium";
+    const alertId = `uptime-incident-${incident.id}`;
+
+    try {
+      await notifyUsersForAlert({
+        id: alertId,
+        source: "uptime",
+        severity,
+        title: `${monitor.name} is ${incident.status}`,
+        description: result.message || incident.cause || undefined,
+        organizationName: companyName,
+      });
+    } catch (err) {
+      console.error(`[UPTIME] Failed to send incident alert for ${monitor.name}:`, err);
+    }
+  }
+
+  /**
+   * Send a recovery notification when a DOWN monitor comes back UP.
+   */
+  private async sendRecoveryAlert(
+    monitor: Monitor,
+    incident: { id: string; startedAt: Date },
+    durationSecs: number
+  ): Promise<void> {
+    let companyName: string | undefined;
+    if (monitor.companyId) {
+      const company = await prisma.company.findUnique({
+        where: { id: monitor.companyId },
+        select: { name: true },
+      });
+      companyName = company?.name;
+    }
+
+    const durationStr =
+      durationSecs < 60
+        ? `${durationSecs}s`
+        : durationSecs < 3600
+          ? `${Math.round(durationSecs / 60)}m`
+          : `${Math.floor(durationSecs / 3600)}h ${Math.round((durationSecs % 3600) / 60)}m`;
+
+    const alertId = `uptime-recovery-${incident.id}`;
+
+    try {
+      await notifyUsersForAlert({
+        id: alertId,
+        source: "uptime",
+        severity: "low",
+        title: `${monitor.name} is back UP`,
+        description: `Recovered after ${durationStr} of downtime`,
+        organizationName: companyName,
+      });
+    } catch (err) {
+      console.error(`[UPTIME] Failed to send recovery alert for ${monitor.name}:`, err);
     }
   }
 

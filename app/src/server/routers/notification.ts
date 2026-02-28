@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { router, adminProcedure } from "../trpc";
 import { auditLog } from "@/lib/audit";
+import { sendEmailViaGraph } from "@/lib/notification-engine";
 
 // Static registry of notification types — mirrors TOOL_REGISTRY pattern
 const NOTIFICATION_TYPES = [
@@ -114,5 +115,88 @@ export const notificationRouter = router({
       });
 
       return { success: true, message: `Test notification placeholder for ${nt.displayName}` };
+    }),
+
+  // ─── Email Test via Microsoft Graph ───────────────────────
+  sendTestEmail: adminProcedure
+    .input(z.object({
+      senderEmail: z.string().email("Invalid sender email address"),
+      recipientEmail: z.string().email("Invalid recipient email address"),
+      subject: z.string().max(500).optional(),
+      body: z.string().max(5000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const subject = input.subject || "RCC Email Test";
+      const bodyHtml = input.body
+        ? `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">${input.body.replace(/\n/g, "<br/>")}</div>`
+        : `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px;">
+          <div style="border-left: 4px solid #3B82F6; padding: 12px 16px; background: #1a1a2e; border-radius: 4px;">
+            <h2 style="margin: 0 0 8px; color: #f1f1f1; font-size: 16px;">REDiTECH Command Center — Email Test</h2>
+            <p style="margin: 0 0 8px; color: #a0a0b0; font-size: 14px;">
+              This is a test email sent from REDiTECH Command Center via Microsoft Graph API.
+            </p>
+            <table style="font-size: 13px; color: #c0c0d0;">
+              <tr><td style="padding: 2px 8px 2px 0; font-weight: 600;">Sender:</td><td>${input.senderEmail}</td></tr>
+              <tr><td style="padding: 2px 8px 2px 0; font-weight: 600;">Recipient:</td><td>${input.recipientEmail}</td></tr>
+              <tr><td style="padding: 2px 8px 2px 0; font-weight: 600;">Sent by:</td><td>${ctx.user.name || ctx.user.email}</td></tr>
+              <tr><td style="padding: 2px 8px 2px 0; font-weight: 600;">Time:</td><td>${new Date().toISOString()}</td></tr>
+            </table>
+          </div>
+          <p style="margin-top: 16px; font-size: 12px; color: #666;">
+            If you received this email, your Microsoft Graph Mail.Send permission is working correctly.
+          </p>
+        </div>
+      `;
+
+      const result = await sendEmailViaGraph({
+        senderEmail: input.senderEmail,
+        toRecipients: [input.recipientEmail],
+        subject,
+        bodyHtml,
+        trigger: "test",
+        triggeredBy: ctx.user.id,
+      });
+
+      await auditLog({
+        action: "notification.email.test",
+        category: "NOTIFICATION",
+        actorId: ctx.user.id,
+        resource: `email:${input.senderEmail}`,
+        detail: {
+          senderEmail: input.senderEmail,
+          recipientEmail: input.recipientEmail,
+          success: result.success,
+          error: result.error,
+        },
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || "Failed to send test email");
+      }
+
+      return { success: true, message: `Test email sent from ${input.senderEmail} to ${input.recipientEmail}` };
+    }),
+
+  // ─── Email Send Log ─────────────────────────────────────────
+  emailLogs: adminProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      cursor: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const logs = await ctx.prisma.emailSendLog.findMany({
+        take: input.limit + 1,
+        ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+        orderBy: { createdAt: "desc" },
+      });
+
+      let nextCursor: string | undefined;
+      if (logs.length > input.limit) {
+        const next = logs.pop();
+        nextCursor = next?.id;
+      }
+
+      return { logs, nextCursor };
     }),
 });

@@ -88,7 +88,7 @@ export const billingRouter = router({
         agreements: { some: { cancelledFlag: false } },
         syncEnabled: true,
       },
-      select: { id: true, name: true, identifier: true },
+      select: { id: true, name: true, identifier: true, type: true },
       orderBy: { name: "asc" },
     });
 
@@ -157,6 +157,7 @@ export const billingRouter = router({
         id: company.id,
         name: company.name,
         identifier: company.identifier,
+        type: company.type,
         vendorTools,
         totalItems: companyItems.length,
         discrepancies: discrepancyCount,

@@ -131,6 +131,8 @@ const baseMonitorInput = z.object({
   maxRetries: z.number().min(0).max(10).default(3),
   timeoutMs: z.number().min(1000).max(60000).default(10000),
   sslExpiryDays: z.number().min(1).max(365).default(30),
+  latencyWarningMs: z.number().min(1).max(60000).nullable().optional(),
+  packetLossWarningPct: z.number().min(1).max(99).nullable().optional(),
   config: z.record(z.unknown()),
   companyId: z.string().nullable().optional(),
   tagIds: z.array(z.string()).optional(),
@@ -145,7 +147,7 @@ export const uptimeRouter = router({
       companyId: z.string().optional(),
       tagIds: z.array(z.string()).optional(),
       type: z.string().optional(),
-      status: z.string().optional(), // "UP", "DOWN", "PAUSED"
+      status: z.string().optional(), // "UP", "DOWN", "WARNING", "PAUSED"
       search: z.string().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
@@ -162,7 +164,7 @@ export const uptimeRouter = router({
       }
       if (input?.status === "PAUSED") {
         where.active = false;
-      } else if (input?.status === "UP" || input?.status === "DOWN") {
+      } else if (input?.status === "UP" || input?.status === "DOWN" || input?.status === "WARNING") {
         where.active = true;
         where.status = input.status;
       }
@@ -274,7 +276,7 @@ export const uptimeRouter = router({
             where: {
               monitorId: input.monitorId,
               timestamp: { gte: day },
-              status: "UP",
+              status: { in: ["UP", "WARNING"] },
             },
           }),
           ctx.prisma.heartbeat.count({
@@ -284,7 +286,7 @@ export const uptimeRouter = router({
             where: {
               monitorId: input.monitorId,
               timestamp: { gte: week },
-              status: "UP",
+              status: { in: ["UP", "WARNING"] },
             },
           }),
           ctx.prisma.heartbeat.count({
@@ -294,7 +296,7 @@ export const uptimeRouter = router({
             where: {
               monitorId: input.monitorId,
               timestamp: { gte: month },
-              status: "UP",
+              status: { in: ["UP", "WARNING"] },
             },
           }),
           ctx.prisma.heartbeat.aggregate({
@@ -360,15 +362,16 @@ export const uptimeRouter = router({
             latencyMs: null,
           });
         } else {
-          // Dominant status: if any DOWN, show DOWN. If any UP, show UP. Else PENDING.
+          // Dominant status: DOWN > WARNING > UP > PENDING
           const hasDown = segBeats.some((b) => b.status === "DOWN");
+          const hasWarning = segBeats.some((b) => b.status === "WARNING");
           const hasUp = segBeats.some((b) => b.status === "UP");
           const avgLat =
             segBeats.reduce((sum, b) => sum + (b.latencyMs || 0), 0) /
             segBeats.length;
 
           bars.push({
-            status: hasDown ? "DOWN" : hasUp ? "UP" : "PENDING",
+            status: hasDown ? "DOWN" : hasWarning ? "WARNING" : hasUp ? "UP" : "PENDING",
             timestamp: new Date(segStart).toISOString(),
             latencyMs: Math.round(avgLat),
           });
@@ -406,6 +409,8 @@ export const uptimeRouter = router({
           maxRetries: rest.maxRetries,
           timeoutMs: rest.timeoutMs,
           sslExpiryDays: rest.sslExpiryDays,
+          latencyWarningMs: rest.latencyWarningMs ?? null,
+          packetLossWarningPct: rest.packetLossWarningPct ?? null,
           config: validatedConfig as unknown as Prisma.InputJsonValue,
           companyId: companyId || null,
           createdBy: ctx.user.id,
@@ -554,7 +559,7 @@ export const uptimeRouter = router({
     .mutation(async ({ ctx, input }) => {
       const monitor = await ctx.prisma.monitor.update({
         where: { id: input.id },
-        data: { active: true, status: "PENDING" },
+        data: { active: true, status: "UNKNOWN" },
       });
 
       const engine = getUptimeEngine();
@@ -654,6 +659,46 @@ export const uptimeRouter = router({
         select: { id: true, name: true, identifier: true },
         orderBy: { name: "asc" },
         take: 50,
+      });
+    }),
+
+  // ─── Incident Queries ─────────────────────────────────────────
+
+  /** Get incidents for a specific monitor. */
+  incidents: requirePerm("tools.uptime")
+    .input(z.object({
+      monitorId: z.string(),
+      limit: z.number().min(1).max(100).default(20),
+      includeOpen: z.boolean().default(true),
+    }))
+    .query(async ({ ctx, input }) => {
+      return ctx.prisma.monitorIncident.findMany({
+        where: {
+          monitorId: input.monitorId,
+          ...(input.includeOpen ? {} : { resolvedAt: { not: null } }),
+        },
+        orderBy: { startedAt: "desc" },
+        take: input.limit,
+      });
+    }),
+
+  /** Get currently open incidents across all monitors. */
+  openIncidents: requirePerm("tools.uptime")
+    .query(async ({ ctx }) => {
+      return ctx.prisma.monitorIncident.findMany({
+        where: { resolvedAt: null },
+        include: {
+          monitor: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              companyId: true,
+              company: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { startedAt: "desc" },
       });
     }),
 });

@@ -125,6 +125,10 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "cipp.manage",          label: "Manage via CIPP",          description: "Create/disable users, reset passwords, manage groups, offboard",              module: "CIPP",     defaultRoles: ["ADMIN", "MANAGER"] },
   { key: "cipp.security",        label: "CIPP Security Actions",    description: "Manage security alerts/incidents, device actions, LAPS, password resets",      module: "CIPP",     defaultRoles: ["ADMIN"] },
 
+  // ── Keeper Security ──
+  { key: "keeper.view",           label: "View Keeper",              description: "View Keeper managed companies, usage, and stats",          module: "Keeper",        defaultRoles: ["ADMIN", "MANAGER"] },
+  { key: "keeper.manage",         label: "Manage Keeper",            description: "Account lifecycle operations (create, convert, cancel)",    module: "Keeper",        defaultRoles: ["ADMIN"] },
+
   // ── Billing ──
   { key: "billing.view",          label: "View Billing",             description: "Access billing reconciliation dashboard and data",         module: "Billing",       defaultRoles: ["ADMIN", "MANAGER"] },
   { key: "billing.manage",        label: "Manage Billing",           description: "Run reconciliation, configure mappings, resolve items",    module: "Billing",       defaultRoles: ["ADMIN"] },
@@ -236,13 +240,14 @@ export async function hasPermission(
     return true;
   }
 
-  // 3. Fall back to base role default
+  // 3. Fall back to base role default (ADMIN only — all other roles must get permissions via roles/overrides)
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { role: true },
   });
 
   if (!user) return false;
+  if (user.role !== "ADMIN") return false;
 
   const def = PERMISSION_MAP.get(permission);
   if (!def) return false;
@@ -285,9 +290,13 @@ export async function hasPermissions(
       result[perm] = true;
       continue;
     }
-    // 3. Base role default
-    const def = PERMISSION_MAP.get(perm);
-    result[perm] = def ? def.defaultRoles.includes(user.role) : false;
+    // 3. Base role default (ADMIN only — all other roles must get permissions via roles/overrides)
+    if (user.role === "ADMIN") {
+      const def = PERMISSION_MAP.get(perm);
+      result[perm] = def ? def.defaultRoles.includes(user.role) : false;
+    } else {
+      result[perm] = false;
+    }
   }
 
   return result;
@@ -331,10 +340,10 @@ export async function getUserEffectivePermissions(
     if (grantingRole) {
       return { permission: def.key, granted: true, source: "permission-role" as const, roleName: grantingRole };
     }
-    // 3. Base role default
+    // 3. Base role default (ADMIN only — all other roles must get permissions via roles/overrides)
     return {
       permission: def.key,
-      granted: def.defaultRoles.includes(user.role),
+      granted: user.role === "ADMIN" && def.defaultRoles.includes(user.role),
       source: "role" as const,
     };
   });

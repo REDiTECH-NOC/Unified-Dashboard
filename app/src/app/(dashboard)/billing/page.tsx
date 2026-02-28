@@ -191,8 +191,9 @@ export default function BillingPage() {
 
       {/* Company Table */}
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 overflow-hidden">
-        <div className="grid grid-cols-[1fr_140px_100px_120px_130px_30px] px-4 py-2 border-b border-zinc-800 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <div className="grid grid-cols-[1fr_80px_140px_100px_120px_130px_30px] px-4 py-2 border-b border-zinc-800 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           <div>Company</div>
+          <div>Type</div>
           <div>Vendors</div>
           <div className="text-center">Items</div>
           <div className="text-center">Discrepancies</div>
@@ -215,7 +216,7 @@ export default function BillingPage() {
             <Link
               key={company.id}
               href={`/billing/${company.id}`}
-              className="grid grid-cols-[1fr_140px_100px_120px_130px_30px] px-4 py-3 border-b border-zinc-800/50 items-center hover:bg-zinc-900/50 transition-colors group"
+              className="grid grid-cols-[1fr_80px_140px_100px_120px_130px_30px] px-4 py-3 border-b border-zinc-800/50 items-center hover:bg-zinc-900/50 transition-colors group"
             >
               {/* Company name */}
               <div>
@@ -225,6 +226,11 @@ export default function BillingPage() {
                 {company.identifier && (
                   <div className="text-xs text-zinc-500">{company.identifier}</div>
                 )}
+              </div>
+
+              {/* Type */}
+              <div className="text-xs text-zinc-400 truncate">
+                {company.type || "\u2014"}
               </div>
 
               {/* Vendor badges */}

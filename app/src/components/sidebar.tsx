@@ -29,6 +29,7 @@ import {
   Wifi,
   DollarSign,
   ChevronDown,
+  KeyRound,
 } from "lucide-react";
 
 interface NavItem {
@@ -47,22 +48,31 @@ const navSections: { label: string; collapsible?: boolean; defaultCollapsed?: bo
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
       { href: "/tickets", label: "Tickets", icon: Ticket, permission: "tickets.view" },
       { href: "/alerts", label: "Alerts", icon: AlertTriangle, permission: "alerts.view" },
-      { href: "/backups", label: "Backups", icon: HardDrive, permission: "backups.view" },
+      { href: "/cipp", label: "Microsoft 365", icon: Monitor, permission: "cipp.view" },
       { href: "/3cx", label: "Phone Systems", icon: Phone, permission: "phone.view" },
-      { href: "/network", label: "Network", icon: Wifi, permission: "network.view" },
-      { href: "/cipp", label: "CIPP", icon: Monitor, permission: "cipp.view" },
       { href: "/clients", label: "Clients", icon: Users, permission: "clients.view" },
       { href: "/billing", label: "Billing", icon: DollarSign, permission: "billing.view" },
     ],
   },
   {
+    label: "Security",
+    items: [
+      { href: "/passwords", label: "Passwords", icon: KeyRound, permission: "keeper.view" },
+    ],
+  },
+  {
     label: "Monitoring",
     items: [
-      { href: "/analytics", label: "Analytics", icon: TrendingUp, permission: "dashboard.view" },
-      { href: "/grafana", label: "Grafana", icon: BarChart3, permission: "tools.grafana" },
+      { href: "/backups", label: "Backups", icon: HardDrive, permission: "backups.view" },
+      { href: "/network", label: "Network", icon: Wifi, permission: "network.view" },
       { href: "/monitoring", label: "Uptime Monitor", icon: Activity, permission: "tools.uptime" },
-      { href: "#", label: "n8n", icon: Workflow, permission: "tools.n8n", external: true, externalKey: "n8n" },
-      { href: "/azure", label: "Azure", icon: Cloud, permission: "tools.azure" },
+    ],
+  },
+  {
+    label: "Analytics",
+    items: [
+      { href: "/analytics", label: "Reporting", icon: TrendingUp, permission: "dashboard.view" },
+      { href: "/grafana", label: "Grafana", icon: BarChart3, permission: "tools.grafana" },
       { href: "/audit", label: "Audit Log", icon: ScrollText, permission: "audit.view" },
     ],
   },
@@ -72,7 +82,9 @@ const navSections: { label: string; collapsible?: boolean; defaultCollapsed?: bo
     defaultCollapsed: true,
     items: [
       { href: "/settings", label: "General", icon: Settings, permission: "settings.view" },
+      { href: "#", label: "Automations", icon: Workflow, permission: "tools.n8n", external: true, externalKey: "n8n" },
       { href: "/settings/integrations", label: "Integrations", icon: Plug, permission: "settings.integrations" },
+      { href: "/azure", label: "Azure", icon: Cloud, permission: "tools.azure" },
       { href: "/settings/notifications", label: "Notifications", icon: Bell, permission: "settings.notifications" },
       { href: "/settings/users", label: "Users", icon: UserCog, permission: "users.manage" },
     ],

@@ -25,6 +25,7 @@ import type { IBackupConnector } from "./_interfaces/backup";
 import type { ISaasBackupConnector } from "./_interfaces/saas-backup";
 import type { ILicensingConnector } from "./_interfaces/licensing";
 import type { IDnsSecurityConnector } from "./_interfaces/dns-security";
+import type { IPasswordManagerConnector } from "./_interfaces/password-manager";
 import { ConnectorNotConfiguredError } from "./_base/errors";
 import type { ConnectorConfig } from "./_base/types";
 import { CONNECTOR_REGISTRY, type ConnectorCategory } from "./registry";
@@ -43,6 +44,7 @@ type ConnectorTypeMap = {
   saas_backup: ISaasBackupConnector;
   licensing: ILicensingConnector;
   dns_security: IDnsSecurityConnector;
+  password_manager: IPasswordManagerConnector;
 };
 
 /** Cached connector instances keyed by toolId */

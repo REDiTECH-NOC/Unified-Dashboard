@@ -18,7 +18,9 @@ import {
   User,
   HardDrive,
   AlertTriangle,
+  Monitor,
 } from "lucide-react";
+import { CIPPEmbed } from "./_components/cipp-embed";
 
 // ─── Tab Config ─────────────────────────────────────────────────────
 const TABS = [
@@ -28,6 +30,7 @@ const TABS = [
   { id: "security", label: "Security", icon: Shield },
   { id: "intune", label: "Intune", icon: Laptop },
   { id: "offboarding", label: "Offboarding", icon: UserMinus },
+  { id: "fullui", label: "Full CIPP UI", icon: Monitor },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -338,6 +341,8 @@ function CIPPPageInner() {
       {/* Tab Content */}
       {activeTab === "tenants" ? (
         <TenantsTab onSelectTenant={handleTenantRowClick} />
+      ) : activeTab === "fullui" ? (
+        <CIPPEmbed />
       ) : (
         <PlaceholderTab tab={activeTab} selectedTenant={selectedTenant} />
       )}

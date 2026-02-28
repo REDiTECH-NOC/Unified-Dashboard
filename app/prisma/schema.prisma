@@ -35,6 +35,7 @@ enum MonitorType {
 enum MonitorStatus {
   UP
   DOWN
+  WARNING
   PENDING
   UNKNOWN
 }
@@ -48,6 +49,12 @@ enum AuditCategory {
   SYSTEM
   API
   DATA
+}
+
+enum ITGlueAccessMode {
+  READ_WRITE
+  READ_ONLY
+  DENIED
 }
 
 model User {
@@ -78,8 +85,11 @@ model User {
   featureFlags        UserFeatureFlag[]
   permissions         UserPermission[]
   permissionRoles     UserPermissionRole[]
-  integrationMappings UserIntegrationMapping[]
-  quickLinkAssignments QuickLinkAssignment[]
+  integrationMappings      UserIntegrationMapping[]
+  quickLinkAssignments     QuickLinkAssignment[]
+  itGluePermissionGroups   ITGluePermissionGroupUser[]
+  alertsOwned              AlertState[] @relation("alertOwner")
+  alertsClosed             AlertState[] @relation("alertCloser")
 
   @@index([role])
   @@index([authMethod])
@@ -171,6 +181,7 @@ model PermissionRole {
 
   users              UserPermissionRole[]
   entraGroupMappings EntraGroupRoleMapping[]
+  itGluePermissionGroups ITGluePermissionGroupRole[]
 }
 
 // Maps an Entra ID (365) group to a permission role
@@ -284,6 +295,28 @@ model UserNotificationPref {
   @@index([userId])
 }
 
+// ─── Email Send Log ─────────────────────────────────────────────
+
+model EmailSendLog {
+  id            String   @id @default(cuid())
+  senderEmail   String
+  recipientEmail String
+  subject       String
+  bodyPreview   String?  // first ~500 chars of plain text for quick display
+  bodyHtml      String?  // full HTML body for audit/review
+  status        String   // "sent" | "failed"
+  errorMessage  String?
+  trigger       String   // "test" | "alert" | "report" | "system"
+  triggeredBy   String?  // userId of who initiated (null for automated)
+  metadata      Json?    // additional context (alert id, notification type, etc.)
+  createdAt     DateTime @default(now())
+
+  @@index([senderEmail, createdAt(sort: Desc)])
+  @@index([recipientEmail, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([trigger])
+}
+
 // ─── Uptime Monitoring ──────────────────────────────────────────
 
 model Monitor {
@@ -303,7 +336,7 @@ model Monitor {
   timeoutMs       Int           @default(10000)
 
   // Current state (denormalized for fast list queries)
-  status          MonitorStatus @default(PENDING)
+  status          MonitorStatus @default(UNKNOWN)
   lastCheckedAt   DateTime?
   lastStatusChange DateTime?
 
@@ -313,11 +346,16 @@ model Monitor {
   description     String?
   sslExpiryDays   Int           @default(30)
 
+  // WARNING thresholds (null = disabled)
+  latencyWarningMs     Int?     // e.g. 200 — trigger WARNING if latency exceeds this
+  packetLossWarningPct Float?   // e.g. 33.0 — trigger WARNING if packet loss % exceeds (PING only)
+
   createdBy       String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   heartbeats      Heartbeat[]
+  incidents       MonitorIncident[]
   tags            MonitorTagAssignment[]
 
   @@index([active])
@@ -345,6 +383,28 @@ model Heartbeat {
   @@index([monitorId, timestamp(sort: Desc)])
   @@index([timestamp])
   @@index([monitorId, status])
+}
+
+model MonitorIncident {
+  id             String        @id @default(cuid())
+  monitorId      String
+  monitor        Monitor       @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  status         MonitorStatus // DOWN or WARNING (the incident type)
+  cause          String?       // "unreachable", "high_latency", "packet_loss", etc.
+
+  startedAt      DateTime      @default(now())
+  resolvedAt     DateTime?     // null = ongoing
+  durationSecs   Int?          // computed on resolution
+
+  alertSentAt    DateTime?     // when the initial alert was dispatched
+  recoverySentAt DateTime?     // when the recovery notification was dispatched
+
+  createdAt      DateTime      @default(now())
+
+  @@index([monitorId, resolvedAt])
+  @@index([monitorId, startedAt(sort: Desc)])
+  @@index([status, resolvedAt])
 }
 
 model MonitorTag {
@@ -1027,4 +1087,188 @@ model DnsUniversalListEntry {
   @@unique([domain, rule])
   @@index([rule])
   @@index([createdAt])
+}
+
+// ─── IT Glue Granular Permissions ─────────────────────────────────────
+
+// Named permission group controlling access to IT Glue data.
+// Assigned to users directly (ITGluePermissionGroupUser) or
+// to PermissionRoles (ITGluePermissionGroupRole) for bulk assignment.
+model ITGluePermissionGroup {
+  id          String   @id @default(cuid())
+  name        String   @unique  // e.g., "Tier 1 Support", "Security Team"
+  description String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rules ITGluePermissionRule[]
+  users ITGluePermissionGroupUser[]
+  roles ITGluePermissionGroupRole[]
+}
+
+// Direct assignment: user → IT Glue permission group
+model ITGluePermissionGroupUser {
+  id         String                @id @default(cuid())
+  groupId    String
+  group      ITGluePermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy String?
+  assignedAt DateTime              @default(now())
+
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@index([groupId])
+}
+
+// Role-based assignment: PermissionRole → IT Glue permission group.
+// All users with this PermissionRole inherit the group's rules.
+model ITGluePermissionGroupRole {
+  id               String                @id @default(cuid())
+  groupId          String
+  group            ITGluePermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  permissionRoleId String
+  permissionRole   PermissionRole        @relation(fields: [permissionRoleId], references: [id], onDelete: Cascade)
+  assignedBy       String?
+  assignedAt       DateTime              @default(now())
+
+  @@unique([groupId, permissionRoleId])
+  @@index([permissionRoleId])
+  @@index([groupId])
+}
+
+// Single rule table implementing hierarchical access via specificity.
+// Most specific rule wins: assetId (3) > categoryId (2) > section (1) > orgId-only (0).
+// No rule at any level = denied (deny-by-default).
+model ITGluePermissionRule {
+  id         String                @id @default(cuid())
+  groupId    String
+  group      ITGluePermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  orgId      String                // IT Glue organization ID (required)
+  section    String?               // "passwords" | "flexible_assets" | "configurations" | "contacts" | "documents"
+  categoryId String?               // password category ID or flexible asset type ID
+  assetId    String?               // specific IT Glue record ID
+  accessMode ITGlueAccessMode      @default(READ_WRITE)
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  @@unique([groupId, orgId, section, categoryId, assetId])
+  @@index([groupId])
+  @@index([orgId])
+  @@index([groupId, orgId])
+  @@index([groupId, orgId, section])
+}
+
+// ─── IT Glue Data Cache ──────────────────────────────────────────────
+// Local cache of IT Glue metadata for permission UI, search, and AI context.
+// Synced by /api/cron/itglue-sync. NOT the source of truth — IT Glue API is.
+
+model ITGlueCachedOrg {
+  id        String   @id @default(cuid())
+  itGlueId  String   @unique  // IT Glue organization ID
+  name      String
+  shortName String?
+  status    String?           // "Active", "Inactive", etc.
+  orgType   String?           // organization type name
+  companyId String?           // local Company.id mapping (resolved via CompanyIntegrationMapping)
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  @@index([name])
+  @@index([companyId])
+}
+
+model ITGlueCachedFlexibleAssetType {
+  id          String   @id @default(cuid())
+  itGlueId    String   @unique  // IT Glue flexible asset type ID
+  name        String
+  description String?
+  icon        String?
+  enabled     Boolean  @default(true)
+  syncedAt    DateTime @default(now())
+
+  @@index([name])
+}
+
+model ITGlueCachedPasswordCategory {
+  id       String   @id @default(cuid())
+  itGlueId String   @unique  // IT Glue password category ID
+  name     String
+  syncedAt DateTime @default(now())
+
+  @@index([name])
+}
+
+// Asset metadata cache — for search and permission resolution.
+// Does NOT store passwords or content — only identifiers and names.
+model ITGlueCachedAsset {
+  id              String    @id @default(cuid())
+  itGlueId        String    @unique  // IT Glue resource ID
+  orgId           String             // IT Glue organization ID this belongs to
+  section         String             // "passwords" | "flexible_assets" | "configurations" | "contacts" | "documents"
+  categoryId      String?            // password category ID or flexible asset type ID
+  categoryName    String?            // denormalized for search display
+  name            String             // asset name/title
+  resourceUrl     String?            // URL in IT Glue
+  itGlueUpdatedAt DateTime?          // updated_at from IT Glue (for incremental sync)
+  syncedAt        DateTime @default(now())
+
+  @@index([orgId])
+  @@index([section])
+  @@index([orgId, section])
+  @@index([categoryId])
+  @@index([name])
+}
+
+// ─── Alert State Overlay ────────────────────────────────────────
+// Lightweight overlay on external alerts — stores user-assigned metadata
+// (ownership, closed status, notes, linked tickets) without duplicating alert data.
+// Alert IDs follow the composite pattern: "s1-{sourceId}", "bp-{sourceId}", etc.
+
+model AlertState {
+  id              String    @id @default(cuid())
+  alertId         String    @unique   // composite ID: "s1-12345", "bp-67890", etc.
+  source          String               // "sentinelone", "blackpoint", "ninjaone", "uptime", "cove", "dropsuite"
+
+  // Ownership
+  ownerId         String?
+  owner           User?     @relation("alertOwner", fields: [ownerId], references: [id])
+
+  // Closed state
+  closed          Boolean   @default(false)
+  closedAt        DateTime?
+  closedById      String?
+  closedBy        User?     @relation("alertCloser", fields: [closedById], references: [id])
+  closeNote       String?
+
+  // Linked CW ticket
+  linkedTicketId      String?
+  linkedTicketSummary String?
+  matchMethod         String?    // "cron_auto" | "manual_link" | "manual_create"
+  matchedAt           DateTime?
+
+  // Company match cache (from cron)
+  matchedCompanyId    String?
+  matchedCompanyName  String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([source])
+  @@index([closed])
+  @@index([ownerId])
+  @@index([linkedTicketId])
+}
+
+// Sync state tracker — stores last sync cursor per entity type
+model ITGlueSyncState {
+  id           String    @id @default(cuid())
+  entityType   String    @unique  // "organizations" | "flexible_asset_types" | "password_categories" | "assets"
+  lastSyncedAt DateTime?
+  lastCursor   String?            // page number or updated_at for incremental
+  totalSynced  Int       @default(0)
+  status       String    @default("idle")  // "idle" | "running" | "failed"
+  errorMessage String?
+  updatedAt    DateTime  @updatedAt
 }

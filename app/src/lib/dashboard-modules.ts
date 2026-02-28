@@ -17,6 +17,7 @@ import {
   BarChart3,
   TrendingUp,
   AreaChart as AreaChartIcon,
+  ShieldAlert,
 } from "lucide-react";
 
 // ─── Module Definition ────────────────────────────────────────────
@@ -60,6 +61,22 @@ export const MODULE_REGISTRY: DashboardModuleDef[] = [
     defaultConfig: {
       columns: 4,
       metrics: ["open-tickets", "active-alerts", "monitors-down", "servers-offline"],
+    },
+  },
+  {
+    id: "alert-cards",
+    name: "Alert Overview",
+    description: "Platform alert cards with counts and severity breakdowns. Click to view alerts.",
+    icon: ShieldAlert,
+    category: "overview",
+    requiredPermission: "alerts.view",
+    defaultSize: { w: 48, h: 6 },
+    minSize: { w: 24, h: 4 },
+    viewAllHref: "/alerts",
+    configurable: true,
+    defaultConfig: {
+      columns: 0,
+      sources: ["sentinelone", "blackpoint", "ninjaone", "uptime", "backups", "avanan", "dnsfilter"],
     },
   },
 
@@ -184,7 +201,7 @@ export const MODULE_REGISTRY: DashboardModuleDef[] = [
   {
     id: "client-quick-access",
     name: "Client Quick Access",
-    description: "Pinned client cards — favorite clients with ticket, alert, and device counts.",
+    description: "Pinned client cards — favorite clients with ticket counts at a glance.",
     icon: Star,
     category: "operations",
     requiredPermission: "clients.view",
@@ -195,6 +212,22 @@ export const MODULE_REGISTRY: DashboardModuleDef[] = [
     defaultConfig: {
       pinnedClients: [],
       columns: 2,
+    },
+  },
+  {
+    id: "phone-quick-access",
+    name: "Phone Quick Access",
+    description: "Select a PBX and see live stats — active calls, extensions, trunks, disk usage.",
+    icon: Phone,
+    category: "operations",
+    requiredPermission: "phone.view",
+    defaultSize: { w: 24, h: 8 },
+    minSize: { w: 16, h: 6 },
+    viewAllHref: "/3cx",
+    configurable: true,
+    allowDuplicates: true,
+    defaultConfig: {
+      pbxInstanceId: "",
     },
   },
 
@@ -266,38 +299,6 @@ export const MODULE_REGISTRY: DashboardModuleDef[] = [
     minSize: { w: 16, h: 5 },
     configurable: true,
     defaultConfig: {
-      displayMode: "summary",
-    },
-  },
-
-  // ── Security ──
-  {
-    id: "security-posture",
-    name: "Security Posture",
-    description: "Combined EDR/MDR overview — SentinelOne, Blackpoint, and Huntress threat counts.",
-    icon: Shield,
-    category: "security",
-    requiredPermission: "alerts.view",
-    defaultSize: { w: 24, h: 8 },
-    minSize: { w: 16, h: 5 },
-    configurable: true,
-    defaultConfig: {
-      vendors: ["sentinelone", "blackpoint", "huntress"],
-      displayMode: "cards",
-    },
-  },
-  {
-    id: "backup-status",
-    name: "Backup Status",
-    description: "Cross-vendor backup overview — Veeam, Datto, Acronis job results by client.",
-    icon: HardDrive,
-    category: "security",
-    requiredPermission: "dashboard.view",
-    defaultSize: { w: 24, h: 8 },
-    minSize: { w: 16, h: 5 },
-    configurable: true,
-    defaultConfig: {
-      vendors: ["veeam", "datto", "acronis"],
       displayMode: "summary",
     },
   },

@@ -290,6 +290,14 @@ export class ItGlueDocumentationConnector implements IDocumentationConnector {
     }));
   }
 
+  // ─── Raw List Access (for sync service pagination) ──────
+
+  async requestListRaw<T>(
+    options: Parameters<ItGlueClient["requestList"]>[0]
+  ): Promise<ITGlueListResponse<T>> {
+    return this.client.requestList<T>(options);
+  }
+
   // ─── Health Check ──────────────────────────────────────────
 
   async healthCheck() {

@@ -22,8 +22,8 @@ import { SystemHealthModule } from "./modules/system-health";
 import { NetworkHealthModule } from "./modules/network-health";
 import { MyTicketsModule } from "./modules/my-tickets";
 import { UptimeStatusModule } from "./modules/uptime-status";
-import { SecurityPostureModule } from "./modules/security-posture";
-import { BackupStatusModule } from "./modules/backup-status";
+import { AlertCardsModule } from "./modules/alert-cards";
+import { PhoneQuickAccessModule } from "./modules/phone-quick-access";
 import { CallActivityModule } from "./modules/call-activity";
 import { PatchComplianceModule } from "./modules/patch-compliance";
 import { RecentActivityModule } from "./modules/recent-activity";
@@ -54,8 +54,8 @@ const MODULE_COMPONENTS: Record<string, React.ComponentType<any>> = {
   "network-health": NetworkHealthModule,
   "my-tickets": MyTicketsModule,
   "uptime-status": UptimeStatusModule,
-  "security-posture": SecurityPostureModule,
-  "backup-status": BackupStatusModule,
+  "alert-cards": AlertCardsModule,
+  "phone-quick-access": PhoneQuickAccessModule,
   "call-activity": CallActivityModule,
   "patch-compliance": PatchComplianceModule,
   "recent-activity": RecentActivityModule,
@@ -214,6 +214,12 @@ export function DashboardGrid() {
           x: item.x * 2,
           w: item.w * 2,
         }));
+      }
+
+      // Migrate v5 → v6: Remove deprecated modules (security-posture, backup-status)
+      if (savedVersion < 6) {
+        const deprecated = new Set(["backup-status", "security-posture"]);
+        items = items.filter((item) => !deprecated.has(getModuleType(item.i)));
       }
 
       return { ...data, version: LAYOUT_VERSION, items };

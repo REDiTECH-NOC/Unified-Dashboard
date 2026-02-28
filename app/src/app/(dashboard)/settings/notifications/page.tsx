@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { AlertPreferencesSection } from "./_components/alert-preferences-section";
 import { DeliveryChannelsSection } from "./_components/delivery-channels-section";
 import { OutboundNotificationsSection } from "./_components/outbound-notifications-section";
+import { EmailTestSection } from "./_components/email-test-section";
 
 export default function NotificationSettingsPage() {
   const { data: session } = useSession();
@@ -28,6 +29,9 @@ export default function NotificationSettingsPage() {
         <>
           <div className="border-t border-border" />
           <DeliveryChannelsSection />
+
+          <div className="border-t border-border" />
+          <EmailTestSection />
 
           <div className="border-t border-border" />
           <OutboundNotificationsSection />

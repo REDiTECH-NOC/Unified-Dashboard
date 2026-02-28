@@ -4,6 +4,8 @@ import * as net from "net";
 import type { MonitorExecutor } from "./base";
 import type { ExecutorResult, PingConfig } from "../types";
 
+const PING_COUNT = 3;
+
 function parsePingOutput(stdout: string): number | null {
   // Linux/macOS: rtt min/avg/max/mdev = 1.234/5.678/9.012/1.234 ms
   const rttMatch = stdout.match(
@@ -20,6 +22,18 @@ function parsePingOutput(stdout: string): number | null {
   if (timeMatch) return Math.round(parseFloat(timeMatch[1]));
 
   return null;
+}
+
+function parsePacketLoss(stdout: string): number {
+  // Linux/macOS: "3 packets transmitted, 2 received, 33.3333% packet loss"
+  const linuxMatch = stdout.match(/([\d.]+)%\s*packet loss/i);
+  if (linuxMatch) return parseFloat(linuxMatch[1]);
+
+  // Windows: "(33% loss)" or "Lost = 1 (33% loss)"
+  const winMatch = stdout.match(/\((\d+)%\s*loss\)/i);
+  if (winMatch) return parseInt(winMatch[1], 10);
+
+  return 0;
 }
 
 /** Detect if a string is a raw IP address (v4 or v6) */
@@ -83,8 +97,8 @@ export class PingExecutor implements MonitorExecutor {
 
     const args: string[] = [];
 
-    // Count flag
-    args.push(isWindows ? "-n" : "-c", "1");
+    // Count flag — send 3 pings for packet loss detection
+    args.push(isWindows ? "-n" : "-c", String(PING_COUNT));
 
     // Timeout flag (seconds for Linux/macOS, milliseconds for Windows)
     if (isWindows) {
@@ -100,18 +114,22 @@ export class PingExecutor implements MonitorExecutor {
 
     args.push(c.hostname);
 
+    // Increased timeout buffer for multiple pings
+    const processTimeout = timeoutMs * PING_COUNT + 3000;
+
     return new Promise<ExecutorResult>((resolve) => {
       const timer = setTimeout(() => {
         resolve({
           status: "DOWN",
           latencyMs: Math.round(performance.now() - start),
           message: `Ping timeout after ${timeoutMs}ms`,
+          packetLoss: 100,
         });
-      }, timeoutMs + 2000); // Extra buffer for process overhead
+      }, processTimeout);
 
-      execFile("ping", args, { timeout: timeoutMs + 2000 }, (error, stdout) => {
+      execFile("ping", args, { timeout: processTimeout }, (error, stdout) => {
         clearTimeout(timer);
-        const latencyMs = Math.round(performance.now() - start);
+        const elapsed = Math.round(performance.now() - start);
 
         if (error) {
           // If ping failed due to permission/binary issues (not a network timeout),
@@ -126,23 +144,42 @@ export class PingExecutor implements MonitorExecutor {
             msg.includes("not found");
 
           if (isPermissionOrBinaryError) {
+            // TCP fallback doesn't support packet loss detection
             resolve(tcpPing(c.hostname, timeoutMs));
             return;
           }
 
-          resolve({
-            status: "DOWN",
-            latencyMs,
-            message: `Ping to ${c.hostname} failed: ${error.message}`,
-          });
+          // Even on error exit code, there may be partial output with packet loss info
+          const packetLoss = stdout ? parsePacketLoss(stdout) : 100;
+          const rtt = stdout ? parsePingOutput(stdout) : null;
+
+          if (packetLoss < 100 && rtt !== null) {
+            // Partial loss — some pings succeeded
+            resolve({
+              status: "UP",
+              latencyMs: rtt,
+              message: `Ping to ${c.hostname}: ${rtt}ms (${packetLoss}% loss)`,
+              packetLoss,
+            });
+          } else {
+            resolve({
+              status: "DOWN",
+              latencyMs: elapsed,
+              message: `Ping to ${c.hostname} failed: ${error.message}`,
+              packetLoss: 100,
+            });
+          }
           return;
         }
 
         const rtt = parsePingOutput(stdout);
+        const packetLoss = parsePacketLoss(stdout);
+
         resolve({
-          status: "UP",
-          latencyMs: rtt ?? latencyMs,
-          message: `Ping to ${c.hostname}: ${rtt !== null ? `${rtt}ms` : "success"}`,
+          status: packetLoss >= 100 ? "DOWN" : "UP",
+          latencyMs: rtt ?? elapsed,
+          message: `Ping to ${c.hostname}: ${rtt !== null ? `${rtt}ms` : "success"}${packetLoss > 0 ? ` (${packetLoss}% loss)` : ""}`,
+          packetLoss,
         });
       });
     });

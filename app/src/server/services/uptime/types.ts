@@ -4,6 +4,7 @@ export interface ExecutorResult {
   message: string;
   tlsInfo?: TlsInfo | null;
   dnsResult?: DnsResult | null;
+  packetLoss?: number; // 0-100 percentage, populated by PING executor
 }
 
 export interface TlsInfo {
