@@ -4,14 +4,18 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { ExternalLink, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 const CIPP_URL = "https://cipp.reditech.com";
+const AUTH_STORAGE_KEY = "cipp-auth-done";
 
 /**
  * CIPP Embed — Popup-auth iframe.
  *
  * Flow:
  * 1. Open a small popup to cipp.reditech.com to trigger Azure SWA EasyAuth SSO
- * 2. Once authenticated, the popup closes (auth cookies are set on cipp.reditech.com)
+ * 2. User completes sign-in in the popup, then clicks "I've signed in" (or closes popup)
  * 3. Load cipp.reditech.com in the iframe — cookies exist, no auth redirect needed
+ *
+ * Auth state is persisted in sessionStorage so navigating away and back
+ * doesn't require re-authentication within the same browser session.
  *
  * Works because dashboard.reditech.com and cipp.reditech.com share the same
  * registrable domain (reditech.com), so cookies are same-site / first-party.
@@ -19,7 +23,14 @@ const CIPP_URL = "https://cipp.reditech.com";
 export function CIPPEmbed() {
   const [authState, setAuthState] = useState<
     "idle" | "authenticating" | "authenticated" | "error"
-  >("idle");
+  >(() => {
+    // Restore auth state from sessionStorage on mount
+    if (typeof window !== "undefined") {
+      const stored = sessionStorage.getItem(AUTH_STORAGE_KEY);
+      if (stored === "true") return "authenticated";
+    }
+    return "idle";
+  });
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const popupRef = useRef<Window | null>(null);
@@ -31,6 +42,24 @@ export function CIPPEmbed() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
+  }, []);
+
+  // Persist auth state to sessionStorage
+  const markAuthenticated = useCallback(() => {
+    setAuthState("authenticated");
+    try {
+      sessionStorage.setItem(AUTH_STORAGE_KEY, "true");
+    } catch {
+      // sessionStorage may be unavailable in some contexts
+    }
+  }, []);
+
+  const clearAuthStorage = useCallback(() => {
+    try {
+      sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
   }, []);
 
   const startAuth = useCallback(() => {
@@ -59,15 +88,17 @@ export function CIPPEmbed() {
 
     popupRef.current = popup;
 
-    // Poll to detect when the popup closes (user completed auth or dismissed it)
+    // Poll to detect when the popup closes (user completed auth or dismissed it).
+    // We can't read the popup's URL cross-origin (dashboard.reditech.com vs
+    // cipp.reditech.com are different origins), so we rely on:
+    //  a) detecting when the user manually closes the popup, OR
+    //  b) the "I've signed in" button for explicit user action
     pollRef.current = setInterval(() => {
       if (!popup || popup.closed) {
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = null;
         popupRef.current = null;
-        // Auth should be complete — cookies are set on cipp.reditech.com
-        // Load the iframe now
-        setAuthState("authenticated");
+        markAuthenticated();
       }
     }, 500);
 
@@ -84,7 +115,20 @@ export function CIPPEmbed() {
         setErrorMsg("Authentication timed out. Please try again.");
       }
     }, 180_000);
-  }, []);
+  }, [markAuthenticated]);
+
+  const handleSignedIn = useCallback(() => {
+    // User clicked "I've signed in" — close popup and proceed to load iframe
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    if (popupRef.current && !popupRef.current.closed) {
+      popupRef.current.close();
+    }
+    popupRef.current = null;
+    markAuthenticated();
+  }, [markAuthenticated]);
 
   const handleIframeLoad = useCallback(() => {
     setIframeLoaded(true);
@@ -94,7 +138,8 @@ export function CIPPEmbed() {
     setAuthState("idle");
     setIframeLoaded(false);
     setErrorMsg("");
-  }, []);
+    clearAuthStorage();
+  }, [clearAuthStorage]);
 
   const handleReload = useCallback(() => {
     if (iframeRef.current) {
@@ -133,8 +178,14 @@ export function CIPPEmbed() {
         <Loader2 className="h-10 w-10 mb-4 animate-spin opacity-40" />
         <p className="text-sm font-medium">Authenticating with CIPP...</p>
         <p className="text-xs mt-1 opacity-60">
-          Complete the sign-in in the popup window. It will close automatically.
+          Complete the sign-in in the popup window.
         </p>
+        <button
+          onClick={handleSignedIn}
+          className="mt-6 flex items-center gap-2 h-9 px-4 rounded-lg border border-border bg-card text-sm text-foreground transition-colors hover:bg-accent"
+        >
+          I&apos;ve signed in — load CIPP
+        </button>
       </div>
     );
   }
@@ -169,15 +220,23 @@ export function CIPPEmbed() {
         </div>
       )}
 
-      {/* Reload button */}
+      {/* Toolbar */}
       {iframeLoaded && (
-        <button
-          onClick={handleReload}
-          className="absolute top-2 right-2 z-20 flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-card/90 border border-border text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground backdrop-blur-sm"
-        >
-          <RefreshCw className="h-3 w-3" />
-          Reload
-        </button>
+        <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+          <button
+            onClick={handleReload}
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-card/90 border border-border text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground backdrop-blur-sm"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Reload
+          </button>
+          <button
+            onClick={handleRetry}
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-card/90 border border-border text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground backdrop-blur-sm"
+          >
+            Re-authenticate
+          </button>
+        </div>
       )}
 
       <iframe
