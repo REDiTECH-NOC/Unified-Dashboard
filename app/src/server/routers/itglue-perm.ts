@@ -12,6 +12,7 @@ import {
   getITGlueGroupsForUser,
 } from "@/lib/itglue-permissions";
 import { runITGlueSync, getSyncProgress } from "../services/itglue-sync";
+import { ConnectorFactory } from "../connectors/factory";
 
 const accessModeEnum = z.enum(["READ_WRITE", "READ_ONLY", "DENIED"]);
 const sectionEnum = z.enum(["passwords", "flexible_assets", "configurations", "contacts", "documents"]);
@@ -416,6 +417,114 @@ export const itGluePermRouter = router({
         orderBy: { name: "asc" },
         select: { itGlueId: true, name: true, categoryId: true, categoryName: true },
       });
+    }),
+
+  // Live-fetch assets from IT Glue API when cache is empty, then cache them
+  fetchSectionAssets: adminProcedure
+    .input(z.object({
+      orgId: z.string(),
+      section: sectionEnum,
+      categoryId: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Check cache first
+      const cached = await ctx.prisma.iTGlueCachedAsset.findMany({
+        where: {
+          orgId: input.orgId,
+          section: input.section,
+          ...(input.categoryId && { categoryId: input.categoryId }),
+        },
+        orderBy: { name: "asc" },
+        select: { itGlueId: true, name: true, categoryId: true, categoryName: true },
+      });
+
+      if (cached.length > 0) return cached;
+
+      // Cache empty — fetch from IT Glue API and cache results
+      try {
+        const docs = await ConnectorFactory.get("documentation", ctx.prisma);
+        type AssetLike = { sourceId: string; name: string; categoryName?: string | null };
+        let apiResults: AssetLike[] = [];
+
+        switch (input.section) {
+          case "passwords": {
+            const res = await docs.getPasswords(input.orgId, undefined, 1, 100);
+            apiResults = res.data.map((p) => ({
+              sourceId: p.sourceId,
+              name: p.name,
+              categoryName: p.resourceType ?? null,
+            }));
+            break;
+          }
+          case "configurations": {
+            const res = await docs.getConfigurations(input.orgId, undefined, 1, 100);
+            apiResults = res.data.map((c) => ({
+              sourceId: c.sourceId,
+              name: c.hostname || "Unnamed",
+              categoryName: c.model ?? null,
+            }));
+            break;
+          }
+          case "contacts": {
+            const res = await docs.getContacts(input.orgId, undefined, 1, 100);
+            apiResults = res.data.map((c) => ({
+              sourceId: c.sourceId,
+              name: `${c.firstName} ${c.lastName}`.trim() || "Unnamed",
+              categoryName: c.title ?? null,
+            }));
+            break;
+          }
+          case "documents":
+          case "flexible_assets": {
+            const res = await docs.getDocuments(
+              { organizationId: input.orgId },
+              1,
+              100
+            );
+            apiResults = res.data.map((d) => ({
+              sourceId: d.sourceId,
+              name: d.title,
+              categoryName: null,
+            }));
+            break;
+          }
+        }
+
+        // Upsert into cache
+        if (apiResults.length > 0) {
+          await Promise.all(
+            apiResults.map((a) =>
+              ctx.prisma.iTGlueCachedAsset.upsert({
+                where: { itGlueId: a.sourceId },
+                create: {
+                  itGlueId: a.sourceId,
+                  orgId: input.orgId,
+                  section: input.section,
+                  categoryId: input.categoryId ?? null,
+                  categoryName: a.categoryName ?? null,
+                  name: a.name,
+                  syncedAt: new Date(),
+                },
+                update: {
+                  name: a.name,
+                  categoryName: a.categoryName ?? undefined,
+                  syncedAt: new Date(),
+                },
+              })
+            )
+          );
+        }
+
+        return apiResults.map((a) => ({
+          itGlueId: a.sourceId,
+          name: a.name,
+          categoryId: input.categoryId ?? null,
+          categoryName: a.categoryName ?? null,
+        }));
+      } catch {
+        // API call failed — return empty (integration might not be configured)
+        return [];
+      }
     }),
 
   getSyncStatus: adminProcedure.query(async ({ ctx }) => {

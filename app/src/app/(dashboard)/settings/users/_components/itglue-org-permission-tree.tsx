@@ -288,7 +288,7 @@ function CategoryRow({
   const [expanded, setExpanded] = useState(false);
   const utils = trpc.useUtils();
 
-  const assets = trpc.itGluePerm.getCachedAssets.useQuery(
+  const assets = trpc.itGluePerm.fetchSectionAssets.useQuery(
     { orgId, section: section as "passwords" | "flexible_assets" | "configurations" | "contacts" | "documents", categoryId: category.itGlueId },
     { enabled: expanded, staleTime: 60_000 }
   );
@@ -417,8 +417,8 @@ function SectionRow({
     staleTime: 5 * 60_000,
   });
 
-  // Direct assets (for sections without categories)
-  const directAssets = trpc.itGluePerm.getCachedAssets.useQuery(
+  // Direct assets (for sections without categories) — live-fetches from IT Glue if cache is empty
+  const directAssets = trpc.itGluePerm.fetchSectionAssets.useQuery(
     { orgId, section: section.key as "passwords" | "flexible_assets" | "configurations" | "contacts" | "documents" },
     { enabled: expanded && !hasCategories, staleTime: 60_000 }
   );
