@@ -6,17 +6,17 @@ import { cn } from "@/lib/utils";
 
 const CIPP_URL = "https://cipp.reditech.com";
 const AUTH_STORAGE_KEY = "cipp-auth-done";
+const POPUP_NAME = "cipp-auth";
 
 /**
  * CIPP Embed — Popup-auth iframe.
  *
  * Flow:
- * 1. Open a small popup to cipp.reditech.com to trigger Azure SWA EasyAuth SSO
+ * 1. Open a popup to cipp.reditech.com to trigger Azure SWA EasyAuth SSO
  * 2. User completes sign-in, then clicks "I've signed in" (or closes popup)
- * 3. Load cipp.reditech.com in the iframe — cookies exist, no auth redirect needed
+ * 3. Load cipp.reditech.com in the iframe — cookies exist, no auth redirect
  *
- * Auth state is persisted in sessionStorage so navigating away and back
- * doesn't require re-authentication within the same browser session.
+ * Auth state persisted in sessionStorage — subsequent visits skip auth.
  */
 export function CIPPEmbed() {
   const [authState, setAuthState] = useState<
@@ -34,7 +34,6 @@ export function CIPPEmbed() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  // Clean up polling on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -43,34 +42,24 @@ export function CIPPEmbed() {
 
   const markAuthenticated = useCallback(() => {
     setAuthState("authenticated");
-    try {
-      sessionStorage.setItem(AUTH_STORAGE_KEY, "true");
-    } catch {
-      // sessionStorage may be unavailable
-    }
+    try { sessionStorage.setItem(AUTH_STORAGE_KEY, "true"); } catch { /* */ }
   }, []);
 
-  const clearAuthStorage = useCallback(() => {
-    try {
-      sessionStorage.removeItem(AUTH_STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Close the popup — navigate to about:blank first (always allowed cross-origin),
-  // then close. This works reliably in Edge/Chrome for cross-origin popups.
+  // Force-close the auth popup using multiple strategies
   const closePopup = useCallback(() => {
-    const popup = popupRef.current;
-    if (!popup || popup.closed) return;
-    try {
-      popup.location.href = "about:blank";
-    } catch {
-      // ignore cross-origin navigation errors
+    // Strategy 1: Use the stored ref
+    if (popupRef.current && !popupRef.current.closed) {
+      try { popupRef.current.close(); } catch { /* */ }
     }
-    setTimeout(() => {
-      try { popup.close(); } catch { /* ignore */ }
-    }, 50);
+    // Strategy 2: Re-acquire the named window and close it.
+    // window.open with the same name returns the existing window.
+    try {
+      const w = window.open("", POPUP_NAME);
+      if (w) {
+        w.close();
+      }
+    } catch { /* */ }
+    popupRef.current = null;
   }, []);
 
   const startAuth = useCallback(() => {
@@ -84,21 +73,19 @@ export function CIPPEmbed() {
 
     const popup = window.open(
       CIPP_URL,
-      "cipp-auth",
+      POPUP_NAME,
       `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,location=yes,status=no`
     );
 
     if (!popup) {
       setAuthState("error");
-      setErrorMsg(
-        "Popup blocked by browser. Please allow popups for this site and try again."
-      );
+      setErrorMsg("Popup blocked. Please allow popups for this site.");
       return;
     }
 
     popupRef.current = popup;
 
-    // Poll for manual popup close
+    // Poll for manual close
     pollRef.current = setInterval(() => {
       if (!popup || popup.closed) {
         if (pollRef.current) clearInterval(pollRef.current);
@@ -108,13 +95,12 @@ export function CIPPEmbed() {
       }
     }, 500);
 
-    // Safety timeout — 3 minutes
+    // 3-minute timeout
     setTimeout(() => {
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
         closePopup();
-        popupRef.current = null;
         setAuthState("error");
         setErrorMsg("Authentication timed out. Please try again.");
       }
@@ -127,7 +113,6 @@ export function CIPPEmbed() {
       pollRef.current = null;
     }
     closePopup();
-    popupRef.current = null;
     markAuthenticated();
   }, [closePopup, markAuthenticated]);
 
@@ -139,8 +124,8 @@ export function CIPPEmbed() {
     setAuthState("idle");
     setIframeLoaded(false);
     setErrorMsg("");
-    clearAuthStorage();
-  }, [clearAuthStorage]);
+    try { sessionStorage.removeItem(AUTH_STORAGE_KEY); } catch { /* */ }
+  }, []);
 
   const handleReload = useCallback(() => {
     if (iframeRef.current) {
@@ -158,8 +143,8 @@ export function CIPPEmbed() {
           Load the full CIPP interface
         </p>
         <p className="text-xs mb-6 max-w-md text-center">
-          A popup will open briefly to authenticate with CIPP via Microsoft SSO.
-          Once authenticated, the full CIPP UI will load here.
+          A popup will open to authenticate with CIPP via Microsoft SSO.
+          Once signed in, click &quot;I&apos;ve signed in&quot; to load CIPP here.
         </p>
         <button
           onClick={startAuth}
@@ -196,9 +181,7 @@ export function CIPPEmbed() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
         <AlertCircle className="h-10 w-10 mb-4 text-red-400 opacity-60" />
-        <p className="text-sm font-medium text-red-400">
-          Authentication failed
-        </p>
+        <p className="text-sm font-medium text-red-400">Authentication failed</p>
         <p className="text-xs mt-1 mb-4 max-w-md text-center">{errorMsg}</p>
         <button
           onClick={handleRetry}
@@ -210,9 +193,7 @@ export function CIPPEmbed() {
     );
   }
 
-  // ─── Authenticated: Show iframe ────────────────────────────────────
-  // Iframe is made slightly wider than its overflow:hidden container to
-  // clip the browser scrollbar. Content scrolls via mouse wheel / trackpad.
+  // ─── Authenticated: iframe ─────────────────────────────────────────
   return (
     <div className="relative w-full">
       {!iframeLoaded && (
