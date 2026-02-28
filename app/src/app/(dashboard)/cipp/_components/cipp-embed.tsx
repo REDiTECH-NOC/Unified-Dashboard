@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { ExternalLink, Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const CIPP_URL = "https://cipp.reditech.com";
 const AUTH_STORAGE_KEY = "cipp-auth-done";
@@ -211,10 +212,10 @@ export function CIPPEmbed() {
 
   // ─── Authenticated: Show iframe ───────────────────────────────────
   return (
-    <div className="relative w-full h-[calc(100vh-12rem)]">
+    <div className="relative w-full">
       {/* Loading overlay */}
       {!iframeLoaded && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-card rounded-lg border border-border z-10">
+        <div className="flex flex-col items-center justify-center py-20 bg-card rounded-lg border border-border">
           <Loader2 className="h-8 w-8 mb-3 animate-spin text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Loading CIPP...</p>
         </div>
@@ -222,7 +223,7 @@ export function CIPPEmbed() {
 
       {/* Toolbar */}
       {iframeLoaded && (
-        <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+        <div className="sticky top-0 z-20 flex items-center justify-end gap-1.5 pb-2">
           <button
             onClick={handleReload}
             className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-card/90 border border-border text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground backdrop-blur-sm"
@@ -243,7 +244,11 @@ export function CIPPEmbed() {
         ref={iframeRef}
         src={CIPP_URL}
         onLoad={handleIframeLoad}
-        className="w-full h-full rounded-lg border border-border"
+        className={cn(
+          "w-full rounded-lg border border-border",
+          iframeLoaded ? "h-[5000px]" : "h-0"
+        )}
+        scrolling="no"
         sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
         title="CIPP — CyberDrain Improved Partner Portal"
       />
