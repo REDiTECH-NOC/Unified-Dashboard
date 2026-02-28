@@ -12,20 +12,16 @@ const AUTH_STORAGE_KEY = "cipp-auth-done";
  *
  * Flow:
  * 1. Open a small popup to cipp.reditech.com to trigger Azure SWA EasyAuth SSO
- * 2. User completes sign-in in the popup, then clicks "I've signed in" (or closes popup)
+ * 2. User completes sign-in, then clicks "I've signed in" (or closes popup)
  * 3. Load cipp.reditech.com in the iframe — cookies exist, no auth redirect needed
  *
  * Auth state is persisted in sessionStorage so navigating away and back
  * doesn't require re-authentication within the same browser session.
- *
- * Works because dashboard.reditech.com and cipp.reditech.com share the same
- * registrable domain (reditech.com), so cookies are same-site / first-party.
  */
 export function CIPPEmbed() {
   const [authState, setAuthState] = useState<
     "idle" | "authenticating" | "authenticated" | "error"
   >(() => {
-    // Restore auth state from sessionStorage on mount
     if (typeof window !== "undefined") {
       const stored = sessionStorage.getItem(AUTH_STORAGE_KEY);
       if (stored === "true") return "authenticated";
@@ -45,13 +41,12 @@ export function CIPPEmbed() {
     };
   }, []);
 
-  // Persist auth state to sessionStorage
   const markAuthenticated = useCallback(() => {
     setAuthState("authenticated");
     try {
       sessionStorage.setItem(AUTH_STORAGE_KEY, "true");
     } catch {
-      // sessionStorage may be unavailable in some contexts
+      // sessionStorage may be unavailable
     }
   }, []);
 
@@ -63,11 +58,25 @@ export function CIPPEmbed() {
     }
   }, []);
 
+  // Close the popup — navigate to about:blank first (always allowed cross-origin),
+  // then close. This works reliably in Edge/Chrome for cross-origin popups.
+  const closePopup = useCallback(() => {
+    const popup = popupRef.current;
+    if (!popup || popup.closed) return;
+    try {
+      popup.location.href = "about:blank";
+    } catch {
+      // ignore cross-origin navigation errors
+    }
+    setTimeout(() => {
+      try { popup.close(); } catch { /* ignore */ }
+    }, 50);
+  }, []);
+
   const startAuth = useCallback(() => {
     setAuthState("authenticating");
     setErrorMsg("");
 
-    // Open popup centered on screen
     const w = 500;
     const h = 600;
     const left = window.screenX + (window.innerWidth - w) / 2;
@@ -89,11 +98,7 @@ export function CIPPEmbed() {
 
     popupRef.current = popup;
 
-    // Poll to detect when the popup closes (user completed auth or dismissed it).
-    // We can't read the popup's URL cross-origin (dashboard.reditech.com vs
-    // cipp.reditech.com are different origins), so we rely on:
-    //  a) detecting when the user manually closes the popup, OR
-    //  b) the "I've signed in" button for explicit user action
+    // Poll for manual popup close
     pollRef.current = setInterval(() => {
       if (!popup || popup.closed) {
         if (pollRef.current) clearInterval(pollRef.current);
@@ -103,33 +108,28 @@ export function CIPPEmbed() {
       }
     }, 500);
 
-    // Safety timeout — if popup doesn't close in 3 minutes, assume something went wrong
+    // Safety timeout — 3 minutes
     setTimeout(() => {
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
-        if (popupRef.current && !popupRef.current.closed) {
-          popupRef.current.close();
-          popupRef.current = null;
-        }
+        closePopup();
+        popupRef.current = null;
         setAuthState("error");
         setErrorMsg("Authentication timed out. Please try again.");
       }
     }, 180_000);
-  }, [markAuthenticated]);
+  }, [markAuthenticated, closePopup]);
 
   const handleSignedIn = useCallback(() => {
-    // User clicked "I've signed in" — close popup and proceed to load iframe
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
-    if (popupRef.current && !popupRef.current.closed) {
-      popupRef.current.close();
-    }
+    closePopup();
     popupRef.current = null;
     markAuthenticated();
-  }, [markAuthenticated]);
+  }, [closePopup, markAuthenticated]);
 
   const handleIframeLoad = useCallback(() => {
     setIframeLoaded(true);
@@ -149,7 +149,7 @@ export function CIPPEmbed() {
     }
   }, []);
 
-  // ─── Idle: Prompt to authenticate ─────────────────────────────────
+  // ─── Idle ──────────────────────────────────────────────────────────
   if (authState === "idle") {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
@@ -172,18 +172,18 @@ export function CIPPEmbed() {
     );
   }
 
-  // ─── Authenticating: Popup is open ────────────────────────────────
+  // ─── Authenticating ────────────────────────────────────────────────
   if (authState === "authenticating") {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
         <Loader2 className="h-10 w-10 mb-4 animate-spin opacity-40" />
         <p className="text-sm font-medium">Authenticating with CIPP...</p>
         <p className="text-xs mt-1 opacity-60">
-          Complete the sign-in in the popup window.
+          Complete the sign-in in the popup window, then click below.
         </p>
         <button
           onClick={handleSignedIn}
-          className="mt-6 flex items-center gap-2 h-9 px-4 rounded-lg border border-border bg-card text-sm text-foreground transition-colors hover:bg-accent"
+          className="mt-6 flex items-center gap-2 h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-medium transition-colors hover:bg-red-700"
         >
           I&apos;ve signed in — load CIPP
         </button>
@@ -191,7 +191,7 @@ export function CIPPEmbed() {
     );
   }
 
-  // ─── Error ────────────────────────────────────────────────────────
+  // ─── Error ─────────────────────────────────────────────────────────
   if (authState === "error") {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
@@ -210,14 +210,11 @@ export function CIPPEmbed() {
     );
   }
 
-  // ─── Authenticated: Show iframe ───────────────────────────────────
-  // The iframe is made slightly wider than its container so the browser
-  // scrollbar is pushed outside the visible area (overflow:hidden clips it).
-  // This lets users scroll CIPP content with mouse wheel / trackpad while
-  // the scrollbar itself is invisible — feels like a native part of the page.
+  // ─── Authenticated: Show iframe ────────────────────────────────────
+  // Iframe is made slightly wider than its overflow:hidden container to
+  // clip the browser scrollbar. Content scrolls via mouse wheel / trackpad.
   return (
     <div className="relative w-full">
-      {/* Loading overlay */}
       {!iframeLoaded && (
         <div className="h-[calc(100vh-14rem)] flex flex-col items-center justify-center bg-card rounded-lg border border-border">
           <Loader2 className="h-8 w-8 mb-3 animate-spin text-muted-foreground" />
@@ -225,7 +222,6 @@ export function CIPPEmbed() {
         </div>
       )}
 
-      {/* Toolbar */}
       {iframeLoaded && (
         <div className="flex items-center justify-end gap-1.5 pb-2">
           <button
@@ -244,7 +240,6 @@ export function CIPPEmbed() {
         </div>
       )}
 
-      {/* Overflow-hidden wrapper clips the iframe scrollbar */}
       <div
         className={cn(
           "overflow-hidden rounded-lg border border-border",
