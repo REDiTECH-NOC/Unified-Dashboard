@@ -339,13 +339,16 @@ function CIPPPageInner() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === "tenants" ? (
+      {activeTab === "tenants" && (
         <TenantsTab onSelectTenant={handleTenantRowClick} />
-      ) : activeTab === "fullui" ? (
-        <CIPPEmbed />
-      ) : (
+      )}
+      {activeTab !== "tenants" && activeTab !== "fullui" && (
         <PlaceholderTab tab={activeTab} selectedTenant={selectedTenant} />
       )}
+      {/* Always mounted so the iframe stays alive across tab switches */}
+      <div className={activeTab === "fullui" ? "" : "hidden"}>
+        <CIPPEmbed />
+      </div>
     </div>
   );
 }
