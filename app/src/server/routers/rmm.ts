@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { cachedQuery } from "@/lib/query-cache";
 import { NinjaOneRmmConnector } from "../connectors/ninjaone/connector";
@@ -55,7 +55,7 @@ const RMM_STALE = 10 * 60_000; // 10 min
 export const rmmRouter = router({
   // ─── Devices ─────────────────────────────────────────────
 
-  getDevices: protectedProcedure
+  getDevices: requirePerm("alerts.ninjaone.view")
     .input(
       z.object({
         organizationId: z.string().optional(),
@@ -82,21 +82,21 @@ export const rmmRouter = router({
       );
     }),
 
-  getDeviceById: protectedProcedure
+  getDeviceById: requirePerm("alerts.ninjaone.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const rmm = await ConnectorFactory.get("rmm", ctx.prisma);
       return rmm.getDeviceById(input.id);
     }),
 
-  getDeviceCustomFields: protectedProcedure
+  getDeviceCustomFields: requirePerm("alerts.ninjaone.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const rmm = await ConnectorFactory.get("rmm", ctx.prisma);
       return rmm.getDeviceCustomFields(input.id);
     }),
 
-  getDevicesByCompany: protectedProcedure
+  getDevicesByCompany: requirePerm("alerts.ninjaone.view")
     .input(
       z.object({
         companyId: z.string(),
@@ -118,7 +118,7 @@ export const rmmRouter = router({
 
   // ─── Alerts ──────────────────────────────────────────────
 
-  getAlerts: protectedProcedure
+  getAlerts: requirePerm("alerts.ninjaone.view")
     .input(
       z.object({
         organizationId: z.string().optional(),
@@ -150,7 +150,7 @@ export const rmmRouter = router({
       });
     }),
 
-  acknowledgeAlert: protectedProcedure
+  acknowledgeAlert: requirePerm("alerts.manage")
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const rmm = await ConnectorFactory.get("rmm", ctx.prisma);
@@ -168,14 +168,14 @@ export const rmmRouter = router({
 
   // ─── Organizations ───────────────────────────────────────
 
-  getOrganizations: protectedProcedure
+  getOrganizations: requirePerm("alerts.ninjaone.view")
     .input(z.object({ searchTerm: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const rmm = await ConnectorFactory.get("rmm", ctx.prisma);
       return rmm.getOrganizations(input.searchTerm);
     }),
 
-  getOrganizationById: protectedProcedure
+  getOrganizationById: requirePerm("alerts.ninjaone.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const rmm = await ConnectorFactory.get("rmm", ctx.prisma);
@@ -184,21 +184,21 @@ export const rmmRouter = router({
 
   // ─── Software & Patches ─────────────────────────────────
 
-  getDeviceSoftware: protectedProcedure
+  getDeviceSoftware: requirePerm("alerts.ninjaone.view")
     .input(z.object({ deviceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const rmm = await ConnectorFactory.get("rmm", ctx.prisma);
       return rmm.getDeviceSoftware(input.deviceId);
     }),
 
-  getDevicePatches: protectedProcedure
+  getDevicePatches: requirePerm("alerts.ninjaone.view")
     .input(z.object({ deviceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const rmm = await ConnectorFactory.get("rmm", ctx.prisma);
       return rmm.getDevicePatches(input.deviceId);
     }),
 
-  getDeviceWindowsServices: protectedProcedure
+  getDeviceWindowsServices: requirePerm("alerts.ninjaone.view")
     .input(z.object({ deviceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const rmm = await ConnectorFactory.get("rmm", ctx.prisma);
@@ -207,7 +207,7 @@ export const rmmRouter = router({
 
   // ─── Activities ──────────────────────────────────────────
 
-  getDeviceActivities: protectedProcedure
+  getDeviceActivities: requirePerm("alerts.ninjaone.view")
     .input(
       z.object({
         deviceId: z.string(),
@@ -226,7 +226,7 @@ export const rmmRouter = router({
 
   // ─── Fleet Queries (cached in Redis) ─────────────────────
 
-  getFleetHealth: protectedProcedure
+  getFleetHealth: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("device-health");
@@ -241,7 +241,7 @@ export const rmmRouter = router({
       return { data, isRefreshing: false, cachedAt: cache.cachedAt, isStale: cache.isStale };
     }),
 
-  getFleetOsDistribution: protectedProcedure
+  getFleetOsDistribution: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("operating-systems");
@@ -256,7 +256,7 @@ export const rmmRouter = router({
       return { data, isRefreshing: false, cachedAt: cache.cachedAt, isStale: cache.isStale };
     }),
 
-  getFleetVolumeStatus: protectedProcedure
+  getFleetVolumeStatus: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("volumes");
@@ -271,7 +271,7 @@ export const rmmRouter = router({
       return { data, isRefreshing: false, cachedAt: cache.cachedAt, isStale: cache.isStale };
     }),
 
-  getFleetAvStatus: protectedProcedure
+  getFleetAvStatus: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("antivirus-status");
@@ -286,7 +286,7 @@ export const rmmRouter = router({
       return { data, isRefreshing: false, cachedAt: cache.cachedAt, isStale: cache.isStale };
     }),
 
-  getFleetAvThreats: protectedProcedure
+  getFleetAvThreats: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("antivirus-threats");
@@ -301,7 +301,7 @@ export const rmmRouter = router({
       return { data, isRefreshing: false, cachedAt: cache.cachedAt, isStale: cache.isStale };
     }),
 
-  getFleetPatchCompliance: protectedProcedure
+  getFleetPatchCompliance: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("os-patch-installs");
@@ -316,7 +316,7 @@ export const rmmRouter = router({
       return { data, isRefreshing: false, cachedAt: cache.cachedAt, isStale: cache.isStale };
     }),
 
-  getFleetHardwareInventory: protectedProcedure
+  getFleetHardwareInventory: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("computer-systems");
@@ -331,7 +331,7 @@ export const rmmRouter = router({
       return { data, isRefreshing: false, cachedAt: cache.cachedAt, isStale: cache.isStale };
     }),
 
-  getFleetBackupStatus: protectedProcedure
+  getFleetBackupStatus: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("backup-jobs");
@@ -346,7 +346,7 @@ export const rmmRouter = router({
       return { data, isRefreshing: false, cachedAt: cache.cachedAt, isStale: cache.isStale };
     }),
 
-  getFleetSoftwareInventory: protectedProcedure
+  getFleetSoftwareInventory: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("software");
@@ -361,7 +361,7 @@ export const rmmRouter = router({
       return { data, isRefreshing: false, cachedAt: cache.cachedAt, isStale: cache.isStale };
     }),
 
-  getFleetProcessors: protectedProcedure
+  getFleetProcessors: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const cache = await getFleetData("processors");
@@ -378,7 +378,7 @@ export const rmmRouter = router({
 
   // ─── Fleet Summary (aggregated stats for one company) ────
 
-  getCompanyFleetSummary: protectedProcedure
+  getCompanyFleetSummary: requirePerm("alerts.ninjaone.view")
     .input(z.object({ companyId: z.string() }))
     .query(async ({ ctx, input }) => {
       const orgId = await resolveNinjaOrgId(ctx.prisma, input.companyId);
@@ -438,7 +438,7 @@ export const rmmRouter = router({
 
   // ─── Fleet Cache Management ──────────────────────────────
 
-  getFleetRefreshStatus: protectedProcedure.query(async () => {
+  getFleetRefreshStatus: requirePerm("alerts.ninjaone.view").query(async () => {
     const status = await getFleetRefreshStatus();
     return { endpoints: status };
   }),
@@ -550,6 +550,8 @@ export const rmmRouter = router({
       action: "rmm.webhook.deleted",
       category: "INTEGRATION",
       actorId: ctx.user.id,
+      resource: "ninjaone:webhook",
+      detail: { tool: "ninjaone" },
     });
 
     return { success: true };

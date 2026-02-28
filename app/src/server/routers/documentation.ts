@@ -6,14 +6,14 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
 
 export const documentationRouter = router({
   // ─── Organizations ───────────────────────────────────────
 
-  getOrganizations: protectedProcedure
+  getOrganizations: requirePerm("documentation.view")
     .input(
       z.object({
         searchTerm: z.string().optional(),
@@ -30,7 +30,7 @@ export const documentationRouter = router({
       );
     }),
 
-  getOrganizationById: protectedProcedure
+  getOrganizationById: requirePerm("documentation.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const docs = await ConnectorFactory.get("documentation", ctx.prisma);
@@ -39,7 +39,7 @@ export const documentationRouter = router({
 
   // ─── Documents (Flexible Assets / KB) ────────────────────
 
-  getDocuments: protectedProcedure
+  getDocuments: requirePerm("documentation.view")
     .input(
       z.object({
         organizationId: z.string().optional(),
@@ -64,14 +64,14 @@ export const documentationRouter = router({
       );
     }),
 
-  getDocumentById: protectedProcedure
+  getDocumentById: requirePerm("documentation.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const docs = await ConnectorFactory.get("documentation", ctx.prisma);
       return docs.getDocumentById(input.id);
     }),
 
-  createDocument: protectedProcedure
+  createDocument: requirePerm("documentation.edit")
     .input(
       z.object({
         organizationId: z.string(),
@@ -98,7 +98,7 @@ export const documentationRouter = router({
       return doc;
     }),
 
-  updateDocument: protectedProcedure
+  updateDocument: requirePerm("documentation.edit")
     .input(
       z.object({
         id: z.string(),
@@ -128,7 +128,7 @@ export const documentationRouter = router({
 
   // ─── Passwords / Credentials ─────────────────────────────
 
-  getPasswords: protectedProcedure
+  getPasswords: requirePerm("documentation.passwords.view")
     .input(
       z.object({
         organizationId: z.string(),
@@ -157,7 +157,7 @@ export const documentationRouter = router({
       );
     }),
 
-  getPasswordById: protectedProcedure
+  getPasswordById: requirePerm("documentation.passwords.reveal")
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       // Using mutation instead of query to enforce it's a deliberate action
@@ -192,7 +192,7 @@ export const documentationRouter = router({
 
   // ─── Configurations ──────────────────────────────────────
 
-  getConfigurations: protectedProcedure
+  getConfigurations: requirePerm("documentation.view")
     .input(
       z.object({
         organizationId: z.string().optional(),
@@ -213,7 +213,7 @@ export const documentationRouter = router({
 
   // ─── Contacts ────────────────────────────────────────────
 
-  getContacts: protectedProcedure
+  getContacts: requirePerm("documentation.view")
     .input(
       z.object({
         organizationId: z.string().optional(),
@@ -234,7 +234,7 @@ export const documentationRouter = router({
 
   // ─── Flexible Asset Types ────────────────────────────────
 
-  getFlexibleAssetTypes: protectedProcedure.query(async ({ ctx }) => {
+  getFlexibleAssetTypes: requirePerm("documentation.view").query(async ({ ctx }) => {
     const docs = await ConnectorFactory.get("documentation", ctx.prisma);
     return docs.getFlexibleAssetTypes();
   }),

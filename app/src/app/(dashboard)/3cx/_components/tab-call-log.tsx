@@ -39,6 +39,7 @@ function formatDateTime(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleString("en-US", {
+    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -208,7 +209,15 @@ export function TabCallLog({ instanceId }: TabCallLogProps) {
 
   // Build server-side filter params
   const serverFilter = useMemo(() => {
-    const f: Record<string, string | boolean | number | undefined> = {
+    const f: {
+      instanceId: string;
+      top: number;
+      dateFrom?: string;
+      dateTo?: string;
+      fromNumber?: string;
+      toNumber?: string;
+      answered?: boolean;
+    } = {
       instanceId,
       top: 500,
     };
@@ -231,9 +240,9 @@ export function TabCallLog({ instanceId }: TabCallLogProps) {
     return f;
   }, [instanceId, timePreset, dateFrom, dateTo, fromNumber, toNumber, statusFilter]);
 
-  const { data: calls, isLoading } = trpc.threecx.getCallHistory.useQuery(
-    serverFilter as Parameters<typeof trpc.threecx.getCallHistory.useQuery>[0],
-    { refetchInterval: 60000 }
+  const { data: calls, isLoading, isError, error } = trpc.threecx.getCallHistory.useQuery(
+    serverFilter,
+    { refetchInterval: 60000, retry: 2 }
   );
 
   // Client-side filtering (search + direction that aren't server-filtered)
@@ -290,6 +299,18 @@ export function TabCallLog({ instanceId }: TabCallLogProps) {
     return (
       <div className="flex items-center justify-center py-16">
         <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-8">
+        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+          <Phone className="h-10 w-10 mb-3 opacity-20" />
+          <p className="text-sm font-medium">Failed to load call history</p>
+          <p className="text-xs mt-1 opacity-60">{error?.message ?? "The PBX may be offline or the extension may not have call history access."}</p>
+        </div>
       </div>
     );
   }

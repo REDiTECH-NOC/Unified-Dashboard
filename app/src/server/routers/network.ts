@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { UnifiNetworkConnector } from "../connectors/unifi/connector";
 import { auditLog } from "@/lib/audit";
@@ -57,21 +57,21 @@ function audit(
 export const networkRouter = router({
   // ─── Site Manager API (cloud) ─────────────────────────────────
 
-  getSites: protectedProcedure.query(async ({ ctx }) => {
+  getSites: requirePerm("network.unifi.view").query(async ({ ctx }) => {
     const network = await ConnectorFactory.get("network", ctx.prisma);
     const sites = await network.getSites();
     await audit(ctx.user.id, "sites.listed", "sites", { count: sites.length });
     return sites;
   }),
 
-  getHosts: protectedProcedure.query(async ({ ctx }) => {
+  getHosts: requirePerm("network.unifi.view").query(async ({ ctx }) => {
     const network = await ConnectorFactory.get("network", ctx.prisma);
     const hosts = await network.getHosts();
     await audit(ctx.user.id, "hosts.listed", "hosts", { count: hosts.length });
     return hosts;
   }),
 
-  getDevices: protectedProcedure
+  getDevices: requirePerm("network.unifi.view")
     .input(z.object({ hostIds: z.array(z.string()).optional() }).optional())
     .query(async ({ ctx, input }) => {
       const network = await ConnectorFactory.get("network", ctx.prisma);
@@ -83,7 +83,7 @@ export const networkRouter = router({
       return devices;
     }),
 
-  getIspMetrics: protectedProcedure
+  getIspMetrics: requirePerm("network.unifi.view")
     .input(z.object({ hostId: z.string() }))
     .query(async ({ ctx, input }) => {
       const network = await ConnectorFactory.get("network", ctx.prisma);
@@ -94,7 +94,7 @@ export const networkRouter = router({
       return metrics;
     }),
 
-  getSummary: protectedProcedure.query(async ({ ctx }) => {
+  getSummary: requirePerm("network.unifi.view").query(async ({ ctx }) => {
     const network = await ConnectorFactory.get("network", ctx.prisma);
     return network.getSummary();
   }),
@@ -106,14 +106,14 @@ export const networkRouter = router({
   console: router({
     // ─── Application Info ─────────────────────────────────────────
 
-    getInfo: protectedProcedure.input(hostInput).query(async ({ ctx, input }) => {
+    getInfo: requirePerm("network.unifi.view").input(hostInput).query(async ({ ctx, input }) => {
       const unifi = await getUnifi(ctx.prisma);
       const info = await unifi.getAppInfo(input.hostId);
       await audit(ctx.user.id, "console.info", `console:${input.hostId}`);
       return info;
     }),
 
-    getLocalSites: protectedProcedure
+    getLocalSites: requirePerm("network.unifi.view")
       .input(hostInput)
       .query(async ({ ctx, input }) => {
         const unifi = await getUnifi(ctx.prisma);
@@ -127,7 +127,7 @@ export const networkRouter = router({
     // ─── Devices ──────────────────────────────────────────────────
 
     devices: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(paginatedHostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -140,7 +140,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      get: protectedProcedure
+      get: requirePerm("network.unifi.view")
         .input(hostInput.extend({ deviceId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -151,7 +151,7 @@ export const networkRouter = router({
           return device;
         }),
 
-      getStats: protectedProcedure
+      getStats: requirePerm("network.unifi.view")
         .input(hostInput.extend({ deviceId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -177,7 +177,7 @@ export const networkRouter = router({
           return { success: true };
         }),
 
-      listPending: protectedProcedure
+      listPending: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -195,7 +195,7 @@ export const networkRouter = router({
           return { success: true };
         }),
 
-      getPorts: protectedProcedure
+      getPorts: requirePerm("network.unifi.view")
         .input(hostInput.extend({ deviceId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -228,7 +228,7 @@ export const networkRouter = router({
     // ─── Clients ──────────────────────────────────────────────────
 
     clients: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(paginatedHostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -241,7 +241,7 @@ export const networkRouter = router({
           return result;
         }),
 
-      get: protectedProcedure
+      get: requirePerm("network.unifi.view")
         .input(hostInput.extend({ clientId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -271,7 +271,7 @@ export const networkRouter = router({
     // ─── Networks ─────────────────────────────────────────────────
 
     networks: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(paginatedHostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -279,7 +279,7 @@ export const networkRouter = router({
           return unifi.listNetworks(hostId, params);
         }),
 
-      get: protectedProcedure
+      get: requirePerm("network.unifi.view")
         .input(hostInput.extend({ networkId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -324,7 +324,7 @@ export const networkRouter = router({
           return { success: true };
         }),
 
-      references: protectedProcedure
+      references: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -335,7 +335,7 @@ export const networkRouter = router({
     // ─── WiFi Broadcasts ──────────────────────────────────────────
 
     wifi: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(paginatedHostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -343,7 +343,7 @@ export const networkRouter = router({
           return unifi.listWifi(hostId, params);
         }),
 
-      get: protectedProcedure
+      get: requirePerm("network.unifi.view")
         .input(hostInput.extend({ wifiId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -392,7 +392,7 @@ export const networkRouter = router({
     // ─── Hotspot Vouchers ─────────────────────────────────────────
 
     hotspot: router({
-      listVouchers: protectedProcedure
+      listVouchers: requirePerm("network.unifi.view")
         .input(paginatedHostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -400,7 +400,7 @@ export const networkRouter = router({
           return unifi.listVouchers(hostId, params);
         }),
 
-      getVoucher: protectedProcedure
+      getVoucher: requirePerm("network.unifi.view")
         .input(hostInput.extend({ voucherId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -449,14 +449,14 @@ export const networkRouter = router({
 
     firewall: router({
       // Zones
-      listZones: protectedProcedure
+      listZones: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
           return unifi.listFirewallZones(input.hostId);
         }),
 
-      getZone: protectedProcedure
+      getZone: requirePerm("network.unifi.view")
         .input(hostInput.extend({ zoneId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -511,7 +511,7 @@ export const networkRouter = router({
         }),
 
       // Policies
-      listPolicies: protectedProcedure
+      listPolicies: requirePerm("network.unifi.view")
         .input(paginatedHostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -519,7 +519,7 @@ export const networkRouter = router({
           return unifi.listFirewallPolicies(hostId, params);
         }),
 
-      getPolicy: protectedProcedure
+      getPolicy: requirePerm("network.unifi.view")
         .input(hostInput.extend({ policyId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -577,7 +577,7 @@ export const networkRouter = router({
     // ─── ACL Rules ────────────────────────────────────────────────
 
     acl: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(paginatedHostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -585,7 +585,7 @@ export const networkRouter = router({
           return unifi.listAclRules(hostId, params);
         }),
 
-      get: protectedProcedure
+      get: requirePerm("network.unifi.view")
         .input(hostInput.extend({ ruleId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -639,7 +639,7 @@ export const networkRouter = router({
           return { success: true };
         }),
 
-      references: protectedProcedure
+      references: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -650,7 +650,7 @@ export const networkRouter = router({
     // ─── DNS Policies ─────────────────────────────────────────────
 
     dns: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(paginatedHostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -658,7 +658,7 @@ export const networkRouter = router({
           return unifi.listDnsPolicies(hostId, params);
         }),
 
-      get: protectedProcedure
+      get: requirePerm("network.unifi.view")
         .input(hostInput.extend({ policyId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -707,7 +707,7 @@ export const networkRouter = router({
     // ─── Traffic Matching Lists ───────────────────────────────────
 
     traffic: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(paginatedHostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -715,7 +715,7 @@ export const networkRouter = router({
           return unifi.listTrafficMatchingLists(hostId, params);
         }),
 
-      get: protectedProcedure
+      get: requirePerm("network.unifi.view")
         .input(hostInput.extend({ listId: z.string() }))
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -764,7 +764,7 @@ export const networkRouter = router({
     // ─── Supporting Resources ─────────────────────────────────────
 
     wans: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -773,7 +773,7 @@ export const networkRouter = router({
     }),
 
     vpn: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -782,7 +782,7 @@ export const networkRouter = router({
     }),
 
     radius: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -791,7 +791,7 @@ export const networkRouter = router({
     }),
 
     deviceTags: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -838,7 +838,7 @@ export const networkRouter = router({
     }),
 
     dpi: router({
-      listApps: protectedProcedure
+      listApps: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);
@@ -847,7 +847,7 @@ export const networkRouter = router({
     }),
 
     countries: router({
-      list: protectedProcedure
+      list: requirePerm("network.unifi.view")
         .input(hostInput)
         .query(async ({ ctx, input }) => {
           const unifi = await getUnifi(ctx.prisma);

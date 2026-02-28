@@ -95,8 +95,10 @@ export interface ThreecxActiveCall {
   Id: number;
   Caller: string;
   Callee: string;
-  State: string;
-  StartTime?: string;
+  Status: string;
+  LastChangeStatus?: string;
+  EstablishedAt?: string;
+  ServerNow?: string;
 }
 
 export interface ThreecxService {
@@ -111,6 +113,38 @@ export interface ThreecxService {
   RestartEnabled: boolean;
 }
 
+/** ReportCallLogData response — the admin-level call report endpoint */
+export interface ThreecxReportCallRecord {
+  MainCallHistoryId: string; // UUID — groups segments of the same call
+  CallHistoryId: string;
+  CdrId: string;
+  CallId: number;
+  Indent: number;
+  StartTime: string;          // ISO 8601 with timezone
+  SourceType: number;
+  SourceDn: string;
+  SourceCallerId: string;
+  SourceDisplayName: string;
+  DestinationType: number;
+  DestinationDn: string;
+  DestinationCallerId: string;
+  DestinationDisplayName: string;
+  ActionType: number;
+  ActionDnType: number;
+  RingingDuration: string;    // ISO 8601 duration e.g. "PT4.244614S"
+  TalkingDuration: string;    // ISO 8601 duration
+  CallCost: number;
+  Answered: boolean;
+  Direction: string;          // "Inbound", "Outbound", "Inbound Queue"
+  CallType: string;           // "External", "Queue", "Extension", "Digital Receptionist", "System"
+  Status: string;             // "Answered", "Unanswered", "Redirected", "Waiting"
+  SubrowDescNumber: number;
+  Reason: string;             // Human-readable call activity description
+  SegmentId: number;
+  QualityReport: boolean;
+}
+
+/** Legacy CallHistoryView response — per-user call history (non-admin) */
 export interface ThreecxCallHistoryRecord {
   SegmentId: number;
   SegmentStartTime: string;
@@ -137,7 +171,7 @@ export interface ThreecxCallHistoryRecord {
   CallAnswered: boolean;
 }
 
-/** Filter options for call history queries — maps to OData $filter */
+/** Filter options for call history queries */
 export interface CallHistoryFilterOptions {
   dateFrom?: string; // YYYY-MM-DD
   dateTo?: string;   // YYYY-MM-DD

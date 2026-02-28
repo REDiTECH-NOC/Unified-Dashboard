@@ -28,6 +28,7 @@ import type {
   ThreecxActiveCall,
   ThreecxService,
   ThreecxCallHistoryRecord,
+  ThreecxReportCallRecord,
   ThreecxQueue,
   ThreecxQueueAgent,
   ThreecxRingGroup,
@@ -119,10 +120,10 @@ export function mapExtension(raw: ThreecxUser): ExtensionInfo {
 export function mapActiveCall(raw: ThreecxActiveCall): ActiveCall {
   return {
     id: raw.Id,
-    caller: raw.Caller,
-    callee: raw.Callee,
-    state: raw.State,
-    startTime: raw.StartTime,
+    caller: raw.Caller ?? "",
+    callee: raw.Callee ?? "",
+    state: raw.Status ?? "Unknown",
+    startTime: raw.EstablishedAt,
   };
 }
 
@@ -241,5 +242,62 @@ export function mapCallHistoryRecord(raw: ThreecxCallHistoryRecord): CallHistory
     durationSeconds: parseDuration(raw.CallTime),
     answered: raw.CallAnswered,
     actionId: raw.SegmentActionId,
+  };
+}
+
+/** Map direction string from ReportCallLogData to normalized direction */
+function mapReportDirection(dir: string): "inbound" | "outbound" | "internal" {
+  const d = dir.toLowerCase();
+  if (d.includes("outbound")) return "outbound";
+  if (d.includes("inbound")) return "inbound";
+  return "internal";
+}
+
+/** Map CallType from ReportCallLogData to dstType */
+function mapReportCallType(callType: string): string {
+  switch (callType) {
+    case "Extension": return "extension";
+    case "Queue": return "queue";
+    case "Digital Receptionist": return "ivr";
+    case "External": return "trunk";
+    default: return "other";
+  }
+}
+
+/** Extract call ID from MainCallHistoryId UUID (last hex segment matches 3CX UI format) */
+function formatReportCallId(uuid: string): { callId: string; callIdNumeric: number } {
+  // UUID like "00000000-01dc-a830-d06f-b7e200000578" → last 3 hex bytes → "000-578"
+  const hex = uuid.replace(/-/g, "").slice(-6); // last 6 hex chars
+  const num = parseInt(hex, 16);
+  return { callId: `000-${hex.replace(/^0+/, "") || "0"}`, callIdNumeric: num };
+}
+
+export function mapReportCallRecord(raw: ThreecxReportCallRecord): CallHistoryRecord {
+  const { callId, callIdNumeric } = formatReportCallId(raw.MainCallHistoryId);
+  const talkingSeconds = parseDuration(raw.TalkingDuration || "PT0S");
+  const ringingSeconds = parseDuration(raw.RingingDuration || "PT0S");
+  const totalSeconds = talkingSeconds + ringingSeconds;
+
+  // Compute endTime from StartTime + total duration
+  const startDate = new Date(raw.StartTime);
+  const endDate = new Date(startDate.getTime() + totalSeconds * 1000);
+
+  return {
+    segmentId: raw.SegmentId,
+    callId,
+    callIdNumeric,
+    startTime: raw.StartTime,
+    endTime: endDate.toISOString(),
+    direction: mapReportDirection(raw.Direction),
+    srcName: raw.SourceDisplayName || raw.SourceCallerId,
+    srcNumber: raw.SourceCallerId,
+    srcExtension: raw.SourceDn,
+    dstName: raw.DestinationDisplayName || raw.DestinationCallerId,
+    dstNumber: raw.DestinationCallerId,
+    dstExtension: raw.DestinationDn,
+    dstType: mapReportCallType(raw.CallType),
+    durationSeconds: talkingSeconds,
+    answered: raw.Answered,
+    actionId: raw.ActionType,
   };
 }

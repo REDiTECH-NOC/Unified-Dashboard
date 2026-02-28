@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, adminProcedure, requirePerm } from "../trpc";
 import { ConnectorFactory } from "../connectors/factory";
 import { auditLog } from "@/lib/audit";
 import { cachedQuery } from "@/lib/query-cache";
@@ -16,7 +16,7 @@ const THREAT_STALE = 10 * 60_000; // 10 min
 export const edrRouter = router({
   // ─── Threats ─────────────────────────────────────────────
 
-  getThreats: protectedProcedure
+  getThreats: requirePerm("alerts.sentinelone.view")
     .input(
       z.object({
         siteId: z.string().optional(),
@@ -52,7 +52,7 @@ export const edrRouter = router({
       });
     }),
 
-  getThreatById: protectedProcedure
+  getThreatById: requirePerm("alerts.sentinelone.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
@@ -175,7 +175,7 @@ export const edrRouter = router({
 
   // ─── Threat Notes ──────────────────────────────────────────
 
-  getThreatNotes: protectedProcedure
+  getThreatNotes: requirePerm("alerts.sentinelone.view")
     .input(
       z.object({
         threatId: z.string(),
@@ -212,7 +212,7 @@ export const edrRouter = router({
 
   // ─── Threat Timeline ──────────────────────────────────────
 
-  getThreatTimeline: protectedProcedure
+  getThreatTimeline: requirePerm("alerts.sentinelone.view")
     .input(
       z.object({
         threatId: z.string(),
@@ -231,6 +231,9 @@ export const edrRouter = router({
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      // Fetch agent info for audit before action
+      let agentInfo: Record<string, unknown> = {};
+      try { const a = await edr.getAgentById(input.agentId); agentInfo = { hostname: a?.hostname, organization: a?.organizationName, os: a?.os }; } catch {}
       await edr.isolateDevice(input.agentId);
 
       await auditLog({
@@ -238,6 +241,7 @@ export const edrRouter = router({
         category: "SECURITY",
         actorId: ctx.user.id,
         resource: `agent:${input.agentId}`,
+        detail: agentInfo,
       });
 
       return { success: true };
@@ -247,6 +251,8 @@ export const edrRouter = router({
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      let agentInfo: Record<string, unknown> = {};
+      try { const a = await edr.getAgentById(input.agentId); agentInfo = { hostname: a?.hostname, organization: a?.organizationName, os: a?.os }; } catch {}
       await edr.unisolateDevice(input.agentId);
 
       await auditLog({
@@ -254,6 +260,7 @@ export const edrRouter = router({
         category: "SECURITY",
         actorId: ctx.user.id,
         resource: `agent:${input.agentId}`,
+        detail: agentInfo,
       });
 
       return { success: true };
@@ -263,6 +270,8 @@ export const edrRouter = router({
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
+      let agentInfo: Record<string, unknown> = {};
+      try { const a = await edr.getAgentById(input.agentId); agentInfo = { hostname: a?.hostname, organization: a?.organizationName, os: a?.os }; } catch {}
       await edr.triggerFullScan(input.agentId);
 
       await auditLog({
@@ -270,6 +279,7 @@ export const edrRouter = router({
         category: "SECURITY",
         actorId: ctx.user.id,
         resource: `agent:${input.agentId}`,
+        detail: agentInfo,
       });
 
       return { success: true };
@@ -277,7 +287,7 @@ export const edrRouter = router({
 
   // ─── Agents ──────────────────────────────────────────────
 
-  getAgents: protectedProcedure
+  getAgents: requirePerm("alerts.sentinelone.view")
     .input(
       z.object({
         siteId: z.string().optional(),
@@ -302,7 +312,7 @@ export const edrRouter = router({
       );
     }),
 
-  getAgentById: protectedProcedure
+  getAgentById: requirePerm("alerts.sentinelone.view")
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
@@ -311,7 +321,7 @@ export const edrRouter = router({
 
   // ─── Agent Applications ─────────────────────────────────
 
-  getAgentApplications: protectedProcedure
+  getAgentApplications: requirePerm("alerts.sentinelone.view")
     .input(
       z.object({
         agentId: z.string(),
@@ -326,12 +336,12 @@ export const edrRouter = router({
 
   // ─── Sites & Groups ─────────────────────────────────────
 
-  getSites: protectedProcedure.query(async ({ ctx }) => {
+  getSites: requirePerm("alerts.sentinelone.view").query(async ({ ctx }) => {
     const edr = await ConnectorFactory.get("edr", ctx.prisma);
     return edr.getSites();
   }),
 
-  getGroups: protectedProcedure
+  getGroups: requirePerm("alerts.sentinelone.view")
     .input(z.object({ siteId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
@@ -340,7 +350,7 @@ export const edrRouter = router({
 
   // ─── Exclusions ──────────────────────────────────────────
 
-  getExclusions: protectedProcedure
+  getExclusions: requirePerm("alerts.sentinelone.view")
     .input(
       z.object({
         siteId: z.string().optional(),
@@ -423,7 +433,7 @@ export const edrRouter = router({
       return result;
     }),
 
-  getDeepVisibilityResults: protectedProcedure
+  getDeepVisibilityResults: requirePerm("alerts.sentinelone.view")
     .input(z.object({ queryId: z.string() }))
     .query(async ({ ctx, input }) => {
       const edr = await ConnectorFactory.get("edr", ctx.prisma);
@@ -432,7 +442,7 @@ export const edrRouter = router({
 
   // ─── Activities ──────────────────────────────────────────
 
-  getActivities: protectedProcedure
+  getActivities: requirePerm("alerts.sentinelone.view")
     .input(
       z.object({
         siteId: z.string().optional(),

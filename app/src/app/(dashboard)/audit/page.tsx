@@ -15,28 +15,303 @@ import {
   Globe,
   Database,
   ChevronDown,
+  ChevronRight,
   Download,
   Settings2,
   Trash2,
   HardDrive,
   Calendar,
   Clock,
+  Bell,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useTimezone } from "@/hooks/use-timezone";
 import { useSession } from "next-auth/react";
 
-type AuditCategory = "AUTH" | "USER" | "SECURITY" | "INTEGRATION" | "SYSTEM" | "API" | "DATA";
+type AuditCategory = "AUTH" | "USER" | "SECURITY" | "INTEGRATION" | "NOTIFICATION" | "SYSTEM" | "API" | "DATA";
 
 const CATEGORY_CONFIG: Record<AuditCategory, { label: string; icon: typeof Shield; color: string }> = {
-  AUTH:        { label: "Authentication", icon: LogIn,    color: "text-blue-400" },
-  USER:        { label: "User Management", icon: Users,   color: "text-emerald-400" },
-  SECURITY:    { label: "Security",       icon: Shield,   color: "text-red-400" },
-  INTEGRATION: { label: "Integrations",   icon: Plug,     color: "text-amber-400" },
-  SYSTEM:      { label: "System",         icon: Server,   color: "text-purple-400" },
-  API:         { label: "API Activity",   icon: Globe,    color: "text-cyan-400" },
-  DATA:        { label: "Data & Reports", icon: Database,  color: "text-orange-400" },
+  AUTH:         { label: "Authentication",  icon: LogIn,    color: "text-blue-400" },
+  USER:         { label: "User Management", icon: Users,    color: "text-emerald-400" },
+  SECURITY:     { label: "Security",        icon: Shield,   color: "text-red-400" },
+  INTEGRATION:  { label: "Integrations",    icon: Plug,     color: "text-amber-400" },
+  NOTIFICATION: { label: "Notifications",   icon: Bell,     color: "text-pink-400" },
+  SYSTEM:       { label: "System",          icon: Server,   color: "text-purple-400" },
+  API:          { label: "API Activity",    icon: Globe,    color: "text-cyan-400" },
+  DATA:         { label: "Data & Reports",  icon: Database,  color: "text-orange-400" },
 };
+
+/** Convert raw action strings to human-readable descriptions, pulling from detail JSON */
+function describeAction(action: string, detail: Record<string, any> | null, resource?: string | null): string {
+  const d = detail || {};
+
+  switch (action) {
+    // Billing
+    case "BILLING_RECONCILE":
+      return d.companyName
+        ? `Reconciled billing for ${d.companyName} — ${d.totalItems ?? 0} items, ${d.discrepancies ?? 0} discrepancies`
+        : "Reconciled company billing";
+    case "BILLING_RECONCILE_ALL":
+      return `Reconciled all companies — ${d.companiesProcessed ?? 0} companies, ${d.totalDiscrepancies ?? 0} discrepancies`;
+    case "BILLING_RESOLVE_ITEM":
+      return `Resolved billing item: ${d.productName ?? "unknown"} (${d.resolution ?? d.action ?? "resolved"})${d.companyName ? ` for ${d.companyName}` : ""}${d.note ? ` — "${d.note}"` : ""}`;
+    case "BILLING_BULK_RESOLVE":
+      return `Bulk resolved ${d.count ?? d.itemIds?.length ?? 0} billing items (${d.action ?? "resolved"})${d.companyNames?.length ? ` — ${d.companyNames.join(", ")}` : ""}`;
+    case "BILLING_ITEM_NOTE_UPDATED":
+      return `Updated billing note for "${d.productName ?? "item"}"${d.companyName ? ` (${d.companyName})` : ""}`;
+    case "BILLING_RECONCILE_TO_PSA":
+      return `Pushed to PSA: ${d.product ?? "product"} (${d.vendor ?? "vendor"})${d.quantityDelta ? `, qty delta: ${d.quantityDelta}` : ""}`;
+    case "billing.bulk_reconcile_to_psa":
+      return `Bulk pushed ${d.itemCount ?? 0} items to PSA — ${d.successCount ?? 0} succeeded, ${d.errorCount ?? 0} failed`;
+    case "BILLING_QUICK_MAP":
+      return `Quick-mapped vendor product "${d.vendorProductName ?? ""}" → PSA "${d.psaProductName ?? ""}" (${d.vendorToolId ?? ""})`;
+    case "BILLING_MAPPING_UPDATE":
+      return `Updated product mapping ${d.mappingId ?? ""}`;
+    case "BILLING_MAPPING_DELETE":
+      return `Deleted product mapping: ${d.vendorProductName ?? ""} (${d.vendorToolId ?? ""})`;
+    case "BILLING_SYNC_VENDOR_PRODUCTS":
+      return `Synced vendor products — ${d.created ?? 0} created, ${d.updated ?? 0} updated`;
+    case "BILLING_SETTINGS_UPDATE":
+      return "Updated billing settings";
+    case "billing.vendor_counts.synced":
+      return `Synced vendor counts for company ${d.companyId ?? resource ?? ""}`;
+    case "billing.vendor_counts.sync_all":
+      return `Synced vendor counts for all companies — ${d.processed ?? 0}/${d.total ?? 0} processed`;
+    case "billing.sync_schedule.updated":
+      return `Updated billing sync schedule: ${d.enabled ? "enabled" : "disabled"}, ${d.frequency ?? ""}`;
+    case "billing.product_mapping.created":
+      return `Created product mapping: ${d.vendorProductName ?? d.vendorProductKey ?? ""} (${d.vendorToolId ?? ""})`;
+    case "billing.vendor_product.created":
+      return `Created vendor product: ${d.productName ?? ""} (${d.vendorToolId ?? ""})`;
+    case "billing.vendor_product.deleted":
+      return `Deleted vendor product: ${d.productName ?? ""} (${d.vendorToolId ?? ""})`;
+    case "billing.vendor_product.toggled":
+      return `${d.isActive ? "Enabled" : "Disabled"} vendor product: ${d.productName ?? ""}`;
+    case "billing.product_assignment.created":
+      return `Assigned product "${d.productName ?? ""}" to company ${d.companyId ?? ""}`;
+    case "billing.product_assignment.removed":
+      return `Removed product "${d.productName ?? ""}" from company ${d.companyId ?? ""}`;
+
+    // Company / integration mapping
+    case "company.mapping.set":
+      return `Mapped company to ${d.toolId ?? "tool"}: "${d.externalName ?? d.externalId ?? ""}"`;
+    case "company.mapping.removed":
+      return `Removed ${d.toolId ?? "tool"} mapping from company`;
+    case "company.sync.auto_started":
+      return "Started auto-sync of company data";
+    case "company.sync.completed":
+      return `Completed company sync — ${d.created ?? 0} created, ${d.updated ?? 0} updated`;
+
+    // Auth
+    case "auth.login":
+    case "auth.sso_login":
+      return `Signed in${d.provider ? ` via ${d.provider}` : ""}${d.email ? ` (${d.email})` : ""}`;
+    case "auth.local.login":
+      return `Local sign-in${d.email ? ` — ${d.email}` : ""}${d.role ? ` [${d.role}]` : ""}`;
+    case "auth.local.failed":
+      return `Local login failed${d.email ? ` for ${d.email}` : ""}${d.reason ? ` — ${d.reason}` : ""}`;
+    case "auth.local.ratelimited":
+      return `Login rate-limited${d.email ? ` for ${d.email}` : ""}${d.retryAfter ? ` — retry after ${d.retryAfter}s` : ""}`;
+    case "auth.local.totp.ratelimited":
+      return `TOTP rate-limited${d.email ? ` for ${d.email}` : ""}`;
+    case "auth.local.totp.failed":
+      return `TOTP verification failed${d.email ? ` for ${d.email}` : ""}`;
+    case "auth.login.denied":
+      return `Login denied${d.email ? ` for ${d.email}` : ""}${d.reason ? ` — ${d.reason}` : ""}`;
+    case "auth.logout":
+      return "Signed out";
+    case "auth.login_failed":
+      return `Login failed${d.reason ? `: ${d.reason}` : ""}`;
+    case "auth.totp.setup_initiated":
+      return "Initiated TOTP/MFA setup";
+    case "auth.totp.verification_failed":
+      return "TOTP verification failed — invalid code";
+    case "auth.totp.enabled":
+      return "Enabled TOTP/MFA on account";
+    case "user.provisioned":
+      return `Auto-provisioned user${d.email ? ` ${d.email}` : ""}${d.role ? ` as ${d.role}` : ""}`;
+    case "user.role.synced":
+      return `Role synced from Entra — ${d.previousRole ?? "?"} → ${d.newRole ?? "?"}`;
+    case "member.matching.auto_login":
+      return `Auto-matched to ConnectWise member${d.externalName ? ` "${d.externalName}"` : ""}${d.externalId ? ` (ID: ${d.externalId})` : ""}`;
+
+    // User management
+    case "user.role.updated":
+      return `Changed role${d.targetEmail ? ` for ${d.targetEmail}` : ""}: ${d.previousRole ?? "?"} → ${d.newRole ?? "unknown"}`;
+    case "user.created":
+      return `Created user${d.email ? `: ${d.email}` : ""}`;
+    case "user.deleted":
+      return `Deleted user${d.email ? `: ${d.email}` : ""}`;
+    case "user.profile.updated":
+      return "Updated profile settings";
+    case "user.permission.set":
+      return `Set permission "${d.permission ?? "?"}" to ${d.granted ? "granted" : "denied"}${d.targetEmail ? ` for ${d.targetEmail}` : ""}${d.previousGranted !== undefined ? ` (was ${d.previousGranted ? "granted" : "denied"})` : ""}`;
+    case "user.permission.reset":
+      return `Reset permission "${d.permission ?? "?"}" to default${d.targetEmail ? ` for ${d.targetEmail}` : ""}`;
+    case "user.feature_flag.set":
+      return `Set feature flag "${d.flag ?? "?"}" to ${d.enabled ? "enabled" : "disabled"}${d.targetEmail ? ` for ${d.targetEmail}` : ""}${d.value !== undefined ? ` (value: ${d.value})` : ""}`;
+
+    // Notifications
+    case "notification.dismissed":
+      return "Dismissed a notification";
+    case "psa.callback.registered":
+      return `Registered CW webhook callback${d.callbackId ? ` (ID: ${d.callbackId})` : ""}`;
+    case "psa.callback.deleted":
+      return `Deleted CW webhook callback ${d.callbackId ?? ""}`;
+
+    // EDR / SentinelOne security actions
+    case "security.threat.kill":
+      return `Killed threat${resource ? ` (${resource})` : ""}`;
+    case "security.threat.quarantine":
+      return `Quarantined threat${resource ? ` (${resource})` : ""}`;
+    case "security.threat.remediate":
+      return `Remediated threat${resource ? ` (${resource})` : ""}`;
+    case "security.threat.rollback":
+      return `Rolled back threat${resource ? ` (${resource})` : ""}`;
+    case "security.threat.incident.resolved":
+      return `Marked ${d.count ?? d.threatIds?.length ?? 1} threat(s) as resolved`;
+    case "security.threat.incident.in_progress":
+      return `Marked ${d.count ?? 1} threat(s) as in progress`;
+    case "security.threat.incident.unresolved":
+      return `Marked ${d.count ?? 1} threat(s) as unresolved`;
+    case "security.threat.verdict.true_positive":
+      return `Classified ${d.count ?? 1} threat(s) as true positive`;
+    case "security.threat.verdict.false_positive":
+      return `Classified ${d.count ?? 1} threat(s) as false positive`;
+    case "security.threat.verdict.suspicious":
+      return `Classified ${d.count ?? 1} threat(s) as suspicious`;
+    case "security.threat.verdict.undefined":
+      return `Reset verdict on ${d.count ?? 1} threat(s)`;
+    case "security.threat.marked_benign":
+      return `Marked ${d.count ?? 1} threat(s) as benign${d.whiteningOption ? ` (${d.whiteningOption})` : ""}`;
+    case "security.threat.marked_threat":
+      return `Marked ${d.count ?? 1} item(s) as threat${d.whiteningOption ? ` (${d.whiteningOption})` : ""}`;
+    case "security.threat.note.added":
+      return `Added note to threat${resource ? ` ${resource}` : ""}`;
+    case "security.action.isolate":
+      return `Isolated device${d.hostname ? ` "${d.hostname}"` : ""}${d.organization ? ` (${d.organization})` : d.organizationName ? ` (${d.organizationName})` : ""}${d.os ? ` [${d.os}]` : ""}`;
+    case "security.action.unisolate":
+      return `Unisolated device${d.hostname ? ` "${d.hostname}"` : ""}${d.organizationName ? ` (${d.organizationName})` : ""}`;
+    case "security.action.scan":
+      return `Triggered full scan on${d.hostname ? ` "${d.hostname}"` : " device"}${d.organizationName ? ` (${d.organizationName})` : ""}`;
+    case "security.exclusion.created":
+      return `Created exclusion: ${d.type ?? "?"} — "${d.value ?? ""}"`;
+    case "security.exclusion.deleted":
+      return `Deleted exclusion${resource ? ` ${resource}` : ""}`;
+    case "security.dv.query.started":
+      return `Started Deep Visibility query${d.queryId ? ` (ID: ${d.queryId})` : ""}`;
+
+    // Blackpoint
+    case "blackpoint.email_channel.tested":
+      return "Tested Blackpoint email notification channel";
+    case "blackpoint.webhook_channel.tested":
+      return "Tested Blackpoint webhook notification channel";
+
+    // CIPP / M365
+    case "cipp.user.clearImmutableId":
+      return `Cleared immutable ID${d.userId ? ` for user ${d.userId}` : ""}${d.tenantFilter ? ` (${d.tenantFilter})` : ""}`;
+    case "cipp.user.sendPush":
+      return `Sent push notification${d.userId ? ` to ${d.userId}` : ""}${d.tenantFilter ? ` (${d.tenantFilter})` : ""}`;
+    case "cipp.user.hideFromGAL":
+      return `Hidden user from GAL${d.userId ? `: ${d.userId}` : ""}`;
+    case "cipp.user.showInGAL":
+      return `Shown user in GAL${d.userId ? `: ${d.userId}` : ""}`;
+    case "cipp.user.getRecoveryKey":
+      return `Retrieved BitLocker recovery key${d.userId ? ` for ${d.userId}` : ""}`;
+    case "cipp.deletedItem.restore":
+      return `Restored deleted item${d.itemId ? `: ${d.itemId}` : ""}${d.tenantFilter ? ` (${d.tenantFilter})` : ""}`;
+    case "cipp.user.getLAPS":
+      return `Retrieved LAPS password${d.deviceId ? ` for device ${d.deviceId}` : ""}${d.tenantFilter ? ` (${d.tenantFilter})` : ""}`;
+    case "cipp.intune.getRecoveryKey":
+      return `Retrieved Intune recovery key${d.deviceId ? ` for device ${d.deviceId}` : ""}`;
+    case "cipp.intune.syncAPDevices":
+      return `Synced Autopilot devices${d.tenantFilter ? ` for ${d.tenantFilter}` : ""}`;
+    case "cipp.scheduledItem.remove":
+      return `Removed scheduled item${d.itemId ? ` ${d.itemId}` : ""}`;
+    case "cipp.mailbox.enableArchive":
+      return `Enabled mailbox archive${d.userId ? ` for ${d.userId}` : ""}${d.tenantFilter ? ` (${d.tenantFilter})` : ""}`;
+    case "cipp.onedrive.provision":
+      return `Provisioned OneDrive${d.userId ? ` for ${d.userId}` : ""}${d.tenantFilter ? ` (${d.tenantFilter})` : ""}`;
+
+    // RMM
+    case "rmm.webhook.deleted":
+      return `Deleted NinjaOne webhook${d.webhookId ? ` (ID: ${d.webhookId})` : ""}`;
+
+    // Backup
+    case "backup.customer_note.updated":
+      return `Updated backup customer note${d.covePartnerId ? ` for partner ${d.covePartnerId}` : ""}`;
+
+    // 3CX
+    case "threecx.instances.refresh_all":
+      return `Refreshed all 3CX instances — ${d.online ?? 0}/${d.total ?? 0} online`;
+    case "threecx.services.restarted":
+      return `Restarted all services on 3CX instance${d.instanceName ? ` "${d.instanceName}"` : ""}${d.fqdn ? ` (${d.fqdn})` : ""}`;
+    case "threecx.server.restarted":
+      return `Restarted 3CX server${d.instanceName ? ` "${d.instanceName}"` : ""}${d.fqdn ? ` (${d.fqdn})` : ""}`;
+    case "threecx.instance.linked":
+      return `Linked 3CX instance${d.instanceName ? ` "${d.instanceName}"` : ""} to company`;
+    case "threecx.instance.unlinked":
+      return `Unlinked 3CX instance from company`;
+
+    // Permission roles
+    case "permission_role.created":
+      return `Created permission role "${d.name ?? ""}"${d.permissions?.length ? ` with ${d.permissions.length} permissions` : ""}`;
+    case "permission_role.updated":
+      return `Updated permission role "${d.name ?? ""}"${d.previousName && d.previousName !== d.name ? ` (was "${d.previousName}")` : ""}`;
+    case "permission_role.deleted":
+      return `Deleted permission role "${d.name ?? ""}"${d.usersAffected ? ` — ${d.usersAffected} user(s) affected` : ""}`;
+    case "permission_role.assigned":
+      return `Assigned role "${d.roleName ?? ""}" to${d.targetEmail ? ` ${d.targetEmail}` : " user"}`;
+    case "permission_role.removed":
+      return `Removed role "${d.roleName ?? ""}" from${d.targetEmail ? ` ${d.targetEmail}` : " user"}`;
+
+    // Integration / connector config
+    case "integration.credential.saved":
+      return `Saved ${d.toolId ?? "integration"} credentials`;
+    case "integration.credential.deleted":
+      return `Deleted ${d.toolId ?? "integration"} credentials`;
+    case "integration.connection.tested":
+      return `Tested connection to ${d.toolId ?? "integration"} — ${d.success ? "success" : "failed"}`;
+    case "integration.sso.saved":
+      return "Updated SSO/Entra ID configuration";
+    case "integration.sso.deleted":
+      return "Deleted SSO/Entra ID configuration";
+    case "integration.sync_config.saved":
+      return `Saved ${d.toolId ?? "integration"} sync configuration`;
+    case "integration.credential.verified":
+      return `Verified ${d.toolId ?? "integration"} credentials`;
+
+    // Company management
+    case "company.custom_fields.updated":
+      return `Updated custom fields${d.companyName ? ` for ${d.companyName}` : ""}`;
+    case "company.threecx.linked":
+      return `Linked company to 3CX instance${d.instanceName ? ` "${d.instanceName}"` : ""}`;
+    case "company.threecx.unlinked":
+      return `Unlinked company from 3CX instance${d.previousInstanceId ? ` (was ${d.previousInstanceId})` : ""}`;
+
+    // Cron jobs
+    case "cron.alert_check.executed":
+      return `Alert check completed — ${d.alertsFound ?? d.newAlerts ?? 0} alerts found`;
+    case "cron.alert_check.failed":
+      return `Alert check failed: ${d.error ?? "unknown error"}`;
+    case "cron.threecx_poll.executed":
+      return `3CX poll — ${d.online ?? 0}/${d.polled ?? 0} online, ${d.offline ?? 0} offline`;
+    case "cron.fleet_refresh.executed":
+      return `Fleet data refresh completed`;
+    case "cron.audit_cleanup.executed":
+      return `Audit cleanup — deleted ${d.deleted ?? 0} events older than ${d.retentionDays ?? "?"} days`;
+
+    // Audit config
+    case "audit.retention_config.updated":
+      return `Updated retention: ${d.retentionDays ?? "?"} days, auto-cleanup ${d.autoCleanupEnabled ? "enabled" : "disabled"}, ${d.cleanupFrequency ?? ""} frequency`;
+    case "audit.exported":
+      return `Exported ${d.rowCount ?? 0} audit events to CSV`;
+
+    default:
+      // Fallback: humanize the action string
+      return action.replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+}
 
 const OUTCOME_VARIANT: Record<string, string> = {
   success: "success",
@@ -283,12 +558,45 @@ function RetentionPanel() {
   );
 }
 
+/** Render key-value detail fields in a readable way */
+function DetailGrid({ detail }: { detail: Record<string, any> }) {
+  const entries = Object.entries(detail).filter(
+    ([, v]) => v !== null && v !== undefined && v !== ""
+  );
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 mt-2 pl-11 text-xs">
+      {entries.map(([key, value]) => (
+        <div key={key} className="contents">
+          <span className="text-muted-foreground font-medium">
+            {key.replace(/([A-Z])/g, " $1").replace(/[._]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()).trim()}
+          </span>
+          <span className="text-foreground/80 break-all">
+            {typeof value === "object" ? JSON.stringify(value, null, 0) : String(value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AuditPage() {
   const [selectedCategory, setSelectedCategory] = useState<AuditCategory | undefined>(undefined);
   const [selectedOutcome, setSelectedOutcome] = useState<"success" | "failure" | "denied" | undefined>(undefined);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [showRetention, setShowRetention] = useState(false);
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
+
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     trpc.audit.list.useInfiniteQuery(
@@ -399,35 +707,60 @@ export default function AuditPage() {
               {allItems.map((event) => {
                 const catConfig = CATEGORY_CONFIG[event.category as AuditCategory];
                 const CatIcon = catConfig?.icon || ScrollText;
+                const detail = event.detail as Record<string, any> | null;
+                const hasDetail = detail && Object.keys(detail).length > 0;
+                const isExpanded = expandedIds.has(event.id);
+                const description = describeAction(event.action, detail, event.resource);
                 return (
                   <div
                     key={event.id}
-                    className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2.5 hover:bg-muted/30 transition-colors"
+                    className={`rounded-md border border-border/50 transition-colors ${
+                      hasDetail ? "cursor-pointer hover:bg-muted/30" : "hover:bg-muted/30"
+                    }`}
+                    onClick={() => hasDetail && toggleExpand(event.id)}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <CatIcon className={`h-4 w-4 flex-shrink-0 ${catConfig?.color || "text-muted-foreground"}`} />
-                      <Badge
-                        variant={OUTCOME_VARIANT[event.outcome] as any}
-                        className="text-[10px] px-1.5"
-                      >
-                        {event.outcome}
-                      </Badge>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{event.action}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {event.actor?.name || event.actor?.email || "System"}
-                          {event.resource ? ` → ${event.resource}` : ""}
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {hasDetail ? (
+                          isExpanded ? (
+                            <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                          )
+                        ) : (
+                          <div className="w-3.5" />
+                        )}
+                        <CatIcon className={`h-4 w-4 flex-shrink-0 ${catConfig?.color || "text-muted-foreground"}`} />
+                        <Badge
+                          variant={OUTCOME_VARIANT[event.outcome] as any}
+                          className="text-[10px] px-1.5"
+                        >
+                          {event.outcome}
+                        </Badge>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{description}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {event.actor?.name || event.actor?.email || "System"}
+                            <span className="text-muted-foreground/50 mx-1.5">|</span>
+                            <span className="font-mono text-[10px] text-muted-foreground/60">{event.action}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                        <Badge variant="outline" className="text-[10px]">
+                          {catConfig?.label || event.category}
+                        </Badge>
+                        <p className="text-[11px] text-muted-foreground whitespace-nowrap">
+                          {dateTime(event.createdAt)}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                      <Badge variant="outline" className="text-[10px]">
-                        {event.category}
-                      </Badge>
-                      <p className="text-[11px] text-muted-foreground whitespace-nowrap">
-                        {dateTime(event.createdAt)}
-                      </p>
-                    </div>
+                    {/* Expandable detail panel */}
+                    {isExpanded && hasDetail && (
+                      <div className="border-t border-border/30 px-3 py-2.5 bg-muted/20">
+                        <DetailGrid detail={detail!} />
+                      </div>
+                    )}
                   </div>
                 );
               })}

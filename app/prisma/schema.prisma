@@ -169,7 +169,23 @@ model PermissionRole {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users UserPermissionRole[]
+  users              UserPermissionRole[]
+  entraGroupMappings EntraGroupRoleMapping[]
+}
+
+// Maps an Entra ID (365) group to a permission role
+// On every Entra login, user's roles are synced to match their group memberships
+model EntraGroupRoleMapping {
+  id               String         @id @default(cuid())
+  entraGroupId     String         // Entra group object ID (GUID)
+  entraGroupName   String         // Display name cached from Graph API
+  permissionRoleId String
+  permissionRole   PermissionRole @relation(fields: [permissionRoleId], references: [id], onDelete: Cascade)
+  createdBy        String?
+  createdAt        DateTime       @default(now())
+
+  @@unique([entraGroupId, permissionRoleId])
+  @@index([entraGroupId])
 }
 
 // Join table: which users have which permission roles
@@ -993,4 +1009,22 @@ model AiUsageLog {
   @@index([functionName])
   @@index([createdAt])
   @@index([userId, createdAt])
+}
+
+// ─── DNS Filter Universal List ──────────────────────────
+// DB-backed universal allow/block list. On add, domain is bulk-pushed
+// to every DNSFilter policy via API. On remove, bulk-removed (silent
+// failures for policies that already had it removed manually).
+
+model DnsUniversalListEntry {
+  id        String   @id @default(cuid())
+  domain    String
+  rule      String   // "allow" | "block"
+  note      String?
+  addedBy   String?  // user ID who added it
+  createdAt DateTime @default(now())
+
+  @@unique([domain, rule])
+  @@index([rule])
+  @@index([createdAt])
 }

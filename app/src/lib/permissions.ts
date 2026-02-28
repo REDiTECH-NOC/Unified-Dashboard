@@ -17,7 +17,8 @@ export interface PermissionDef {
   label: string;
   description: string;
   module: string;
-  defaultRoles: Role[]; // roles that have this permission by default
+  subModule?: string;      // Sub-section grouping for hierarchical UI (e.g., "SentinelOne", "Cove")
+  defaultRoles: Role[];    // roles that have this permission by default
 }
 
 export const PERMISSIONS: PermissionDef[] = [
@@ -30,14 +31,27 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "tickets.edit",         label: "Edit Tickets",             description: "Update ticket status, notes, assignments",     module: "Tickets",       defaultRoles: ["ADMIN", "MANAGER", "USER"] },
 
   // ── Alerts ──
-  { key: "alerts.view",          label: "View Alerts",              description: "View alert feed and details",                  module: "Alerts",        defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "alerts.view",          label: "View Alerts",              description: "View alert feed (master toggle for the page)", module: "Alerts",        defaultRoles: ["ADMIN", "MANAGER", "USER"] },
   { key: "alerts.manage",        label: "Manage Alerts",            description: "Acknowledge, escalate, dismiss alerts",        module: "Alerts",        defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  // Alert sub-sources
+  { key: "alerts.sentinelone.view",  label: "View SentinelOne Alerts",  description: "View SentinelOne EDR alerts tab",          module: "Alerts", subModule: "SentinelOne",   defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "alerts.blackpoint.view",   label: "View Blackpoint Alerts",   description: "View Blackpoint Cyber MDR alerts tab",     module: "Alerts", subModule: "Blackpoint",    defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "alerts.ninjaone.view",     label: "View NinjaRMM Alerts",     description: "View NinjaRMM/RMM alerts tab",             module: "Alerts", subModule: "NinjaRMM",      defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "alerts.cove.view",         label: "View Cove Alerts",         description: "View Cove backup alerts tab",              module: "Alerts", subModule: "Cove",          defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "alerts.avanan.view",       label: "View Avanan Alerts",       description: "View Avanan email security alerts tab",    module: "Alerts", subModule: "Avanan",        defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "alerts.dnsfilter.view",    label: "View DNSFilter Alerts",    description: "View DNSFilter security alerts tab",       module: "Alerts", subModule: "DNSFilter",     defaultRoles: ["ADMIN", "MANAGER", "USER"] },
 
   // ── Clients ──
   { key: "clients.view",         label: "View Clients",             description: "View client list and details",                 module: "Clients",       defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "clients.edit",         label: "Edit Clients",             description: "Edit client mappings, notes, and details",     module: "Clients",       defaultRoles: ["ADMIN", "MANAGER"] },
 
   // ── Backups ──
-  { key: "backups.view",         label: "View Backups",             description: "View backup status, devices, and alerts",       module: "Backups",       defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "backups.view",         label: "View Backups",             description: "View backup status (master toggle for the page)", module: "Backups",    defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  // Backup sub-providers
+  { key: "backups.cove.view",        label: "View Cove Backups",        description: "View Cove Data Protection backup tab",     module: "Backups", subModule: "Cove",          defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "backups.cove.manage",      label: "Manage Cove Backups",      description: "Modify Cove backup settings and notes",    module: "Backups", subModule: "Cove",          defaultRoles: ["ADMIN"] },
+  { key: "backups.dropsuite.view",   label: "View Dropsuite Backups",   description: "View Dropsuite SaaS backup tab",           module: "Backups", subModule: "Dropsuite",     defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "backups.dropsuite.manage", label: "Manage Dropsuite Backups", description: "Modify Dropsuite backup settings",         module: "Backups", subModule: "Dropsuite",     defaultRoles: ["ADMIN"] },
 
   // ── AI Agents ──
   { key: "ai.chat",              label: "Use AI Chat",              description: "Access the AI operations assistant",           module: "AI",            defaultRoles: ["ADMIN", "MANAGER", "USER"] },
@@ -45,6 +59,12 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "ai.kb.write",          label: "Write to Knowledge Base",  description: "Add/update knowledge base articles via AI",    module: "AI",            defaultRoles: [] },
   { key: "ai.passwords",         label: "Access Passwords",         description: "Retrieve passwords and TOTP codes via AI",     module: "AI",            defaultRoles: ["ADMIN", "MANAGER", "USER"] },
   { key: "ai.tickets",           label: "AI Ticket Operations",     description: "Create/update tickets via AI agent",           module: "AI",            defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+
+  // ── Documentation / IT Glue ──
+  { key: "documentation.view",              label: "View Documentation",       description: "Browse IT Glue documents and organizations",          module: "Documentation", defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "documentation.edit",              label: "Edit Documentation",       description: "Create and update IT Glue documents",                 module: "Documentation", defaultRoles: ["ADMIN", "MANAGER"] },
+  { key: "documentation.passwords.view",    label: "View Password List",       description: "See password entries in IT Glue (names only)",        module: "Documentation", subModule: "Passwords", defaultRoles: ["ADMIN", "MANAGER"] },
+  { key: "documentation.passwords.reveal",  label: "Reveal Password Values",   description: "Decrypt and view actual password/TOTP values",        module: "Documentation", subModule: "Passwords", defaultRoles: ["ADMIN"] },
 
   // ── Audit ──
   { key: "audit.view",           label: "View Audit Logs",          description: "Access the full audit log",                    module: "Audit",         defaultRoles: ["ADMIN"] },
@@ -61,6 +81,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "settings.branding",    label: "Manage Branding",          description: "Change logo and company name",                 module: "Settings",      defaultRoles: ["ADMIN"] },
   { key: "settings.ai",             label: "Manage AI Settings",       description: "Configure models, budgets, rate limits",       module: "Settings",      defaultRoles: ["ADMIN"] },
   { key: "settings.notifications", label: "Notification Settings",    description: "Access notification preferences and admin config", module: "Settings",   defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "quicklinks.manage",    label: "Manage Quick Links",       description: "Create, edit, and assign quick link groups and shortcuts", module: "Settings", defaultRoles: ["ADMIN"] },
 
   // ── Notification Sources (admin assigns via permission roles) ──
   { key: "notifications.sentinelone", label: "SentinelOne Alerts",   description: "Receive alert notifications from SentinelOne",       module: "Notifications", defaultRoles: ["ADMIN"] },
@@ -70,12 +91,22 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "notifications.cove",        label: "Cove Backup Alerts",   description: "Receive alert notifications from Cove Backup",       module: "Notifications", defaultRoles: ["ADMIN"] },
 
   // ── 3CX / Phone ──
-  { key: "phone.view",           label: "View Phone Dashboard",     description: "View 3CX call logs and PBX status",           module: "Phone",         defaultRoles: ["ADMIN", "MANAGER", "USER"] },
-  { key: "phone.manage",         label: "Manage Phone Settings",    description: "Configure 3CX instances and webhooks",         module: "Phone",         defaultRoles: ["ADMIN"] },
+  { key: "phone.view",           label: "View Phone Dashboard",     description: "View 3CX call logs and PBX status (master toggle)", module: "Phone",   defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "phone.manage",         label: "Manage Phone Settings",    description: "Configure 3CX instances and webhooks",              module: "Phone",   defaultRoles: ["ADMIN"] },
+  // Phone sub-sections
+  { key: "phone.calls.view",         label: "View Calls",               description: "View active calls and call log tabs",             module: "Phone", subModule: "Calls",      defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "phone.extensions.view",    label: "View Extensions",          description: "View extensions list tab",                        module: "Phone", subModule: "Extensions", defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "phone.queues.view",        label: "View Queue Status",        description: "View call queue status tab",                      module: "Phone", subModule: "Queues",     defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "phone.sso.access",         label: "SSO Quick Access",         description: "Access PBX admin panel via SSO (decrypts credentials)", module: "Phone", subModule: "SSO",  defaultRoles: ["ADMIN"] },
 
   // ── Network ──
-  { key: "network.view",          label: "View Network",             description: "View UniFi sites, devices, and network health",   module: "Network",       defaultRoles: ["ADMIN", "MANAGER", "USER"] },
-  { key: "network.manage",        label: "Manage Network",           description: "Configure network integration settings",          module: "Network",       defaultRoles: ["ADMIN"] },
+  { key: "network.view",          label: "View Network",             description: "View network page (master toggle)",                   module: "Network",       defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "network.manage",        label: "Manage Network",           description: "Configure network integration settings",              module: "Network",       defaultRoles: ["ADMIN"] },
+  // Network sub-providers
+  { key: "network.unifi.view",        label: "View UniFi",              description: "View UniFi sites, devices, and network health tab", module: "Network", subModule: "UniFi",      defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "network.unifi.edit",        label: "Edit UniFi",              description: "Make changes to UniFi devices, networks, VLANs",   module: "Network", subModule: "UniFi",      defaultRoles: ["ADMIN"] },
+  { key: "network.dnsfilter.view",    label: "View DNS Filter",         description: "View DNS Filter tab (queries, policies, clients)",  module: "Network", subModule: "DNS Filter", defaultRoles: ["ADMIN", "MANAGER", "USER"] },
+  { key: "network.dnsfilter.edit",    label: "Edit DNS Filter",         description: "Modify DNS Filter policies and domain lists",       module: "Network", subModule: "DNS Filter", defaultRoles: ["ADMIN"] },
 
   // ── Reports ──
   { key: "reports.view",         label: "View Reports",             description: "Access dashboards and QBR reports",            module: "Reports",       defaultRoles: ["ADMIN", "MANAGER"] },
@@ -83,8 +114,8 @@ export const PERMISSIONS: PermissionDef[] = [
 
   // ── Tools ──
   { key: "tools.grafana",        label: "Access Grafana",           description: "View embedded Grafana analytics dashboards",   module: "Tools",         defaultRoles: ["ADMIN"] },
-  { key: "tools.grafana.edit",   label: "Edit Grafana Dashboards",  description: "Create and edit dashboards in Grafana",        module: "Tools",         defaultRoles: ["ADMIN"] },
-  { key: "tools.grafana.admin",  label: "Grafana Admin",            description: "Full Grafana admin (users, data sources, etc)",module: "Tools",         defaultRoles: ["ADMIN"] },
+  { key: "tools.grafana.edit",   label: "Edit Grafana Dashboards",  description: "Create and edit dashboards in Grafana",        module: "Tools",  subModule: "Grafana",      defaultRoles: ["ADMIN"] },
+  { key: "tools.grafana.admin",  label: "Grafana Admin",            description: "Full Grafana admin (users, data sources, etc)",module: "Tools",  subModule: "Grafana",      defaultRoles: ["ADMIN"] },
   { key: "tools.uptime",         label: "Access Uptime Monitor",    description: "View and manage uptime monitors",              module: "Tools",         defaultRoles: ["ADMIN"] },
   { key: "tools.n8n",            label: "Access n8n",               description: "Access n8n workflow automation platform",       module: "Tools",         defaultRoles: [] },
   { key: "tools.azure",          label: "Azure Management",         description: "Access Azure resource health, databases, firewall, and monitoring", module: "Tools", defaultRoles: ["ADMIN"] },
@@ -98,9 +129,6 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "billing.view",          label: "View Billing",             description: "Access billing reconciliation dashboard and data",         module: "Billing",       defaultRoles: ["ADMIN", "MANAGER"] },
   { key: "billing.manage",        label: "Manage Billing",           description: "Run reconciliation, configure mappings, resolve items",    module: "Billing",       defaultRoles: ["ADMIN"] },
   { key: "billing.adjust",        label: "Adjust PSA Quantities",    description: "Write-back quantity changes to ConnectWise PSA",           module: "Billing",       defaultRoles: ["ADMIN"] },
-
-  // ── Quick Links ──
-  { key: "quicklinks.manage",    label: "Manage Quick Links",       description: "Create, edit, and assign quick link groups and shortcuts", module: "Settings", defaultRoles: ["ADMIN"] },
 ];
 
 // Build a quick lookup map
@@ -119,6 +147,54 @@ export function getPermissionsByModule(): Record<string, PermissionDef[]> {
     grouped[p.module].push(p);
   }
   return grouped;
+}
+
+// ─── Permission Tree (for hierarchical admin UI) ──────────────────
+
+export interface PermissionTreeNode {
+  module: string;
+  subModules: { name: string | null; permissions: PermissionDef[] }[];
+  allKeys: string[];
+}
+
+// Build a hierarchical tree from the flat PERMISSIONS array for admin UI consumption.
+// Groups by module, then sub-module. Permissions without subModule go into null group.
+export function getPermissionTree(): PermissionTreeNode[] {
+  const moduleOrder: string[] = [];
+  const moduleMap = new Map<string, Map<string | null, PermissionDef[]>>();
+
+  for (const p of PERMISSIONS) {
+    if (!moduleMap.has(p.module)) {
+      moduleMap.set(p.module, new Map());
+      moduleOrder.push(p.module);
+    }
+    const subMap = moduleMap.get(p.module)!;
+    const subKey = p.subModule ?? null;
+    if (!subMap.has(subKey)) subMap.set(subKey, []);
+    subMap.get(subKey)!.push(p);
+  }
+
+  return moduleOrder.map((mod) => {
+    const subMap = moduleMap.get(mod)!;
+    const subModules: PermissionTreeNode["subModules"] = [];
+    const allKeys: string[] = [];
+
+    // Root permissions (no subModule) first
+    const rootPerms = subMap.get(null);
+    if (rootPerms) {
+      subModules.push({ name: null, permissions: rootPerms });
+      allKeys.push(...rootPerms.map((p) => p.key));
+    }
+
+    // Then sub-modules in insertion order
+    for (const [name, perms] of subMap) {
+      if (name === null) continue;
+      subModules.push({ name, permissions: perms });
+      allKeys.push(...perms.map((p) => p.key));
+    }
+
+    return { module: mod, subModules, allKeys };
+  });
 }
 
 // ─── Permission Checking ───────────────────────────────────────────

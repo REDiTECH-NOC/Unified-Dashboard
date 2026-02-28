@@ -21,26 +21,30 @@ import {
   ArrowLeft,
   Calendar,
   HardDrive,
+  Globe,
+  ArrowUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTimezone } from "@/hooks/use-timezone";
+import { usePermissions } from "@/hooks/use-permissions";
 import { AlertExpanded } from "./_components/alert-expanded";
 import { ThreatDetailPanel } from "./_components/threat-detail-panel";
 import { S1ManagementView } from "./_components/s1-management";
 import { AvananManagementView } from "./_components/avanan-management";
 import { BlackpointManagementView } from "./_components/bp-management";
+import { DnsManagementView } from "./_components/dns-management";
 
 /* ─── TYPES ──────────────────────────────────────────────── */
 
-type SourceKey = "sentinelone" | "blackpoint" | "ninjaone" | "uptime" | "cove";
-const ALL_SOURCES: SourceKey[] = ["sentinelone", "blackpoint", "ninjaone", "uptime", "cove"];
+type SourceKey = "sentinelone" | "blackpoint" | "ninjaone" | "uptime" | "cove" | "dropsuite" | "dnsfilter";
+const ALL_SOURCES: SourceKey[] = ["sentinelone", "blackpoint", "ninjaone", "uptime", "cove", "dropsuite", "dnsfilter"];
 const SOURCE_LABELS: Record<SourceKey, string> = {
-  sentinelone: "S1", blackpoint: "BP", ninjaone: "Ninja", uptime: "Uptime", cove: "Cove",
+  sentinelone: "S1", blackpoint: "BP", ninjaone: "Ninja", uptime: "Uptime", cove: "Cove", dropsuite: "DropSuite", dnsfilter: "DNS",
 };
 
 interface UnifiedAlert {
   id: string;
-  source: "sentinelone" | "blackpoint" | "ninjaone" | "avanan" | "uptime" | "cove";
+  source: "sentinelone" | "blackpoint" | "ninjaone" | "avanan" | "uptime" | "cove" | "dropsuite";
   sourceLabel: string;
   title: string;
   description?: string;
@@ -272,6 +276,8 @@ const sourceColors: Record<string, string> = {
   avanan: "text-amber-400 bg-amber-500/10 border-amber-500/20",
   uptime: "text-rose-400 bg-rose-500/10 border-rose-500/20",
   cove: "text-teal-400 bg-teal-500/10 border-teal-500/20",
+  dropsuite: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+  dnsfilter: "text-violet-400 bg-violet-500/10 border-violet-500/20",
 };
 
 function AlertRow({ group, expanded, onToggle }: { group: AlertGroup; expanded: boolean; onToggle: () => void }) {
@@ -381,14 +387,43 @@ function AlertRow({ group, expanded, onToggle }: { group: AlertGroup; expanded: 
 /* ─── MAIN PAGE ──────────────────────────────────────────── */
 
 type SeverityFilter = "all" | SeverityKey;
+type SortMode = "severity" | "newest";
+
+/* ─── Source → Permission Mapping ──────────────────────── */
+
+const SOURCE_PERMISSION_MAP: Record<SourceKey, string> = {
+  sentinelone: "alerts.sentinelone.view",
+  blackpoint: "alerts.blackpoint.view",
+  ninjaone: "alerts.ninjaone.view",
+  uptime: "alerts.view",           // uptime uses the parent alerts permission
+  cove: "alerts.cove.view",
+  dropsuite: "alerts.cove.view",   // dropsuite alerts are backup alerts, same permission
+  dnsfilter: "alerts.dnsfilter.view",
+};
 
 export default function AlertsPage() {
   const router = useRouter();
+  const { has, isLoading: permsLoading } = usePermissions();
+
+  // Filter visible sources based on permissions
+  const visibleSources = useMemo(() => {
+    if (permsLoading) return ALL_SOURCES; // Show all while loading to avoid flash
+    return ALL_SOURCES.filter((s) => has(SOURCE_PERMISSION_MAP[s]));
+  }, [permsLoading, has]);
+
   const [activeSources, setActiveSources] = useState<Set<SourceKey>>(new Set(ALL_SOURCES));
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
+
+  // Sync active sources when permissions finish loading
+  const [permsSynced, setPermsSynced] = useState(false);
+  if (!permsLoading && !permsSynced) {
+    setActiveSources(new Set(visibleSources));
+    setPermsSynced(true);
+  }
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>("30d");
+  const [sortMode, setSortMode] = useState<SortMode>("severity");
 
   // ─── S1 / Avanan Integration State ──────────────────────
   const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
@@ -396,16 +431,17 @@ export default function AlertsPage() {
   const [showS1Management, setShowS1Management] = useState(false);
   const [showAvananManagement, setShowAvananManagement] = useState(false);
   const [showBpManagement, setShowBpManagement] = useState(false);
+  const [showDnsManagement, setShowDnsManagement] = useState(false);
 
   // ─── Source Filter Helpers ─────────────────────────────────
-  const allSourcesActive = activeSources.size === ALL_SOURCES.length || activeSources.size === 0;
+  const allSourcesActive = activeSources.size === visibleSources.length || activeSources.size === 0;
 
   function toggleSource(source: SourceKey) {
     setActiveSources(prev => {
       const next = new Set(prev);
       if (next.has(source)) {
         next.delete(source);
-        if (next.size === 0) return new Set(ALL_SOURCES);
+        if (next.size === 0) return new Set(visibleSources);
       } else {
         next.add(source);
       }
@@ -415,7 +451,7 @@ export default function AlertsPage() {
 
   function setOnlySource(source: SourceKey) {
     if (activeSources.size === 1 && activeSources.has(source)) {
-      setActiveSources(new Set(ALL_SOURCES));
+      setActiveSources(new Set(visibleSources));
     } else {
       setActiveSources(new Set([source]));
     }
@@ -456,6 +492,11 @@ export default function AlertsPage() {
     { retry: false, refetchInterval: 120000, staleTime: 5 * 60_000 }
   );
 
+  const dsBackupAlerts = trpc.saasBackup.getAlerts.useQuery(
+    undefined,
+    { retry: false, refetchInterval: 120000, staleTime: 5 * 60_000 }
+  );
+
   const avananTenants = trpc.emailSecurity.listTenants.useQuery(undefined, {
     retry: false,
     refetchInterval: 300000,
@@ -469,6 +510,11 @@ export default function AlertsPage() {
       refetchInterval: 600000, // 10 min — server handles staleness
       staleTime: 10 * 60_000,  // Don't refetch for 10 min (server caches 30 min)
     }
+  );
+
+  const dnsFilterThreats = trpc.dnsFilter.getThreatSummary.useQuery(
+    { from: createdAfter },
+    { retry: false, refetchInterval: 60000, staleTime: 5 * 60_000 }
   );
 
   const utils = trpc.useUtils();
@@ -555,18 +601,33 @@ export default function AlertsPage() {
   }, [uptimeMonitors.data]);
 
   const backupSummary = useMemo(() => {
-    if (!backupAlerts.data) return null;
-    const alerts = backupAlerts.data as { severity: string }[];
-    let critical = 0, high = 0, medium = 0;
-    for (const a of alerts) {
-      switch (a.severity) {
-        case "critical": critical++; break;
-        case "high": high++; break;
-        case "medium": medium++; break;
-      }
+    const coveData = (backupAlerts.data ?? []) as { severity: string }[];
+    const dsData = (dsBackupAlerts.data ?? []) as { severity: string }[];
+    if (coveData.length === 0 && dsData.length === 0 && !backupAlerts.data && !dsBackupAlerts.data) return null;
+
+    let coveCritical = 0, coveHigh = 0, coveMedium = 0;
+    for (const a of coveData) {
+      if (a.severity === "critical") coveCritical++;
+      else if (a.severity === "high") coveHigh++;
+      else if (a.severity === "medium") coveMedium++;
     }
-    return { total: alerts.length, critical, high, medium };
-  }, [backupAlerts.data]);
+    let dsCritical = 0, dsHigh = 0, dsMedium = 0;
+    for (const a of dsData) {
+      if (a.severity === "critical") dsCritical++;
+      else if (a.severity === "high") dsHigh++;
+      else if (a.severity === "medium") dsMedium++;
+    }
+    return {
+      total: coveData.length + dsData.length,
+      critical: coveCritical + dsCritical,
+      high: coveHigh + dsHigh,
+      medium: coveMedium + dsMedium,
+      coveTotal: coveData.length,
+      dsTotal: dsData.length,
+      coveCritical, coveHigh, coveMedium,
+      dsCritical, dsHigh, dsMedium,
+    };
+  }, [backupAlerts.data, dsBackupAlerts.data]);
 
   const avananSummary = useMemo(() => {
     if (!avananTenants.data) return null;
@@ -586,6 +647,18 @@ export default function AlertsPage() {
     // Show event total when available, otherwise show tenant count
     return { total: hasEventStats ? eventTotal : active, active, expired, totalUsers, phishing, spam, malware };
   }, [avananTenants.data, avananEventStats.data]);
+
+  const dnsFilterSummary = useMemo(() => {
+    if (!dnsFilterThreats.data) return null;
+    const d = dnsFilterThreats.data;
+    return {
+      total: d.total,
+      critical: d.critical,
+      high: d.high,
+      medium: d.medium,
+      low: d.low,
+    };
+  }, [dnsFilterThreats.data]);
 
   // ─── Build Unified Alert List ──────────────────────────
 
@@ -779,6 +852,31 @@ export default function AlertsPage() {
       }
     }
 
+    // Dropsuite SaaS backup alerts (failed, overdue, warning, never_ran)
+    if (dsBackupAlerts.data) {
+      for (const a of dsBackupAlerts.data as {
+        sourceId: string; title: string; message?: string; severity: string;
+        severityScore: number; status: string; deviceHostname?: string;
+        organizationName?: string; createdAt: string | Date;
+      }[]) {
+        const sevMap: Record<string, SeverityKey> = { critical: "critical", high: "high", medium: "medium", low: "low" };
+        alerts.push({
+          id: `ds-${a.sourceId}`,
+          source: "dropsuite",
+          sourceLabel: "DropSuite",
+          title: a.title,
+          description: a.message,
+          severity: sevMap[a.severity] ?? "medium",
+          severityScore: (a.severityScore ?? 5) * 10,
+          status: a.status ?? "new",
+          deviceHostname: a.deviceHostname,
+          organizationName: a.organizationName,
+          detectedAt: new Date(a.createdAt),
+          sourceId: a.sourceId,
+        });
+      }
+    }
+
     // Sort by severity score descending, then by date descending
     alerts.sort((a, b) => {
       if (b.severityScore !== a.severityScore) return b.severityScore - a.severityScore;
@@ -786,7 +884,7 @@ export default function AlertsPage() {
     });
 
     return alerts;
-  }, [s1Threats.data, bpDetections.data, ninjaAlerts.data, uptimeMonitors.data, backupAlerts.data]);
+  }, [s1Threats.data, bpDetections.data, ninjaAlerts.data, uptimeMonitors.data, backupAlerts.data, dsBackupAlerts.data]);
 
   // ─── Filter Alerts ─────────────────────────────────────
 
@@ -853,20 +951,26 @@ export default function AlertsPage() {
       });
     }
 
-    // Sort groups by highest severity score desc, then most recent alert desc
-    groups.sort((a, b) => {
-      if (b.representative.severityScore !== a.representative.severityScore)
-        return b.representative.severityScore - a.representative.severityScore;
-      return b.lastSeen.getTime() - a.lastSeen.getTime();
-    });
+    // Sort groups based on selected sort mode
+    if (sortMode === "newest") {
+      // Pure chronological: newest alerts first
+      groups.sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
+    } else {
+      // Default: severity first, then most recent
+      groups.sort((a, b) => {
+        if (b.representative.severityScore !== a.representative.severityScore)
+          return b.representative.severityScore - a.representative.severityScore;
+        return b.lastSeen.getTime() - a.lastSeen.getTime();
+      });
+    }
 
     return groups;
-  }, [filteredAlerts]);
+  }, [filteredAlerts, sortMode]);
 
   // ─── Loading / Connected States ────────────────────────
 
-  const anyLoading = s1Threats.isLoading || bpDetections.isLoading || ninjaAlerts.isLoading || uptimeMonitors.isLoading || backupAlerts.isLoading;
-  const totalAlerts = (s1Summary?.total ?? 0) + (bpSummary?.total ?? 0) + (ninjaSummary?.total ?? 0) + (uptimeSummary?.total ?? 0) + (backupSummary?.total ?? 0);
+  const anyLoading = s1Threats.isLoading || bpDetections.isLoading || ninjaAlerts.isLoading || uptimeMonitors.isLoading || backupAlerts.isLoading || dnsFilterThreats.isLoading;
+  const totalAlerts = (s1Summary?.total ?? 0) + (bpSummary?.total ?? 0) + (ninjaSummary?.total ?? 0) + (uptimeSummary?.total ?? 0) + (backupSummary?.total ?? 0) + (dnsFilterSummary?.total ?? 0);
 
   function refreshAll() {
     utils.edr.getThreats.invalidate();
@@ -876,6 +980,7 @@ export default function AlertsPage() {
     utils.backup.getAlerts.invalidate();
     utils.emailSecurity.listTenants.invalidate();
     utils.emailSecurity.getEventStats.invalidate();
+    utils.dnsFilter.getThreatSummary.invalidate();
   }
 
   return (
@@ -921,9 +1026,9 @@ export default function AlertsPage() {
       </div>
 
       {/* Platform Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
         {/* SentinelOne */}
-        <PlatformCard
+        {has("alerts.sentinelone.view") && <PlatformCard
           name="SentinelOne"
           icon={ShieldAlert}
           iconColor="bg-purple-500/10 text-purple-500"
@@ -944,15 +1049,16 @@ export default function AlertsPage() {
               setShowS1Management(true);
               setShowAvananManagement(false);
               setShowBpManagement(false);
+              setShowDnsManagement(false);
               setExpandedGroupKey(null);
               setDetailThreatId(null);
             }
           }}
           active={showS1Management || (activeSources.size === 1 && activeSources.has("sentinelone"))}
-        />
+        />}
 
         {/* Blackpoint */}
-        <PlatformCard
+        {has("alerts.blackpoint.view") && <PlatformCard
           name="Blackpoint"
           icon={Shield}
           iconColor="bg-blue-500/10 text-blue-500"
@@ -974,15 +1080,16 @@ export default function AlertsPage() {
               setShowBpManagement(true);
               setShowS1Management(false);
               setShowAvananManagement(false);
+              setShowDnsManagement(false);
               setExpandedGroupKey(null);
               setDetailThreatId(null);
             }
           }}
           active={showBpManagement}
-        />
+        />}
 
         {/* NinjaRMM */}
-        <PlatformCard
+        {has("alerts.ninjaone.view") && <PlatformCard
           name="NinjaRMM"
           icon={Monitor}
           iconColor="bg-emerald-500/10 text-emerald-500"
@@ -998,7 +1105,7 @@ export default function AlertsPage() {
           notConnected={ninjaAlerts.isError && (ninjaAlerts.error?.message?.includes("No active") || ninjaAlerts.error?.message?.includes("not configured"))}
           onClick={() => setOnlySource("ninjaone")}
           active={activeSources.size === 1 && activeSources.has("ninjaone")}
-        />
+        />}
 
         {/* Uptime Monitors */}
         <PlatformCard
@@ -1015,26 +1122,104 @@ export default function AlertsPage() {
           onClick={() => router.push("/monitoring")}
         />
 
-        {/* Cove Backups */}
-        <PlatformCard
-          name="Backups"
-          icon={HardDrive}
-          iconColor="bg-teal-500/10 text-teal-500"
-          total={backupSummary?.total ?? 0}
-          breakdowns={backupSummary ? [
-            { label: "Failed", count: backupSummary.critical, severity: "critical" },
-            { label: "Overdue", count: backupSummary.high, severity: "high" },
-            { label: "Warning", count: backupSummary.medium, severity: "medium" },
-          ] : []}
-          loading={backupAlerts.isLoading}
-          error={backupAlerts.isError && !backupAlerts.data && !backupAlerts.error?.message?.includes("not configured") && !backupAlerts.error?.message?.includes("No active")}
-          notConnected={backupAlerts.isError && (backupAlerts.error?.message?.includes("not configured") || backupAlerts.error?.message?.includes("No active"))}
-          onClick={() => setOnlySource("cove")}
-          active={activeSources.size === 1 && activeSources.has("cove")}
-        />
+        {/* Backups (Cove + Dropsuite) — split card */}
+        {(has("alerts.cove.view") || has("backups.cove.view") || has("backups.dropsuite.view")) && (() => {
+          const bkLoading = backupAlerts.isLoading && dsBackupAlerts.isLoading;
+          const bkBothError = backupAlerts.isError && dsBackupAlerts.isError && !backupAlerts.data && !dsBackupAlerts.data;
+          const bkNotConn = bkBothError && (backupAlerts.error?.message?.includes("not configured") || backupAlerts.error?.message?.includes("No active")) && (dsBackupAlerts.error?.message?.includes("not configured") || dsBackupAlerts.error?.message?.includes("No active"));
+          const bkActive = (activeSources.has("cove") || activeSources.has("dropsuite")) && activeSources.size <= 2 && !activeSources.has("sentinelone");
+
+          if (bkNotConn) return (
+            <div className="relative rounded-xl p-4 bg-card border border-border shadow-card-light dark:shadow-card overflow-hidden opacity-50">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent"><HardDrive className="h-5 w-5 text-muted-foreground" /></div>
+                <div><p className="text-xs text-muted-foreground">Backups</p><div className="flex items-center gap-1.5 mt-0.5"><Unplug className="h-3 w-3 text-muted-foreground" /><p className="text-xs text-muted-foreground">Not Connected</p></div></div>
+              </div>
+            </div>
+          );
+
+          if (bkLoading) return (
+            <div className="relative rounded-xl p-4 bg-card border border-border shadow-card-light dark:shadow-card overflow-hidden">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-teal-500/10"><HardDrive className="h-5 w-5 text-teal-500" /></div>
+                <div><p className="text-xs text-muted-foreground">Backups</p><Loader2 className="h-4 w-4 animate-spin text-muted-foreground mt-1" /></div>
+              </div>
+            </div>
+          );
+
+          const coveN = backupSummary?.coveTotal ?? 0;
+          const dsN = backupSummary?.dsTotal ?? 0;
+          const totalN = backupSummary?.total ?? 0;
+
+          return (
+            <button
+              onClick={() => {
+                const both = activeSources.has("cove") && activeSources.has("dropsuite") && activeSources.size === 2;
+                setActiveSources(both ? new Set(ALL_SOURCES) : new Set(["cove", "dropsuite"]));
+              }}
+              className={cn(
+                "relative rounded-xl p-4 bg-card border shadow-card-light dark:shadow-card overflow-hidden text-left w-full transition-all",
+                bkActive ? "border-red-500/50 ring-1 ring-red-500/20" : "border-border hover:border-muted-foreground/30"
+              )}
+            >
+              <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-teal-500/20 via-cyan-500/20 to-transparent" />
+
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-teal-500/10"><HardDrive className="h-5 w-5 text-teal-500" /></div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Backups</p>
+                  <p className="text-2xl font-bold tracking-tight text-foreground">{totalN}</p>
+                </div>
+              </div>
+
+              {/* Two-column: Cove | Dropsuite */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-400" />
+                    <span className="text-[10px] font-semibold text-teal-400">Cove</span>
+                    <span className="text-[10px] font-bold text-foreground ml-auto">{coveN}</span>
+                  </div>
+                  {backupSummary && coveN > 0 && (
+                    <div className="space-y-0.5 pl-3">
+                      {backupSummary.coveCritical > 0 && <div className="flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-red-500" /><span className="text-[9px] text-muted-foreground">Failed</span><span className="text-[9px] font-semibold text-red-500 ml-auto">{backupSummary.coveCritical}</span></div>}
+                      {backupSummary.coveHigh > 0 && <div className="flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-orange-500" /><span className="text-[9px] text-muted-foreground">Overdue</span><span className="text-[9px] font-semibold text-orange-500 ml-auto">{backupSummary.coveHigh}</span></div>}
+                      {backupSummary.coveMedium > 0 && <div className="flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-yellow-500" /><span className="text-[9px] text-muted-foreground">Warning</span><span className="text-[9px] font-semibold text-yellow-500 ml-auto">{backupSummary.coveMedium}</span></div>}
+                    </div>
+                  )}
+                  {backupAlerts.isLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-3" />}
+                </div>
+
+                <div className="space-y-1.5 border-l border-border/50 pl-3">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                    <span className="text-[10px] font-semibold text-cyan-400">DropSuite</span>
+                    <span className="text-[10px] font-bold text-foreground ml-auto">{dsN}</span>
+                  </div>
+                  {backupSummary && dsN > 0 && (
+                    <div className="space-y-0.5 pl-3">
+                      {backupSummary.dsCritical > 0 && <div className="flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-red-500" /><span className="text-[9px] text-muted-foreground">Failed</span><span className="text-[9px] font-semibold text-red-500 ml-auto">{backupSummary.dsCritical}</span></div>}
+                      {backupSummary.dsHigh > 0 && <div className="flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-orange-500" /><span className="text-[9px] text-muted-foreground">Overdue</span><span className="text-[9px] font-semibold text-orange-500 ml-auto">{backupSummary.dsHigh}</span></div>}
+                      {backupSummary.dsMedium > 0 && <div className="flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-yellow-500" /><span className="text-[9px] text-muted-foreground">Warning</span><span className="text-[9px] font-semibold text-yellow-500 ml-auto">{backupSummary.dsMedium}</span></div>}
+                    </div>
+                  )}
+                  {dsBackupAlerts.isLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-3" />}
+                </div>
+              </div>
+
+              {totalN > 0 && (
+                <div className="mt-2 flex h-1.5 rounded-full overflow-hidden bg-accent">
+                  {((backupSummary?.coveCritical ?? 0) + (backupSummary?.dsCritical ?? 0)) > 0 && <div className="h-full bg-red-500" style={{ width: `${(((backupSummary?.coveCritical ?? 0) + (backupSummary?.dsCritical ?? 0)) / totalN) * 100}%` }} />}
+                  {((backupSummary?.coveHigh ?? 0) + (backupSummary?.dsHigh ?? 0)) > 0 && <div className="h-full bg-orange-500" style={{ width: `${(((backupSummary?.coveHigh ?? 0) + (backupSummary?.dsHigh ?? 0)) / totalN) * 100}%` }} />}
+                  {((backupSummary?.coveMedium ?? 0) + (backupSummary?.dsMedium ?? 0)) > 0 && <div className="h-full bg-yellow-500" style={{ width: `${(((backupSummary?.coveMedium ?? 0) + (backupSummary?.dsMedium ?? 0)) / totalN) * 100}%` }} />}
+                </div>
+              )}
+            </button>
+          );
+        })()}
 
         {/* Avanan / Check Point Harmony Email */}
-        <PlatformCard
+        {has("alerts.avanan.view") && <PlatformCard
           name="Avanan"
           icon={Mail}
           iconColor="bg-amber-500/10 text-amber-500"
@@ -1061,12 +1246,43 @@ export default function AlertsPage() {
               setShowAvananManagement(true);
               setShowS1Management(false);
               setShowBpManagement(false);
+              setShowDnsManagement(false);
               setExpandedGroupKey(null);
               setDetailThreatId(null);
             }
           }}
           active={showAvananManagement}
-        />
+        />}
+
+        {/* DNS Filter */}
+        {has("alerts.dnsfilter.view") && <PlatformCard
+          name="DNS Filter"
+          icon={Globe}
+          iconColor="bg-violet-500/10 text-violet-500"
+          total={dnsFilterSummary?.total ?? 0}
+          breakdowns={dnsFilterSummary ? [
+            { label: "Critical", count: dnsFilterSummary.critical, severity: "critical" },
+            { label: "High", count: dnsFilterSummary.high, severity: "high" },
+            { label: "Medium", count: dnsFilterSummary.medium, severity: "medium" },
+            { label: "Low", count: dnsFilterSummary.low, severity: "low" },
+          ] : []}
+          loading={dnsFilterThreats.isLoading}
+          error={dnsFilterThreats.isError && !dnsFilterThreats.data && !dnsFilterThreats.error?.message?.includes("not configured") && !dnsFilterThreats.error?.message?.includes("No active")}
+          notConnected={dnsFilterThreats.isError && (dnsFilterThreats.error?.message?.includes("not configured") || dnsFilterThreats.error?.message?.includes("No active"))}
+          onClick={() => {
+            if (showDnsManagement) {
+              setShowDnsManagement(false);
+            } else {
+              setShowDnsManagement(true);
+              setShowS1Management(false);
+              setShowAvananManagement(false);
+              setShowBpManagement(false);
+              setExpandedGroupKey(null);
+              setDetailThreatId(null);
+            }
+          }}
+          active={showDnsManagement}
+        />}
       </div>
 
       {/* S1 Management View — shown when S1 card is clicked */}
@@ -1109,6 +1325,19 @@ export default function AlertsPage() {
           </div>
           <AvananManagementView />
         </div>
+      ) : showDnsManagement ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowDnsManagement(false)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to All Alerts
+            </button>
+          </div>
+          <DnsManagementView />
+        </div>
       ) : (
         <>
           {/* Unified Alert Feed */}
@@ -1149,7 +1378,7 @@ export default function AlertsPage() {
 
                   {/* Source filter checkboxes */}
                   <div className="flex gap-1 items-center">
-                    {ALL_SOURCES.map((s) => {
+                    {visibleSources.map((s) => {
                       const isChecked = activeSources.has(s);
                       return (
                         <button
@@ -1194,10 +1423,29 @@ export default function AlertsPage() {
                     })}
                   </div>
 
+                  {/* Sort mode */}
+                  <div className="flex gap-1 items-center">
+                    <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                    {(["severity", "newest"] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setSortMode(s)}
+                        className={cn(
+                          "px-2 py-1 text-[10px] font-medium rounded-lg border transition-colors",
+                          sortMode === s
+                            ? "border-red-500/50 bg-red-500/10 text-foreground"
+                            : "border-border bg-transparent text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {s === "severity" ? "Severity" : "Newest"}
+                      </button>
+                    ))}
+                  </div>
+
                   {/* Clear filters */}
-                  {(!allSourcesActive || severityFilter !== "all" || searchQuery) && (
+                  {(!allSourcesActive || severityFilter !== "all" || searchQuery || sortMode !== "severity") && (
                     <button
-                      onClick={() => { setActiveSources(new Set(ALL_SOURCES)); setSeverityFilter("all"); setSearchQuery(""); }}
+                      onClick={() => { setActiveSources(new Set(visibleSources)); setSeverityFilter("all"); setSearchQuery(""); setSortMode("severity"); }}
                       className="text-[10px] text-red-500 hover:text-red-400 transition-colors"
                     >
                       Clear all
@@ -1224,7 +1472,7 @@ export default function AlertsPage() {
                   <>
                     <p className="text-sm font-medium">No alerts match your filters</p>
                     <button
-                      onClick={() => { setActiveSources(new Set(ALL_SOURCES)); setSeverityFilter("all"); setSearchQuery(""); }}
+                      onClick={() => { setActiveSources(new Set(visibleSources)); setSeverityFilter("all"); setSearchQuery(""); }}
                       className="text-xs mt-2 text-red-500 hover:underline"
                     >
                       Clear filters
